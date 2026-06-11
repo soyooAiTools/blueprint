@@ -4,6 +4,13 @@ const os = require('os');
 const path = require('path');
 
 const cleaner = require('../lib/programmer-delivery-cleaner.cjs');
+const cleanerInternals = cleaner._internals;
+
+assert.strictEqual(cleanerInternals.canonicalEntityName('Item__phase01_target'), 'ItemPhase01Target');
+assert.strictEqual(cleanerInternals.unityEntityName('Item__phase01_target'), '_itemPhase01Target');
+assert.strictEqual(cleanerInternals.normalizeDeliveryEntityName('Item__phase01_target', []), '_itemPhase01Target');
+assert.strictEqual(cleanerInternals.normalizeDeliveryEntityName('_item__phase01_target', []), '_itemPhase01Target');
+assert.strictEqual(cleanerInternals.normalizeDeliveryEntityName('Item__phase01_target', ['_itemPhase01Target']), '_itemPhase01Target');
 
 const workerUiSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_UI.cs'), 'utf8');
 const workerJoystickSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_Joystick.cs'), 'utf8');

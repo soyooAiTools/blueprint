@@ -1,5 +1,31 @@
 # Blueprint 生产事故记录
 
+## 2026-06-11: 第一批 PDF/storyboard 交付中的 generic action 与可见 label 收口
+
+### 背景
+
+第一批 4 个试玩广告项目交付前，用户反馈可见标签仍可能显示 `Actor` / `Item` 等通用机器名，且 `MC原创_3D流水线拉面` 存在 `phase9 -> phase13` 跳段现象。
+
+### 根因
+
+PDF/storyboard 解析还残留按项目名词或主题 profile 扩展的倾向；generic action DSL 在 SourceIR、GameSchema、overlay runtime 和 liveness 中覆盖不完整；Unity 程序员交付导出还可能读取 `server-data/project-sources` 的旧 SourceIR/旧锚点。
+
+### 修复
+
+- PDF parser 收口为通用 action rules，不再按食物、建筑、敌人、场景名词写项目 parser。
+- 可见 label 从项目名、分镜标题、场景文本推断，机器 id 和屏幕文案分层。
+- SourceIR / GameSchema / overlay / liveness 支持 `transfer`、`select`、`combine`、`produce`、`reward`、`unlock`、`show`、`wait`、`cta_finish`。
+- Unity delivery cleaner 修复 phase-scoped generic entity 命名与 initial phase positioned 统计。
+- 4 个 task 的 `server-data/projects` 与 `project-sources` 同步到最新 SourceIR/WebGL。
+
+### 验证
+
+4 个项目 strict CUA、source/WebGL visual diff、Unity `DELIVERY_VALIDATION.json` 均通过；拉面 phase 序列连续 `phase1` 到 `phase13`；可见 label 抽检均为中文语义 label。
+
+### 归档
+
+- `docs/_archived/2026-06-11-firstbatch-generic-storyboard-delivery-closeout.md`
+
 ## 2026-06-09: Storyboard PDF phase 目标语义漂移与假修复
 
 ### 背景

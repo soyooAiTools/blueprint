@@ -97,11 +97,16 @@ function groupFramesByChapter(frames) {
 }
 
 function frameText(frame) {
+  function visibleInstruction(value) {
+    var text = stringValue(value);
+    if (/^[A-Za-z_]+(?::|$)/.test(text)) return '';
+    return text;
+  }
   return [
     frame && frame.title,
-    frame && frame.instruction && frame.instruction.playerText,
+    frame && frame.visual && frame.visual.sceneText,
+    frame && frame.instruction && visibleInstruction(frame.instruction.playerText),
     frame && frame.instruction && frame.instruction.uiText,
-    frame && frame.interaction && frame.interaction.raw,
   ].map(stringValue).filter(Boolean).join(' ');
 }
 
@@ -156,6 +161,31 @@ function interactionToSpecItems(interaction, lookup, phaseIndex, isFinal) {
       addEntityRequired(entitiesRequired, target, { resource: resource, description: 'Collectible resource target' });
     }
     goal = { kind: 'amount', target: amount, displayResource: resource };
+  } else if ((verb === 'deliver' || verb === 'transfer') && resource) {
+    var deliveryTarget = target || resolveEntityName(verb === 'deliver' ? 'Consumer' : 'Target', lookup) || (verb === 'deliver' ? 'Consumer' : 'Target');
+    items.push(verb + ':' + resource + ':' + deliveryTarget + ':' + amount);
+    addEntityRequired(entitiesRequired, deliveryTarget, { resource: resource, description: verb + ' target' });
+    goal = { kind: 'amount', target: amount, displayResource: resource };
+  } else if (verb === 'select' && (target || resource)) {
+    var selectTarget = target || resource;
+    items.push('select:' + selectTarget);
+    addEntityRequired(entitiesRequired, selectTarget, { description: 'Selectable target' });
+  } else if (verb === 'combine' && resource) {
+    var combineTarget = target || resolveEntityName('UpgradePoint', lookup) || 'UpgradePoint';
+    items.push('combine:' + resource + ':' + combineTarget + ':' + amount);
+    addEntityRequired(entitiesRequired, combineTarget, { terminalState: 2, description: 'Combined target' });
+  } else if (verb === 'produce' && resource) {
+    items.push('produce:' + resource + ':' + amount);
+    goal = { kind: 'amount', target: amount, displayResource: resource };
+  } else if (verb === 'reward' && resource) {
+    items.push('reward:' + resource + ':' + amount);
+    goal = { kind: 'amount', target: amount, displayResource: resource };
+  } else if (verb === 'unlock' && target) {
+    items.push('unlock:' + target);
+    addEntityRequired(entitiesRequired, target, { terminalState: 1, description: 'Unlocked target' });
+  } else if (verb === 'show' && target) {
+    items.push('show:' + target);
+    addEntityRequired(entitiesRequired, target, { terminalState: 1, description: 'Visible target' });
   } else if (verb === 'attack' && target) {
     items.push('attack:' + target);
     addEntityRequired(entitiesRequired, target, { terminalState: 0, description: 'Target defeated' });
@@ -194,6 +224,26 @@ function triggerFromInteractions(requiredInteractions, entitiesRequired, isFinal
   }
   if (verb === 'collect' && target) {
     return { condition: target + '.amount >= ' + amount, description: 'Collected ' + amount + ' ' + target };
+  }
+  if ((verb === 'deliver' || verb === 'transfer') && target) {
+    var deliveryTarget = parts[2] || target;
+    return { condition: deliveryTarget + 'Reached == true', description: verb + ' ' + target };
+  }
+  if (verb === 'select' && target) {
+    return { condition: target + 'Selected == true', description: 'Selected ' + target };
+  }
+  if (verb === 'combine' && target) {
+    var combineTarget = parts[2] || target;
+    return { condition: combineTarget + 'State == 2', description: 'Combined ' + target };
+  }
+  if ((verb === 'produce' || verb === 'reward') && target) {
+    return { condition: target + '.amount >= ' + amount, description: verb + ' ' + target };
+  }
+  if (verb === 'unlock' && target) {
+    return { condition: target + 'State == 1', description: target + ' unlocked' };
+  }
+  if (verb === 'show' && target) {
+    return { condition: target + 'State == 1', description: target + ' visible' };
   }
   if (verb === 'build' && target) {
     return { condition: target + 'State == 2', description: target + ' built' };

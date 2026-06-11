@@ -100,7 +100,10 @@ function phaseRequiresPlayer(phase, gate, sourceIrRequiresJoystick) {
   if (sourceIrRequiresJoystick) return true;
   if (gate && (gate.kind === 'near_entity' || gate.kind === 'cta_arrival')) return true;
   return safeArray(phase && phase.steps).some(function(step) {
-    return ['move_to', 'collect', 'deliver', 'build', 'upgrade', 'attack', 'cta_finish'].indexOf(String(step && step.kind || '')) >= 0;
+    return [
+      'move_to', 'collect', 'deliver', 'transfer', 'select', 'combine',
+      'produce', 'reward', 'unlock', 'show', 'build', 'upgrade', 'attack', 'cta_finish',
+    ].indexOf(String(step && step.kind || '')) >= 0;
   });
 }
 
@@ -182,13 +185,27 @@ function applyStepDelta(step, resources, entityStates) {
   if (!isObject(step)) return;
   if (step.kind === 'collect' && step.resource) {
     resources[step.resource] = Number(resources[step.resource] || 0) + (Number(step.amount) || 1);
+  } else if (step.kind === 'produce' && step.resource) {
+    resources[step.resource] = Number(resources[step.resource] || 0) + (Number(step.amount) || 1);
+  } else if (step.kind === 'reward' && step.resource) {
+    resources[step.resource] = Number(resources[step.resource] || 0) + (Number(step.amount) || 1);
   } else if (step.kind === 'deliver' && step.resource) {
     resources[step.resource] = Math.max(0, Number(resources[step.resource] || 0) - (Number(step.amount) || 1));
+    if (step.target || step.to) {
+      var deliverTarget = step.target || step.to;
+      entityStates[deliverTarget] = Math.max(Number(entityStates[deliverTarget] || 0), Number(step.state || 1));
+    }
+  } else if (step.kind === 'transfer' && step.resource) {
+    resources[step.resource] = Math.max(0, Number(resources[step.resource] || 0) - (Number(step.amount) || 1));
+    if (step.target || step.to) {
+      var transferTarget = step.target || step.to;
+      entityStates[transferTarget] = Math.max(Number(entityStates[transferTarget] || 0), Number(step.state || 1));
+    }
   } else if (step.kind === 'set_resource' && step.resource) {
     resources[step.resource] = Number(step.amount != null ? step.amount : step.value) || 0;
   } else if (step.kind === 'set_entity_state' && step.entity) {
     entityStates[step.entity] = Math.max(Number(entityStates[step.entity] || 0), Number(step.state == null ? 1 : step.state));
-  } else if ((step.kind === 'build' || step.kind === 'upgrade') && (step.entity || step.target)) {
+  } else if ((step.kind === 'build' || step.kind === 'upgrade' || step.kind === 'unlock' || step.kind === 'show' || step.kind === 'combine' || step.kind === 'select') && (step.entity || step.target)) {
     var id = step.entity || step.target;
     entityStates[id] = Math.max(Number(entityStates[id] || 0), Number(step.state || step.level || 1));
   }

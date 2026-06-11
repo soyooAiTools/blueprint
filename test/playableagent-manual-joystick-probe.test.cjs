@@ -62,10 +62,18 @@ assert.ok(
   'manual joystick flow probe should default to DOM pointer input while retaining explicit CDP touch mode'
 );
 assert.ok(
-  playableAgentSrc.indexOf("{ pos: runtimePlayer, source: 'runtime-player' }") >= 0 &&
+  playableAgentSrc.indexOf('const sourceRuntimeActive = window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__ === true || !!window.__SOURCE_IR_OVERLAY_STATE') >= 0 &&
+    playableAgentSrc.indexOf('const playerCandidates = sourceRuntimeActive') >= 0 &&
+    playableAgentSrc.indexOf("{ pos: statePlayer, source: 'state-player' }") >= 0 &&
+    playableAgentSrc.indexOf("{ pos: runtimePlayer, source: 'runtime-player' }") >= 0 &&
     playableAgentSrc.indexOf("{ pos: stateTarget, source: 'state-target' }") >= 0 &&
     playableAgentSrc.indexOf('isVisibleWorldPos') >= 0,
-  'manual joystick flow samples must prefer visible Luna/GFM runtime positions over the source overlay'
+  'manual joystick flow samples must use SourceIR overlay coordinates when source runtime is active and keep Luna/GFM runtime fallback for legacy builds'
+);
+assert.ok(
+  playableAgentSrc.indexOf('const sourceRuntimeCurrentTarget = (window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__ === true || !!window.__SOURCE_IR_OVERLAY_STATE) && runtimeTarget') >= 0 &&
+    playableAgentSrc.indexOf('return sourceRuntimeCurrentTarget;') >= 0,
+  'manual joystick flow samples must prefer the SourceIR current step target before phase-level target sequences'
 );
 assert.ok(
   /\{ pos: stateTarget, source: 'state-target' \}[\s\S]{0,120}\{ pos: rootTarget, source: 'overlay-root-target' \}[\s\S]{0,120}\{ pos: lineTargetPos, source: 'overlay-guidance-target' \}/.test(playableAgentSrc),

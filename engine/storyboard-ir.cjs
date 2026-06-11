@@ -96,6 +96,14 @@ function inferVerb(raw) {
   if (/^(move_to|move|reach|near)(:|\b|$)/.test(text)) return 'joystick';
   if (/joystick|摇杆|移动|走向|靠近|滑动|swipe/.test(text)) return 'joystick';
   if (/^(collect|gather|pickup)(:|\b|$)|收集|拾取|采集|获得/.test(text)) return 'collect';
+  if (/^(deliver)(:|\b|$)|交付|送达|送到|提交/.test(text)) return 'deliver';
+  if (/^(transfer)(:|\b|$)|传递|投入|放入|填充|送入/.test(text)) return 'transfer';
+  if (/^(select)(:|\b|$)|选择|点选|选中/.test(text)) return 'select';
+  if (/^(combine|merge)(:|\b|$)|合成|拖拽|拖动|碰撞/.test(text)) return 'combine';
+  if (/^(produce)(:|\b|$)|生产|产出|生成|刷新/.test(text)) return 'produce';
+  if (/^(reward)(:|\b|$)|奖励|收益|得分|计数|结算/.test(text)) return 'reward';
+  if (/^(unlock)(:|\b|$)|解锁|扩建|开启|购买/.test(text)) return 'unlock';
+  if (/^(show)(:|\b|$)|呈现|展示|显示|出现|高亮|发光|闪烁|摇摆|拉远|转场|播放/.test(text)) return 'show';
   if (/^(attack|shoot|defeat)(:|\b|$)|攻击|射击|消灭|击败/.test(text)) return 'attack';
   if (/^(build|repair)(:|\b|$)|建造|修复|搭建/.test(text)) return 'build';
   if (/^(upgrade)(:|\b|$)|升级/.test(text)) return 'upgrade';
@@ -106,8 +114,41 @@ function inferVerb(raw) {
 function parseColonInteraction(raw) {
   var parts = stringValue(raw).split(':').map(function(part) { return part.trim(); }).filter(Boolean);
   if (parts.length < 2) return null;
+  var verb = inferVerb(parts[0]);
+  if (verb === 'deliver' || verb === 'transfer' || verb === 'combine') {
+    return {
+      verb: verb,
+      target: parts[2] || '',
+      resource: parts[1] || '',
+      amount: numberValue(parts[3], null),
+    };
+  }
+  if (verb === 'produce' || verb === 'reward') {
+    return {
+      verb: verb,
+      target: parts[2] || '',
+      resource: parts[1] || '',
+      amount: numberValue(parts[2], null),
+    };
+  }
+  if (verb === 'select') {
+    return {
+      verb: verb,
+      target: parts[1] || '',
+      resource: parts[1] || '',
+      amount: numberValue(parts[2], null),
+    };
+  }
+  if (verb === 'wait') {
+    return {
+      verb: verb,
+      target: '',
+      resource: '',
+      amount: numberValue(parts[1], 1),
+    };
+  }
   return {
-    verb: inferVerb(parts[0]),
+    verb: verb,
     target: parts[1] || '',
     resource: parts[0].toLowerCase() === 'collect' ? parts[1] || '' : '',
     amount: numberValue(parts[2], null),

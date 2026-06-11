@@ -1,48 +1,106 @@
 {
-  "schemaVersion": "storyboard-pdf-profile-rules.v1",
+  "schemaVersion": "storyboard-pdf-action-rules.v1",
   "runtimePhaseBounds": {
     "min": 10,
     "max": 13
   },
-  "profiles": [
+  "actions": [
     {
-      "kind": "guard",
-      "parserHint": "generic",
+      "id": "move",
+      "interaction": "move_to:Target",
       "patterns": [
-        "守护家园",
-        "玉米|爆米花|异形|英雄塔|孢子|飞船舱室"
+        "移动|靠近|前往|走向|到达|控制|滑动|引导"
       ]
     },
     {
-      "kind": "space",
-      "parserHint": "phase-marker",
+      "id": "collect",
+      "interaction": "collect:Item:1",
       "patterns": [
-        "太空捡垃圾|太空救星",
-        "太空舱|休眠舱|助手|怪物|航天|太阳能板",
-        "回收站|太空垃圾|锻造|钻头"
+        "收集|拾取|获取|获得|拿取|取走|吸入"
       ]
     },
     {
-      "kind": "forest_defense",
-      "parserHint": "phase-marker",
+      "id": "transfer",
+      "interaction": "transfer:Item:Target:1",
       "patterns": [
-        "取木射箭",
-        "木头|木材|弩炮|传送带|红色士兵|森林营地|基地"
+        "交付|提交|传递|投入|放入|填充|送入"
       ]
     },
     {
-      "kind": "shelter_warmth",
-      "parserHint": "phase-marker",
+      "id": "deliver",
+      "interaction": "deliver:Item:Consumer:1",
       "patterns": [
-        "搜屋取暖",
-        "火堆|冻僵|木材|电塔|电线|取暖|房间"
+        "送达|送到|服务|售卖|收银|完成订单|提交订单"
       ]
     },
     {
-      "kind": "water",
-      "parserHint": "paragraph",
+      "id": "select",
+      "interaction": "select:Item",
       "patterns": [
-        "卖水|制作子弹|桶装水|冰晶|熔炉|宇航员排队|农田|苹果"
+        "点击|点按|选择|点选|选中"
+      ]
+    },
+    {
+      "id": "combine",
+      "interaction": "combine:Item:UpgradePoint:1",
+      "patterns": [
+        "合成|拖拽|拖动|碰撞|merge|Merge|→|->|达到\\s*Lv|升为"
+      ]
+    },
+    {
+      "id": "show",
+      "interaction": "show:Target",
+      "patterns": [
+        "呈现|展示|显示|出现|高亮|发光|闪烁|摇摆|拉远|转场|播放"
+      ]
+    },
+    {
+      "id": "produce",
+      "interaction": "produce:Item:1",
+      "patterns": [
+        "生产|产出|生成|刷新|自动|弹出"
+      ]
+    },
+    {
+      "id": "upgrade",
+      "interaction": "upgrade:UpgradePoint:2",
+      "patterns": [
+        "升级|升阶|提升|进化|强化"
+      ]
+    },
+    {
+      "id": "unlock",
+      "interaction": "unlock:Target",
+      "patterns": [
+        "解锁|扩建|开启|购买|修建|建造|搭建|打造|修复"
+      ]
+    },
+    {
+      "id": "reward",
+      "interaction": "reward:Reward:1",
+      "patterns": [
+        "奖励|收益|得分|计数|结算"
+      ]
+    },
+    {
+      "id": "attack",
+      "interaction": "attack:Target",
+      "patterns": [
+        "攻击|击杀|消灭|清场|防守|战斗"
+      ]
+    },
+    {
+      "id": "wait",
+      "interaction": "wait:1",
+      "patterns": [
+        "等待|倒计时|计时|超时"
+      ]
+    },
+    {
+      "id": "cta",
+      "interaction": "click:CtaButton",
+      "patterns": [
+        "下载|跳转|商店|CTA|Play Now|End Card|结束页面"
       ]
     }
   ]

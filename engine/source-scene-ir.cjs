@@ -16,6 +16,12 @@ var STEP_KINDS = {
   move_to: true,
   collect: true,
   deliver: true,
+  transfer: true,
+  select: true,
+  combine: true,
+  produce: true,
+  reward: true,
+  unlock: true,
   build: true,
   upgrade: true,
   attack: true,
@@ -1655,8 +1661,10 @@ function legacyStepProjection(step, index) {
   if (step.kind === 'cta_finish') {
     return {
       index: index,
+      kind: step.kind,
       label: step.label || 'cta_finish',
       ctaEntity: step.ctaId || 'CtaButton',
+      ctaId: step.ctaId || 'CtaButton',
     };
   }
   var out = {
@@ -1664,9 +1672,19 @@ function legacyStepProjection(step, index) {
     target: step.target || step.from || step.to || step.entity || '',
     label: step.label || step.target || step.from || step.to || step.entity || '',
   };
-  if (step.kind === 'collect') out.gain = step.resource || '';
-  if (step.kind === 'deliver') out.spend = step.resource || '';
-  if (step.kind === 'set_entity_state') out.setEntity = step.entity || '';
+  if (step.kind) out.kind = step.kind;
+  if (step.resource != null) out.resource = step.resource;
+  if (step.entity != null) out.entity = step.entity;
+  if (step.from != null) out.from = step.from;
+  if (step.to != null) out.to = step.to;
+  if (step.seconds != null) out.seconds = step.seconds;
+  if (step.radius != null) out.radius = step.radius;
+  if (step.state != null) out.state = step.state;
+  if (step.level != null) out.level = step.level;
+  if (step.cost != null) out.cost = step.cost;
+  if (step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') out.gain = step.resource || '';
+  if (step.kind === 'deliver' || step.kind === 'transfer') out.spend = step.resource || '';
+  if (step.kind === 'set_entity_state' || step.kind === 'unlock' || step.kind === 'combine' || step.kind === 'select' || step.kind === 'show') out.setEntity = step.entity || step.target || '';
   if (step.kind === 'attack') out.damage = true;
   if (step.amount != null) out.amount = step.amount;
   return out;

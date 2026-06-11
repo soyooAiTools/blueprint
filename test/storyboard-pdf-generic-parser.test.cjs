@@ -40,200 +40,94 @@ assert.strictEqual(frames.length, 3);
 assert.deepStrictEqual(frames.map(function(frame) { return frame.chapter; }), [1, 2, 10]);
 assert.strictEqual(frames[0].parser, 'phase-marker');
 assert.ok(frames[0].title.indexOf('开局森林基地') >= 0);
-assert.ok(frames[0].scene.indexOf('玩家看到什么') >= 0);
-assert.ok(frames[1].interaction.indexOf('collect:') >= 0 || frames[1].interaction.indexOf('move_to:') >= 0);
+assert.ok(/^(collect|move_to|transfer|unlock):/.test(frames[1].interaction));
 assert.strictEqual(frames[2].interaction, 'click:CtaButton');
 
 assert.strictEqual(
   internals.inferInteraction('镜头推近，修建木屋。第一座木屋建完，旁边出现招募工人地贴。', '取木射箭 3'),
-  'build:BaseCamp'
+  'unlock:Target'
 );
 assert.strictEqual(
   internals.inferInteraction('展示助手技能 助手进度条满会释放技能', '太空救星'),
-  'upgrade:SkillMeter:2'
+  'show:Target'
 );
 assert.strictEqual(
   internals.inferInteraction('选择助手角色 只剩一个角色', '太空救星'),
-  'click:RoleCard'
+  'select:Item'
 );
 assert.strictEqual(
-  internals.inferInteraction('解锁右侧炮塔和工人木屋地贴，花费资源建造。', '解锁右侧', { kind: 'forest_defense' }),
-  'build:RightCrossbowTurret'
+  internals.inferInteraction('把物品放入容器，再提交给目标。', '通用交付'),
+  'transfer:Item:Target:1'
 );
 assert.strictEqual(
-  internals.inferInteraction('巨大Boss跟在敌人的最后，搬运木头到弩炮打Boss', 'Boss来袭', { kind: 'forest_defense' }),
-  'attack:BossEnemy'
+  internals.inferInteraction('售卖完成订单，获得奖励。', '通用完成'),
+  'deliver:Item:Consumer:1'
 );
 
 var forestProfile = internals.inferSampleProfile('取木射箭', phaseText, phaseText.length);
-assert.strictEqual(forestProfile.kind, 'forest_defense');
+assert.strictEqual(forestProfile.kind, 'generic');
 assert.strictEqual(forestProfile.parser, 'phase-marker');
+assert.ok(forestProfile.actionScores.transfer > 0 || forestProfile.actionScores.unlock > 0);
 
-var shelterProfile = internals.inferSampleProfile('搜屋取暖', [
-  '搜屋取暖',
-  'Phase1:',
-  '开局：房间中间有一个熄灭的小火堆，周围是冻僵的人群，门口有木材。',
-  'Phase2:',
-  '玩家收集木材并修复火堆取暖。',
-  'Phase3:',
-  '玩家升级电塔，电线连接各个房间。',
-].join('\n'), 120);
-assert.strictEqual(shelterProfile.kind, 'shelter_warmth');
-assert.strictEqual(shelterProfile.parser, 'phase-marker');
+var ramenWithCornProfile = internals.inferSampleProfile('MC原创_3D流水线拉面', [
+  '核心流程（全自动面条 + 手动配菜）',
+  '面团自动流水线：上排传送带不断送来面团，小人自动表演抻面动画，面条飞入煮锅。',
+  '配菜传送带：下排传送带持续送来叉烧、海苔、葱花、溏心蛋、玉米粒等。',
+  '玩家点击订单所需配菜，点错会出现红叉并扣除倒计时。',
+].join('\n'), 160);
+assert.strictEqual(ramenWithCornProfile.kind, 'generic');
+assert.strictEqual(ramenWithCornProfile.contentScores.guard, undefined);
+assert.strictEqual(ramenWithCornProfile.contentScores.burger_merge, undefined);
+assert.ok(ramenWithCornProfile.actionScores.select > 0);
+assert.ok(ramenWithCornProfile.actionScores.wait > 0);
+var ramenLabels = internals.entitiesForKind('generic', [
+  '核心流程（全自动面条 + 手动配菜）',
+  '配菜传送带持续送来叉烧、海苔、葱花、溏心蛋、玉米粒。',
+  '玩家点击订单所需配菜。',
+].join('\n')).reduce(function(out, entity) {
+  out[entity.name] = entity.label;
+  return out;
+}, {});
+assert.strictEqual(ramenLabels.Player, '玩家');
+assert.strictEqual(ramenLabels.Item, '配菜');
+assert.notStrictEqual(ramenLabels.Player, 'Actor');
+assert.notStrictEqual(ramenLabels.Item, 'Item');
 
-var shelterWarmthText = [
-  '搜屋取暖',
-  '玩家看到什么：冰雪场景，风雪吹灭篝火，中间有一个熄灭的小火堆。',
-  '玩家做什么：无行动，先感受寒意。',
-  '玩家看到什么：篝火需要点燃，能看到周围部分房间。',
-  '玩家做什么：先捡木材然后指引玩家去点燃篝火。',
-  '玩家看到什么：篝火点燃后变旺，几个角色解冻。玩家做什么：指引去右侧中间房间。',
-  '玩家看到什么：右侧中间房间里有数量较多的丧尸，家具和发光显示的宝箱。',
-  '玩家做什么：先破坏家具、获得宝箱，再出丧尸击杀。',
-  '玩家看到什么：右下房间里也有丧尸，家具和发光显示的宝箱。',
-  '玩家做什么：去右下角房间，破坏家具收集足够的木材，宝箱中有斧子。',
-  '玩家看到什么：缴纳木材后篝火升级为电塔，地面温暖范围扩大。',
-  '玩家做什么：收集足够后跟随指引回到篝火处，缴纳木材，升级篝火。',
-  '玩家看到什么：升级后电塔上方再度出现气泡，需要木材和电池。',
-  '左下房间获取钥匙，玩家击杀丧尸获得宝箱，宝箱里有钥匙。',
-  '玩家看到什么：房间里的宝箱家具和丧尸。',
-  '左上右上房间获取电池，玩家击杀丧尸获得宝箱，宝箱里有电池。',
-  '玩家看到什么：电塔需要物资，玩家做什么：去电塔处缴纳电池和木材。',
-  '玩家看到什么：全场景积雪融化，出现绿地树木，人们欢呼。',
-  '结束页面：弹出游戏logo和CTA。',
-].join('\n');
-var shelterWarmthFrames = internals.enrichFramesWithVisibleEntities(internals.parseShelterWarmthFrames(shelterWarmthText), 'shelter_warmth');
-assert.strictEqual(shelterWarmthFrames.length, 10);
-assert.deepStrictEqual(shelterWarmthFrames.map(function(frame) { return frame.interaction; }), [
-  'move_to:Campfire',
-  'collect:Wood:1',
-  'move_to:ShelterRoom',
-  'attack:Enemy',
-  'collect:Wood:1',
-  'upgrade:PowerTower:2',
-  'collect:Key:1',
-  'collect:Battery:1',
-  'upgrade:PowerTower:3',
-  'click:CtaButton',
-]);
-var shelterWarmthIr = storyboardIr.normalizeStoryboardIr({
-  projectName: 'shelter warmth profile',
-  storyboardFrames: shelterWarmthFrames,
-  entities: internals.entitiesForKind('shelter_warmth'),
-}, {
-  projectName: 'shelter warmth profile',
-  entities: internals.entitiesForKind('shelter_warmth'),
-});
-var shelterWarmthSpecs = storyboardSpecCompiler.compileSpecsFromStoryboardIr(shelterWarmthIr, {
-  entities: internals.entitiesForKind('shelter_warmth'),
-});
-var shelterWarmthSourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
-  projectName: 'shelter warmth profile',
-  entities: internals.entitiesForKind('shelter_warmth'),
-  resources: internals.resourcesForKind('shelter_warmth'),
-  specs: shelterWarmthSpecs.specs,
-  storyboardIr: shelterWarmthIr,
-});
-assert.deepStrictEqual(shelterWarmthSourceIr.phases.map(function(phase) {
-  var step = (phase.steps || []).filter(function(item) { return item.target || item.entity || item.from || item.ctaId; })[0] || {};
-  return step.target || step.entity || step.from || step.ctaId || '';
-}), ['Campfire', 'WoodPile', 'ShelterRoom', 'Enemy', 'WoodPile', 'PowerTower', 'KeyItem', 'Battery', 'PowerTower', 'CtaButton']);
+var dessertLabels = internals.entitiesForKind('generic', [
+  '甜品餐厅物品二合试玩',
+  '画面整体呈现：多巴胺甜品餐厅。',
+  '升级链设计：咖啡豆、可颂、水果舒芙蕾等合成链。',
+].join('\n')).reduce(function(out, entity) {
+  out[entity.name] = entity.label;
+  return out;
+}, {});
+assert.strictEqual(dessertLabels.Item, '甜品');
+assert.strictEqual(dessertLabels.Target, '餐厅');
+assert.strictEqual(dessertLabels.UpgradePoint, '合成链');
 
-var forestVisible = internals.inferVisibleEntitiesForFrame({
-  title: '建造传送带和弩炮',
-  scene: '森林基地里有木材堆、传送带、弩炮和红色士兵，工人搬运木头。',
-  interaction: 'build:Conveyor',
-}, 'forest_defense');
-assert.ok(forestVisible.indexOf('BaseCamp') >= 0);
-assert.ok(forestVisible.indexOf('WoodPile') >= 0);
-assert.ok(forestVisible.indexOf('CrossbowTurret') >= 0);
-assert.ok(forestVisible.indexOf('Enemy') >= 0);
+var nounOnlyProfile = internals.inferSampleProfile('名词堆叠需求', [
+  '玉米 爆米花 异形 英雄塔 孢子 飞船舱室',
+  '画面包含冰块、玉米粒、爆米花机器。',
+].join('\n'), 80);
+assert.strictEqual(nounOnlyProfile.kind, 'generic');
+assert.deepStrictEqual(nounOnlyProfile.actionIds, []);
 
-var disambiguatedForestFrames = internals.enrichFramesWithVisibleEntities([{
-  title: '搬运木头，并送至自己所在一侧的弩炮处',
-  scene: '镜头在基地左边。',
-  interaction: 'build:CrossbowTurret',
-}, {
-  title: '解锁右侧（炮塔+木屋）地贴',
-  scene: '右边建造，花费资源建造。',
-  interaction: 'build:CrossbowTurret',
-}, {
-  title: '此时全部建筑修建完成',
-  scene: '右侧开始刷新敌人，炮塔自动射击敌人。玩家做什么：招募右侧工人。',
-  interaction: 'attack:Enemy',
-}, {
-  title: 'Boss来袭',
-  scene: '巨大Boss跟在敌人的最后，头顶显示血条，搬运木头到弩炮打Boss。',
-  interaction: 'attack:Enemy',
-}], 'forest_defense');
-assert.deepStrictEqual(disambiguatedForestFrames.map(function(frame) { return frame.interaction; }), [
-  'build:LeftCrossbowTurret',
-  'build:RightCrossbowTurret',
-  'attack:RightEnemyWave',
-  'attack:BossEnemy',
-]);
-assert.ok(disambiguatedForestFrames[1].visibleEntities.indexOf('RightWorkerHouse') >= 0);
-assert.ok(disambiguatedForestFrames[3].visibleEntities.indexOf('BossEnemy') >= 0);
-var disambiguatedForestIr = storyboardIr.normalizeStoryboardIr({
-  projectName: 'forest disambiguation',
-  storyboardFrames: disambiguatedForestFrames.map(function(frame, index) {
-    return Object.assign({ chapter: index + 1 }, frame);
-  }),
-  entities: internals.entitiesForKind('forest_defense'),
-}, {
-  projectName: 'forest disambiguation',
-  entities: internals.entitiesForKind('forest_defense'),
-});
-var disambiguatedForestSpecs = storyboardSpecCompiler.compileSpecsFromStoryboardIr(disambiguatedForestIr, {
-  entities: internals.entitiesForKind('forest_defense'),
-});
-assert.deepStrictEqual(disambiguatedForestSpecs.specs.map(function(spec) { return spec.requiredInteractions[0]; }), [
-  'build:LeftCrossbowTurret',
-  'build:RightCrossbowTurret',
-  'attack:RightEnemyWave',
-  'attack:BossEnemy',
-]);
-var disambiguatedForestSourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
-  projectName: 'forest disambiguation',
-  entities: internals.entitiesForKind('forest_defense'),
-  specs: disambiguatedForestSpecs.specs,
-  storyboardIr: disambiguatedForestIr,
-});
-assert.ok(disambiguatedForestSourceIr.entities.some(function(entity) { return entity.id === 'LeftCrossbowTurret'; }));
-assert.ok(disambiguatedForestSourceIr.entities.some(function(entity) { return entity.id === 'RightCrossbowTurret'; }));
-assert.ok(disambiguatedForestSourceIr.entities.some(function(entity) { return entity.id === 'RightEnemyWave'; }));
-assert.ok(disambiguatedForestSourceIr.entities.some(function(entity) { return entity.id === 'BossEnemy'; }));
-assert.strictEqual(disambiguatedForestSourceIr.phases[0].steps[0].target, 'LeftCrossbowTurret');
-assert.strictEqual(disambiguatedForestSourceIr.phases[1].steps[0].target, 'RightCrossbowTurret');
-assert.strictEqual(disambiguatedForestSourceIr.phases[2].steps[0].target, 'RightEnemyWave');
-assert.strictEqual(disambiguatedForestSourceIr.phases[3].steps[0].target, 'BossEnemy');
+var combineProduceProfile = internals.inferSampleProfile('Nova_GDD_挂机合成_汉堡店', [
+  '核心玩法：玩家拖拽两个制作台进行合成，购买新的收银台。',
+  '店员生产汉堡，顾客排队，玩家取走金币并升级装修店铺。',
+  '后续解锁更多制作台和收银台。',
+].join('\n'), 160);
+assert.strictEqual(combineProduceProfile.kind, 'generic');
+assert.strictEqual(combineProduceProfile.parser, 'generic');
+assert.ok(combineProduceProfile.actionScores.combine > 0);
+assert.ok(combineProduceProfile.actionScores.produce > 0);
+assert.ok(combineProduceProfile.actionScores.unlock > 0);
+assert.strictEqual(combineProduceProfile.contentScores.burger_merge, undefined);
 
-var spaceVisible = internals.inferVisibleEntitiesForFrame({
-  title: '选择助手角色',
-  scene: '太空舱休眠舱旁出现助手角色卡片，怪物围拢，太阳能板在舱外。',
-  interaction: 'build:HelperWorker',
-}, 'space');
-assert.ok(spaceVisible.indexOf('DormantPod') >= 0);
-assert.ok(spaceVisible.indexOf('HelperWorker') >= 0);
-assert.ok(spaceVisible.indexOf('RoleCard') >= 0);
-assert.ok(spaceVisible.indexOf('Enemy') >= 0);
-
-var shelterVisible = internals.inferVisibleEntitiesForFrame({
-  title: '搜刮房间获取电池',
-  scene: '房间里有火堆、木材、丧尸、家具、宝箱、钥匙和电池，冻僵人群在篝火旁。',
-  interaction: 'attack:Enemy',
-}, 'shelter_warmth');
-assert.ok(shelterVisible.indexOf('Campfire') >= 0);
-assert.ok(shelterVisible.indexOf('ShelterRoom') >= 0);
-assert.ok(shelterVisible.indexOf('Enemy') >= 0);
-assert.ok(shelterVisible.indexOf('Chest') >= 0);
-
-var sparseVisible = internals.inferVisibleEntitiesForFrame({
-  title: '清屏跳转',
-  scene: '清屏跳转。',
-  interaction: 'click:CtaButton',
-}, 'space');
-assert.deepStrictEqual(sparseVisible, ['Player', 'CtaButton']);
+assert.strictEqual(typeof internals.guardContentFallbackAllowed, 'undefined');
+assert.strictEqual(typeof internals.parseBurgerMergeFrames, 'undefined');
+assert.strictEqual(typeof internals.parseShelterWarmthFrames, 'undefined');
+assert.strictEqual(typeof internals.inferTargetId, 'undefined');
 
 var numberedText = [
   '太空救星',
@@ -264,8 +158,10 @@ var numberedText = [
 ].join('\n');
 
 var numberedProfile = internals.inferSampleProfile('太空救星', numberedText, numberedText.length);
-assert.strictEqual(numberedProfile.kind, 'space');
+assert.strictEqual(numberedProfile.kind, 'generic');
 assert.strictEqual(numberedProfile.parser, 'numbered-table');
+assert.ok(numberedProfile.actionScores.unlock > 0);
+assert.ok(numberedProfile.actionScores.select > 0);
 var numberedFrames = internals.parseGenericFrames(numberedText, '太空救星');
 assert.strictEqual(numberedFrames.length, 18);
 assert.ok(numberedFrames[0].title.indexOf('序号') < 0);
@@ -276,56 +172,69 @@ assert.ok(cappedNumbered.diagnostics.some(function(item) {
   return item.code === 'storyboard_pdf_runtime_phase_merge' && item.fromPhaseCount === 18;
 }));
 
-var compactShelterFrames = [
+var compactFrames = [
   {
-    id: 'shelter-1',
+    id: 'compact-1',
     chapter: 1,
-    title: '开局寒冷房间',
-    scene: '玩家看到什么：冰雪场景，风雪吹灭篝火，中间有一个熄灭的小火堆。玩家做什么：先感受寒意。玩家看到什么：篝火需要点燃，能看到周围部分房间。玩家做什么：先捡木材然后指引玩家去点燃篝火。',
-    interaction: 'collect:Wood:1',
+    title: '开局',
+    scene: '玩家看到什么：场景出现起始目标。玩家做什么：先收集物品。玩家看到什么：目标需要填充。玩家做什么：把物品交付到目标。',
+    interaction: 'collect:Item:1',
   },
   {
-    id: 'shelter-2',
+    id: 'compact-2',
     chapter: 2,
-    title: '搜刮房间',
-    scene: '玩家看到什么：右侧中间房间里有数量较多的丧尸，家具和发光宝箱。玩家做什么：破坏家具获得宝箱并击杀丧尸。玩家看到什么：右下房间里也有丧尸、家具和宝箱。玩家做什么：收集木材，开宝箱，拾取飞斧。',
-    interaction: 'attack:Enemy',
+    title: '推进',
+    scene: '玩家看到什么：新目标出现。玩家做什么：点击选择物品。玩家看到什么：进度提高。玩家做什么：继续升级目标。',
+    interaction: 'upgrade:UpgradePoint:2',
   },
   {
-    id: 'shelter-3',
+    id: 'compact-3',
     chapter: 3,
-    title: '升级电塔',
-    scene: '玩家看到什么：缴纳木材后篝火升级为电塔，地面温暖范围扩大。玩家做什么：回到篝火处缴纳木材。玩家看到什么：升级后电塔上方再度出现气泡，需要木材和电池。',
-    interaction: 'upgrade:PowerTower:2',
-  },
-  {
-    id: 'shelter-4',
-    chapter: 4,
-    title: '钥匙和电池',
-    scene: '左下房间获取钥匙，玩家击杀丧尸获得宝箱，宝箱里有钥匙。左上右上房间获取电池，玩家击杀丧尸获得宝箱，宝箱里有电池。',
-    interaction: 'collect:Wood:1',
-  },
-  {
-    id: 'shelter-5',
-    chapter: 5,
-    title: '升级电塔完成',
-    scene: '升级电塔，玩家去电塔处缴纳电池和木材。玩家看到什么：电塔升级，镜头以电塔为中心特写展示。',
-    interaction: 'upgrade:PowerTower:2',
-  },
-  {
-    id: 'shelter-6',
-    chapter: 6,
-    title: '胜利收口',
-    scene: '获取胜利，全场景积雪融化，出现绿地树木，人们欢呼。结束页面：弹出游戏logo和CTA。',
+    title: '收口',
+    scene: '玩家看到什么：奖励出现。玩家做什么：获得奖励。结束页面：弹出游戏logo和CTA。',
     interaction: 'click:CtaButton',
   },
 ];
-var expandedShelter = internals.capRuntimePhases(compactShelterFrames, { min: 10, max: 13 });
-assert.ok(internals.runtimePhaseCount(expandedShelter.frames) >= 10);
-assert.ok(internals.runtimePhaseCount(expandedShelter.frames) <= 13);
-assert.ok(expandedShelter.frames.length >= compactShelterFrames.length);
-assert.ok(expandedShelter.diagnostics.some(function(item) {
-  return item.code === 'storyboard_pdf_runtime_phase_expand' && item.fromPhaseCount === 6;
+var expandedCompact = internals.capRuntimePhases(compactFrames, { min: 10, max: 13 });
+assert.ok(internals.runtimePhaseCount(expandedCompact.frames) >= 10);
+assert.ok(internals.runtimePhaseCount(expandedCompact.frames) <= 13);
+assert.ok(expandedCompact.frames.length >= compactFrames.length);
+
+var terminalTailFrames = [
+  {
+    id: 'terminal-tail-1',
+    chapter: 1,
+    title: '制作台合成',
+    scene: '玩家拖拽两个制作台进行合成，解锁新的餐厅区域。',
+    interaction: 'combine:Item:UpgradePoint:1',
+  },
+  {
+    id: 'terminal-tail-2',
+    chapter: 2,
+    title: '成功跳转：最终 End Card 下载界面',
+    scene: '点击按钮后进入下载界面。',
+    interaction: 'click:CtaButton',
+  },
+  {
+    id: 'terminal-tail-3',
+    chapter: 3,
+    title: 'Play / App Store',
+    scene: '失败跳转前拉起应用商店，超时提示一直存在。',
+    interaction: 'click:CtaButton',
+  },
+  {
+    id: 'terminal-tail-4',
+    chapter: 4,
+    title: '绿色发光虚线路径',
+    scene: '停下会亮起一条直通目标的绿色发光虚线路。',
+    interaction: 'show:Target',
+  },
+];
+var collapsedTerminalTail = internals.capRuntimePhases(terminalTailFrames, { min: 1, max: 13 });
+assert.strictEqual(internals.runtimePhaseCount(collapsedTerminalTail.frames), 2);
+assert.deepStrictEqual(collapsedTerminalTail.frames.map(function(frame) { return frame.chapter; }), [1, 2, 2, 2]);
+assert.ok(collapsedTerminalTail.diagnostics.some(function(item) {
+  return item.code === 'storyboard_pdf_terminal_cta_merge' && item.fromPhaseCount === 4 && item.toPhaseCount === 2;
 }));
 
 var ir = storyboardIr.normalizeStoryboardIr({
@@ -341,90 +250,20 @@ var compiled = storyboardSpecCompiler.compileSpecsFromStoryboardIr(ir, {
   minActionCoverage: 0.35,
 });
 assert.strictEqual(compiled.ok, true);
+assert.ok(!/^[A-Za-z_]+:/.test(compiled.specs[0].playerInstruction || ''));
 assert.strictEqual(internals.storyboardQualityDiagnostics(compiled, 'generic').length, 0);
 
-var fallbackPhases = storyboardSourceIrCompiler._internals.compilePhases([{
-  phaseId: 'phase1',
-  phaseName: 'No parsed action but visible target',
-  requiredInteractions: [],
-  visibleEntities: ['Player', 'Enemy', 'BaseCamp'],
-  entitiesRequired: [{ name: 'Enemy' }],
-}, {
-  phaseId: 'phase2',
-  phaseName: 'CTA',
-  requiredInteractions: ['click:CtaButton'],
-  visibleEntities: ['Player', 'CtaButton'],
-}], []);
-assert.deepStrictEqual(fallbackPhases[0].steps, [{
-  kind: 'move_to',
-  target: 'Enemy',
-  radius: 1.8,
-  fallback: 'storyboard-visible-entity',
-}]);
-assert.deepStrictEqual(fallbackPhases[0].gate, {
-  kind: 'near_entity',
-  entity: 'Enemy',
-  radius: 1.8,
-});
-
-var fallbackSourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
-  projectName: 'fallback diagnostics',
+var sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
+  projectName: 'generic action source',
   entities: internals.entitiesForKind('generic'),
-  specs: [{
-    phaseId: 'phase1',
-    phaseName: 'Unknown visible action',
-    requiredInteractions: [],
-    visibleEntities: ['Player', 'Enemy'],
-    autoModeHint: '展示没有命中规则的新语义',
-  }, {
-    phaseId: 'phase2',
-    phaseName: 'CTA',
-    requiredInteractions: ['click:CtaButton'],
-    visibleEntities: ['Player', 'CtaButton'],
-  }],
+  resources: internals.resourcesForKind('generic'),
+  specs: compiled.specs,
+  storyboardIr: ir,
 });
-assert.ok(fallbackSourceIr.diagnostics.storyboardSemanticFallbacks.some(function(item) {
-  return item.code === 'storyboard_semantic_fallback_visible_entity' &&
-    item.phaseId === 'phase1' &&
-    item.fallbackInteraction === 'move_to:Enemy';
-}));
-assert.ok(fallbackSourceIr.diagnostics.storyboardRuleLearningQueue.some(function(item) {
-  return item.phaseId === 'phase1' && item.ruleAction === 'add_or_adjust_storyboard_semantic_rule';
-}));
-
-var unresolvedPhases = storyboardSourceIrCompiler._internals.compilePhases([{
-  phaseId: 'phase1',
-  phaseName: 'No parsed action and no target',
-  requiredInteractions: [],
-  visibleEntities: ['Player'],
-}, {
-  phaseId: 'phase2',
-  phaseName: 'CTA',
-  requiredInteractions: ['click:CtaButton'],
-  visibleEntities: ['Player', 'CtaButton'],
-}], []);
-assert.strictEqual(unresolvedPhases[0].steps[0].fallback, 'storyboard-unresolved-semantic-block');
-assert.strictEqual(unresolvedPhases[0].steps[0].seconds, storyboardSourceIrCompiler._internals.UNRESOLVED_SEMANTIC_WAIT_SECONDS);
-assert.deepStrictEqual(unresolvedPhases[0].gate, {
-  kind: 'timer',
-  seconds: storyboardSourceIrCompiler._internals.UNRESOLVED_SEMANTIC_WAIT_SECONDS,
-});
-
-var unresolvedDiagnostics = storyboardSourceIrCompiler._internals.semanticFallbackDiagnosticsForSpecs([{
-  phaseId: 'phase1',
-  phaseName: 'No parsed action and no target',
-  requiredInteractions: [],
-  visibleEntities: ['Player'],
-}, {
-  phaseId: 'phase2',
-  phaseName: 'CTA',
-  requiredInteractions: ['click:CtaButton'],
-  visibleEntities: ['Player', 'CtaButton'],
-}], []);
-assert.ok(unresolvedDiagnostics.some(function(item) {
-  return item.code === 'storyboard_semantic_unresolved_no_target' &&
-    item.severity === 'error' &&
-    item.fallbackInteraction === 'wait:' + storyboardSourceIrCompiler._internals.UNRESOLVED_SEMANTIC_WAIT_SECONDS;
+assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Item'; }));
+assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Target'; }));
+assert.ok(sourceIr.phases.some(function(phase) {
+  return (phase.steps || []).some(function(step) { return step.kind === 'transfer' || step.kind === 'unlock'; });
 }));
 
 var weakCompiled = {

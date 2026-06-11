@@ -111,7 +111,9 @@ function collectRequiredEntityRefs(specs) {
     safeArray(spec && spec.requiredInteractions).forEach(function(item) {
       var parts = splitInteraction(item);
       var verb = parts[0];
-      if (['move_to', 'click', 'build', 'upgrade', 'attack'].indexOf(verb) >= 0) refs.push(parts[1]);
+      if (['move_to', 'click', 'build', 'upgrade', 'attack', 'show'].indexOf(verb) >= 0) refs.push(parts[1]);
+      if (verb === 'select' || verb === 'unlock') refs.push(parts[1]);
+      if (verb === 'deliver' || verb === 'transfer' || verb === 'combine') refs.push(parts[2]);
     });
   });
   return uniqueStrings(refs);
@@ -284,6 +286,22 @@ function interactionSteps(item, resources, isFinal) {
       ? [{ kind: 'move_to', target: carrier, radius: 1.6 }, { kind: 'collect', resource: target, amount: amount, target: carrier, from: carrier }]
       : [{ kind: 'collect', resource: target, amount: amount }];
   }
+  if (verb === 'deliver' || verb === 'transfer') {
+    var deliverResource = target;
+    var deliverTarget = normalizeEntityId(parts[2], 'Target');
+    var deliverAmount = Number(parts[3] || 1) || 1;
+    return [{ kind: 'move_to', target: deliverTarget, radius: 1.8 }, { kind: verb, resource: deliverResource, amount: deliverAmount, target: deliverTarget, to: deliverTarget }];
+  }
+  if (verb === 'select' && target) return [{ kind: 'move_to', target: target, radius: 1.5 }, { kind: 'select', target: target }];
+  if (verb === 'combine') {
+    var combineTarget = normalizeEntityId(parts[2], 'UpgradePoint');
+    var combineAmount = Number(parts[3] || 1) || 1;
+    return [{ kind: 'move_to', target: combineTarget, radius: 1.8 }, { kind: 'combine', resource: target, target: combineTarget, entity: combineTarget, amount: combineAmount, state: 2 }];
+  }
+  if (verb === 'produce' && target) return [{ kind: 'produce', resource: target, amount: amount, target: resourceSpec && resourceSpec.carrierEntity || 'Producer' }];
+  if (verb === 'reward' && target) return [{ kind: 'reward', resource: target, amount: amount, target: resourceSpec && resourceSpec.carrierEntity || 'Reward' }];
+  if (verb === 'unlock' && target) return [{ kind: 'move_to', target: target, radius: 1.8 }, { kind: 'unlock', entity: target, target: target, state: 1 }];
+  if (verb === 'show' && target) return [{ kind: 'show', entity: target, target: target, state: 1 }];
   if (verb === 'build' && target) return [{ kind: 'move_to', target: target, radius: 1.8 }, { kind: 'build', entity: target, state: 2 }];
   if (verb === 'upgrade' && target) return [{ kind: 'move_to', target: target, radius: 1.8 }, { kind: 'upgrade', entity: target, level: amount }];
   if (verb === 'attack' && target) return [{ kind: 'move_to', target: target, radius: 2.2 }, { kind: 'attack', target: target, state: 0 }];
@@ -305,7 +323,7 @@ function phaseFallbackTarget(spec) {
   });
   safeArray(spec && spec.requiredInteractions).forEach(function(item) {
     var parts = splitInteraction(item);
-    if (parts[1]) refs.push(parts[1]);
+    if (parts[0] !== 'wait' && parts[1]) refs.push(parts[1]);
   });
   return uniqueStrings(refs).filter(function(ref) {
     return ref && !isPlayerId(ref, { id: ref }) && !isCtaId(ref);
@@ -393,8 +411,15 @@ function gateFromSpec(spec, steps, resources, isFinal) {
   var amount = Number(parts[2] || 1) || 1;
   if (isFinal) return { kind: 'cta_arrival', ctaId: target && isCtaId(target) ? target : 'CtaButton' };
   if (verb === 'collect' && target) return { kind: 'resource', resource: target, threshold: amount };
+  if (verb === 'deliver' || verb === 'transfer') return { kind: 'near_entity', entity: normalizeEntityId(parts[2], 'Target'), radius: 1.8 };
+  if (verb === 'select') return { kind: 'near_entity', entity: target, radius: 1.5 };
+  if (verb === 'combine') return { kind: 'entity_state', entity: normalizeEntityId(parts[2], 'UpgradePoint'), state: 2 };
+  if (verb === 'produce' || verb === 'reward') return { kind: 'resource', resource: target, threshold: amount };
+  if (verb === 'unlock' && target) return { kind: 'entity_state', entity: target, state: 1 };
+  if (verb === 'show' && target) return { kind: 'entity_state', entity: target, state: 1 };
   if ((verb === 'build' || verb === 'upgrade') && target) return { kind: 'entity_state', entity: target, state: verb === 'upgrade' ? amount : 2 };
   if (verb === 'attack' && target) return { kind: 'entity_state', entity: target, state: 0 };
+  if (verb === 'wait') return { kind: 'timer', seconds: amount };
   if (safeArray(steps).some(function(step) { return step && step.fallback === 'storyboard-unresolved-semantic-block'; })) {
     return { kind: 'timer', seconds: UNRESOLVED_SEMANTIC_WAIT_SECONDS };
   }
@@ -412,7 +437,16 @@ function moduleHintsForSpec(spec, isFinal) {
     if (['move_to', 'collect', 'build', 'upgrade', 'attack'].indexOf(verb) >= 0) {
       modules.push('player_input_joystick', 'move_to_target', 'proximity_trigger');
     }
+    if (['deliver', 'transfer', 'select', 'combine', 'unlock'].indexOf(verb) >= 0) {
+      modules.push('player_input_joystick', 'move_to_target', 'proximity_trigger');
+    }
     if (verb === 'collect') modules.push('collect_on_near', 'inventory_wallet');
+    if (verb === 'produce' || verb === 'reward') modules.push('inventory_wallet');
+    if (verb === 'deliver' || verb === 'transfer') modules.push('inventory_wallet');
+    if (verb === 'select') modules.push('player_input_tap');
+    if (verb === 'combine') modules.push('upgrade_progress');
+    if (verb === 'unlock') modules.push('build_progress');
+    if (verb === 'show') modules.push('spawn_once');
     if (verb === 'build') modules.push('build_progress');
     if (verb === 'upgrade') modules.push('upgrade_progress');
     if (verb === 'attack') modules.push('target_acquire', 'damageable', 'apply_damage');

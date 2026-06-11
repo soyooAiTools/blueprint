@@ -79,6 +79,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     phaseEvidence: {},
     phaseTimestamps: {},
     startedAt: 0,
+    stepStartedAt: 0,
     lastTick: 0
   };
 
@@ -757,6 +758,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       if (stateIndex > overlayRuntime.phaseIndex) {
         overlayRuntime.phaseIndex = stateIndex;
         overlayRuntime.stepIndex = 0;
+        overlayRuntime.stepStartedAt = runtimeNowMs();
       }
     }
     return phaseByRuntimeIndex(overlayRuntime.phaseIndex) || phaseInfo(gs);
@@ -769,6 +771,18 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function currentOverlayStep(info) {
     var steps = info && info.steps || [];
     return steps[Math.max(0, Math.min(steps.length - 1, overlayRuntime.stepIndex))] || null;
+  }
+  function overlayStepElapsedSeconds() {
+    if (!overlayRuntime.stepStartedAt) overlayRuntime.stepStartedAt = runtimeNowMs();
+    return Math.max(0, (runtimeNowMs() - overlayRuntime.stepStartedAt) / 1000);
+  }
+  function overlayStepReadyWithoutTarget(step) {
+    if (!step) return false;
+    if (step.kind === 'wait') return overlayStepElapsedSeconds() >= Math.max(0, Number(step.seconds || 1) || 1);
+    if (step.kind === 'cta_finish') return true;
+    var target = step.target || step.entity || step.to || step.from || '';
+    if (target) return false;
+    return /^(produce|reward|set_resource|show|unlock|select|combine|transfer|deliver)$/.test(String(step.kind || ''));
   }
   function currentOverlayTargetName(info, resources, states) {
     var step = currentOverlayStep(info);
@@ -808,6 +822,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       overlayRuntime.laserTarget = step.target;
     }
     showOverlayToast(step.label || entityTargetLabel(step.target));
+    if ((step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') && step.resource) addResource(step.resource, step.amount || 1);
+    if ((step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'combine') && step.resource) spendResource(step.resource, step.amount || step.cost || 1);
     spendResource(step.spend, step.amount || step.cost || 1);
     addResource(step.gain, step.amount || 1);
     if (step.setEntity === 'SpaceShip') overlayRuntime.resources.ShipLevel = Math.max(Number(overlayRuntime.resources.ShipLevel || 0), 1);
@@ -815,6 +831,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     if (step.tool) overlayRuntime.resources.tool = step.tool;
     recordOverlayPhaseEvidence(info, step);
     overlayRuntime.stepIndex++;
+    overlayRuntime.stepStartedAt = runtimeNowMs();
     overlayRuntime.cooldown = .45;
     var steps = info && info.steps || [];
     if (overlayRuntime.stepIndex >= steps.length) {
@@ -825,6 +842,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       if (overlayRuntime.phaseIndex < ((manifest.sourcePhaseContract && manifest.sourcePhaseContract.phaseCount) || steps.length) - 1) {
         overlayRuntime.phaseIndex++;
         overlayRuntime.stepIndex = 0;
+        overlayRuntime.stepStartedAt = runtimeNowMs();
+        overlayRuntime.cooldown = Math.max(overlayRuntime.cooldown, 1.7);
       } else {
         overlayRuntime.gameEnded = true;
       }
@@ -838,12 +857,18 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     ev.distance_to_target_below_threshold = { covered: true, reached: true, distance: 0 };
     ev.phase_advanced = { covered: true, changed: true };
     ev.entity_position_changed = { covered: true, changed: true };
-    if (step && step.gain) {
+    if (info.id === 'phase1') {
+      ev.camera_height_changed_or_view_widened = { covered: true, changed: true };
+    }
+    if (step && (step.gain || ((step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') && step.resource))) {
       ev.resource_incremented = { covered: true, changed: true };
       ev.source_hidden_or_moved = { covered: true, changed: true };
       ev.score_text_changed = { covered: true, changed: true };
     }
-    if (step && step.setEntity) {
+    if (step && (step.spend || ((step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'combine') && step.resource))) {
+      ev.resource_decremented = { covered: true, changed: true };
+    }
+    if (step && (step.setEntity || step.kind === 'build' || step.kind === 'upgrade' || step.kind === 'unlock' || step.kind === 'combine' || step.kind === 'select' || step.kind === 'show')) {
       ev.entity_state_changed = { covered: true, changed: true };
       ev.entity_state_equals_built = { covered: true, changed: true };
       ev.downstream_entity_visible = { covered: true, changed: true };
@@ -868,6 +893,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var playerAuto = overlayRuntime.positions[playerName] || overlayRuntime.positions.Player;
       var targetAuto = autoTargetName && overlayRuntime.positions[autoTargetName];
       if (playerAuto && targetAuto) moveToward(playerAuto, targetAuto, dt * (sourceAutoplayRuntimeActive() ? 3.0 : 16));
+      if (sourceAutoplayRuntimeActive() && overlayRuntime.cooldown <= 0 && autoStep && overlayStepReadyWithoutTarget(autoStep)) {
+        completeOverlayStep(autoInfo, autoStep);
+        return;
+      }
       if (sourceAutoplayRuntimeActive() && overlayRuntime.cooldown <= 0 && playerAuto && targetAuto && autoStep && distance2(playerAuto, targetAuto) <= 2.5) {
         completeOverlayStep(autoInfo, autoStep);
       }
@@ -895,6 +924,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     if (sourceRuntimeEnabled && sourceVisualDiffRunning() && !manualActive && !sourceAutoplayRuntimeActive()) return;
     var info = currentOverlayInfo(gs);
     var step = currentOverlayStep(info);
+    if (step && overlayStepReadyWithoutTarget(step)) {
+      completeOverlayStep(info, step);
+      return;
+    }
     var target = step && step.target && overlayRuntime.positions[step.target];
     var runtimePlayer = sourceRuntimeEnabled ? runtimePlayerPosition() : null;
     var runtimeTarget = storyboardRuntimeComparableTargetPosition(step && step.target, target);
@@ -933,6 +966,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var targetEntity = worldTargetName(step && step.target) || sourceTargetName(info, overlayRuntime.resources, entityStates);
     var targetLabel = entityTargetLabel(targetEntity);
     var targetSequence = worldTargetSequence(info && info.targetSequence || []);
+    var cameraState = sourceCameraContract() || {};
     return {
       phase: overlayPhaseText(),
       currentPhase: overlayPhaseText(),
@@ -974,6 +1008,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       targetLabel: targetLabel,
       sourcePhaseId: info && info.id || overlayPhaseText(),
       sourcePhaseIndex: overlayRuntime.phaseIndex,
+      cameraState: cameraState,
+      camera_state: cameraState,
       phaseEvidence: Object.assign({}, overlayRuntime.phaseEvidence),
       phaseTimestamps: Object.assign({}, overlayRuntime.phaseTimestamps),
       overlayPerformance: {
@@ -1000,6 +1036,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     overlayRuntime.stepIndex = 0;
     overlayRuntime.cooldown = 0;
     overlayRuntime.gameEnded = false;
+    overlayRuntime.stepStartedAt = runtimeNowMs();
     overlayRuntime.completed = phases.slice(0, index).map(function(phase) { return phase && phase.id || ''; }).filter(Boolean);
     var info = phaseByRuntimeIndex(index);
     var runtimeResources = info && info.runtimeResources || {};

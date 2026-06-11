@@ -206,7 +206,37 @@ var playableSceneIr = compilePlayableSceneIr(sourceIr);
 assert.strictEqual(playableSceneIr.kind, 'blueprint.playableSceneIR');
 assert.strictEqual(playableSceneIr.phases.length, 2);
 assert.deepStrictEqual(playableSceneIr.entities.map(function(entity) { return entity.name; }), ['Player', 'WaterDrop']);
+assert.strictEqual(playableSceneIr.phases[1].steps[0].kind, 'cta_finish');
+assert.strictEqual(playableSceneIr.phases[1].steps[0].ctaId, 'CtaButton');
 assert.strictEqual(assertPlayableSceneIrExecutionAlignment(playableSceneIr, { gameSchema: gameSchema }).passed, true);
+
+var waitPlayableSceneIr = compilePlayableSceneIr(normalizeSourceSceneIr({
+  schemaVersion: 'source-scene-ir.v1',
+  project: { name: 'wait-step-fixture', theme: 'default' },
+  scene: { backgroundColor: '#101820', ground: { kind: 'plane', size: [10, 10] } },
+  entities: [
+    { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
+    { id: 'Target', label: 'Target', kind: 'prop', position: [2, 0, 0], visual: { primitive: 'box', color: '#ffaa33' } },
+  ],
+  phases: [
+    {
+      id: 'phase1',
+      title: 'Wait and show',
+      guideText: 'Wait and show',
+      showEntities: ['Player', 'Target'],
+      steps: [{ kind: 'wait', seconds: 1.5 }, { kind: 'show', entity: 'Target', target: 'Target', state: 1 }],
+      gate: { kind: 'entity_state', entity: 'Target', state: 1 },
+    },
+  ],
+}, {
+  sourceHtmlPath: path.join(tmp, 'wait-source.html'),
+  sourceHtmlSha256: 'b'.repeat(64),
+  generatedAt: '2026-06-07T00:00:00.000Z',
+}));
+assert.strictEqual(waitPlayableSceneIr.phases[0].steps[0].kind, 'wait');
+assert.strictEqual(waitPlayableSceneIr.phases[0].steps[0].seconds, 1.5);
+assert.strictEqual(waitPlayableSceneIr.phases[0].steps[1].kind, 'show');
+assert.strictEqual(waitPlayableSceneIr.phases[0].steps[1].setEntity, 'Target');
 
 var sourceVisualIr = compileSourceVisualIr(sourceIr);
 assert.strictEqual(sourceVisualIr.kind, 'blueprint.sourceVisualIR');

@@ -203,6 +203,9 @@ async function main() {
   var rendererScript = buildSourceIrPreviewRendererScript();
   assert.ok(rendererScript.indexOf('new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.055, 8, 64)') >= 0);
   assert.ok(rendererScript.indexOf('window.__sourceIrTargetRingState') >= 0);
+  assert.ok(rendererScript.indexOf('camera_height_changed_or_view_widened') >= 0);
+  assert.ok(rendererScript.indexOf('step.kind === "deliver" || step.kind === "transfer" || step.kind === "combine"') >= 0);
+  assert.ok(rendererScript.indexOf('bucket.resource_decremented') >= 0);
   assert.strictEqual(rendererScript.indexOf('targetRingEl.style.position = "fixed"; targetRingEl.style.left = "50%"; targetRingEl.style.top = "50%"'), -1);
 
   var detection = detectSourceIrPreviewRenderer(html);

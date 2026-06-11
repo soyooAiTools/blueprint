@@ -281,12 +281,43 @@ function startLocalServer(buildDir) {
 
 const PRODUCTION_SOURCE_OVERLAY_OFF_QUERY = 'sourceOverlay=0&sourceRuntime=0&sourceVisual=0';
 
-function buildPlayableAgentPreviewUrl(port, entryFile, query) {
+function appendQueryFlag(parts, key, pair) {
+  var pattern = new RegExp('(?:^|&)' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=');
+  if (!pattern.test(parts.join('&'))) parts.push(pair);
+}
+
+function buildHasSourceIrVisual(buildDir, entryFile) {
+  if (!buildDir) return false;
+  var root = path.resolve(buildDir);
+  var markerFiles = [
+    'playable-scene-ir.json',
+    'source-ir.json',
+    'source-scene-ir.json',
+    'source-visual-ir.json',
+  ];
+  if (markerFiles.some(function(file) { return fs.existsSync(path.join(root, file)); })) return true;
+  try {
+    var html = fs.readFileSync(path.join(root, entryFile || 'index.html'), 'utf8');
+    return html.indexOf('__BP_SOURCE_IR__') >= 0
+      || html.indexOf('__BLUEPRINT_PLAYABLE_SCENE_IR__') >= 0
+      || html.indexOf('source-ir-3d-overlay') >= 0;
+  } catch(e) {
+    return false;
+  }
+}
+
+function buildPlayableAgentPreviewUrl(port, entryFile, query, options) {
   const base = 'http://127.0.0.1:' + port + '/' + (entryFile || 'index.html');
   const baseQuery = String(query || '').replace(/^\?+/, '');
   const parts = [];
   if (baseQuery) parts.push(baseQuery);
-  parts.push(PRODUCTION_SOURCE_OVERLAY_OFF_QUERY);
+  if (options && options.sourceIrVisual) {
+    appendQueryFlag(parts, 'sourceOverlay', 'sourceOverlay=1');
+  } else {
+    appendQueryFlag(parts, 'sourceOverlay', 'sourceOverlay=0');
+    appendQueryFlag(parts, 'sourceRuntime', 'sourceRuntime=0');
+    appendQueryFlag(parts, 'sourceVisual', 'sourceVisual=0');
+  }
   return base + '?' + parts.join('&');
 }
 
@@ -2861,6 +2892,14 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
             '';
           const lineTarget = line && line.targetName || '';
           const fallback = runtimeTarget || lineTarget || plannedTarget || '';
+          const sourceRuntimeCurrentTarget = (window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__ === true || !!window.__SOURCE_IR_OVERLAY_STATE) && runtimeTarget
+            ? runtimeTarget
+            : '';
+          if (sourceRuntimeCurrentTarget &&
+            (isVisibleWorldPos(stateEntityPos(gs, sourceRuntimeCurrentTarget)) ||
+              isVisibleWorldPos(entityRootPos(sourceRuntimeCurrentTarget)))) {
+            return sourceRuntimeCurrentTarget;
+          }
           if (!Array.isArray(sequence) || sequence.length <= 1) return fallback;
           const phaseKey = norm(phase);
           const store = window.__bpManualFlowTargetCursor || { indexes: {}, lastPhase: '' };
@@ -2889,16 +2928,25 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
         const gs = getState();
         const line = window.__storyboardGuidanceLineState || null;
         const phase = String(gs.currentPhase || gs.phase || '');
+        const sourceRuntimeActive = window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__ === true || !!window.__SOURCE_IR_OVERLAY_STATE;
         const linePlayerPos = roundPos(line && line.player);
         const runtimePlayer = runtimePlayerPos();
         const statePlayer = stateEntityPos(gs, 'Player') || stateEntityPos(gs, 'player');
         const rootPlayer = entityRootPos('Player');
-        const playerChoice = choosePosition([
-          { pos: runtimePlayer, source: 'runtime-player' },
-          { pos: statePlayer, source: 'state-player' },
-          { pos: linePlayerPos, source: 'overlay-guidance-player' },
-          { pos: rootPlayer, source: 'overlay-root-player' },
-        ]);
+        const playerCandidates = sourceRuntimeActive
+          ? [
+            { pos: statePlayer, source: 'state-player' },
+            { pos: rootPlayer, source: 'overlay-root-player' },
+            { pos: linePlayerPos, source: 'overlay-guidance-player' },
+            { pos: runtimePlayer, source: 'runtime-player' },
+          ]
+          : [
+            { pos: runtimePlayer, source: 'runtime-player' },
+            { pos: statePlayer, source: 'state-player' },
+            { pos: linePlayerPos, source: 'overlay-guidance-player' },
+            { pos: rootPlayer, source: 'overlay-root-player' },
+          ];
+        const playerChoice = choosePosition(playerCandidates);
         const playerPos = playerChoice.pos;
         const targetName = targetNameForState(gs, line, phase);
         const targetFromGuidanceLine = line && line.targetName && norm(line.targetName) === norm(targetName);
@@ -3328,18 +3376,95 @@ async function runManualJoystickCheckpointProbe(previewUrl, blueprint, taskId, l
   });
 }
 
-// ─── Ensure Xvfb is running ───
-function ensureXvfb() {
+function normalizeXvfbDisplay(display) {
+  var value = String(display || ':99').trim();
+  return /^:\d+(\.\d+)?$/.test(value) ? value : ':99';
+}
+
+function xvfbDisplayNumber(display) {
+  return normalizeXvfbDisplay(display).replace(/^:/, '').split('.')[0];
+}
+
+function xvfbLockPath(display) {
+  return '/tmp/.X' + xvfbDisplayNumber(display) + '-lock';
+}
+
+function xvfbSocketPath(display) {
+  return '/tmp/.X11-unix/X' + xvfbDisplayNumber(display);
+}
+
+function parseXvfbPidsFromPs(psOutput, display) {
+  var wantedDisplay = normalizeXvfbDisplay(display);
+  return String(psOutput || '').split(/\r?\n/).map(function(line) {
+    var match = line.match(/^\s*(\d+)\s+(.+?)\s*$/);
+    if (!match) return null;
+    var pid = parseInt(match[1], 10);
+    var args = match[2].split(/\s+/).filter(Boolean);
+    var exe = args[0] || '';
+    var isXvfb = /(^|\/)Xvfb$/.test(exe);
+    if (!isXvfb || args.indexOf(wantedDisplay) === -1) return null;
+    return pid;
+  }).filter(function(pid) {
+    return Number.isFinite(pid) && pid > 0;
+  });
+}
+
+function listXvfbPids(display) {
   try {
-    const out = execSync('pgrep -f "Xvfb :99"', { timeout: 3000 }).toString().trim();
-    if (out) return true;
-  } catch(e) {}
-  // Start Xvfb
+    return parseXvfbPidsFromPs(execSync('ps -eo pid=,args=', { timeout: 3000 }).toString(), display);
+  } catch(e) {
+    return [];
+  }
+}
+
+function pidMatchesXvfbDisplay(pid, display) {
   try {
-    execSync('Xvfb :99 -screen 0 1280x1024x24 -ac &', { timeout: 5000, shell: true });
-    return true;
+    var cmdline = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').trim();
+    return parseXvfbPidsFromPs(String(pid) + ' ' + cmdline, display).length > 0;
   } catch(e) {
     return false;
+  }
+}
+
+function cleanupStaleXvfbArtifacts(display) {
+  var wantedDisplay = normalizeXvfbDisplay(display);
+  if (listXvfbPids(wantedDisplay).length > 0) return false;
+
+  var lock = xvfbLockPath(wantedDisplay);
+  var socket = xvfbSocketPath(wantedDisplay);
+  var hasLock = fs.existsSync(lock);
+  var hasSocket = fs.existsSync(socket);
+  if (!hasLock && !hasSocket) return false;
+
+  var lockPid = 0;
+  if (hasLock) {
+    try {
+      lockPid = parseInt(fs.readFileSync(lock, 'utf8'), 10) || 0;
+    } catch(e) {
+      lockPid = 0;
+    }
+  }
+  if (lockPid > 0 && pidMatchesXvfbDisplay(lockPid, wantedDisplay)) return false;
+
+  try { if (hasLock) fs.unlinkSync(lock); } catch(e) {}
+  try { if (hasSocket) fs.unlinkSync(socket); } catch(e) {}
+  return true;
+}
+
+// ─── Ensure Xvfb is running ───
+function ensureXvfb(display) {
+  var wantedDisplay = normalizeXvfbDisplay(display || process.env.DISPLAY || ':99');
+  if (listXvfbPids(wantedDisplay).length > 0) return true;
+
+  cleanupStaleXvfbArtifacts(wantedDisplay);
+
+  try {
+    var logPath = '/tmp/blueprint-xvfb-' + xvfbDisplayNumber(wantedDisplay) + '.log';
+    execSync('Xvfb ' + wantedDisplay + ' -screen 0 1280x1024x24 -ac > ' + logPath + ' 2>&1 &', { timeout: 5000, shell: true });
+    execSync('sleep 1', { timeout: 2000, shell: true });
+    return listXvfbPids(wantedDisplay).length > 0 && fs.existsSync(xvfbSocketPath(wantedDisplay));
+  } catch(e) {
+    return listXvfbPids(wantedDisplay).length > 0 && fs.existsSync(xvfbSocketPath(wantedDisplay));
   }
 }
 
@@ -3782,9 +3907,14 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
   const entryFile = hasIframe ? 'iframe.html' : 'index.html';
   // AutoPlay mode: append autoplay=1 so the JS bridge creates __AUTOPLAY_ON__ entity.
-  // Source overlay/runtime is disabled here; production CUA must observe the generated WebGL runtime, not SourceIR source visual overlay.
-  const previewUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'autoplay=1');
-  const manualProbeUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'manual=1&autoplay=0');
+  // Schema-first SourceIR builds deliver their visual/runtime layer through the generated
+  // SourceIR overlay; legacy Luna builds still run with that overlay disabled.
+  const sourceIrVisual = buildHasSourceIrVisual(buildDir, entryFile);
+  if (sourceIrVisual) {
+    log('[PlayableAgent] SourceIR visual layer detected — keeping source overlay enabled for CUA', taskId);
+  }
+  const previewUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'autoplay=1', { sourceIrVisual });
+  const manualProbeUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'manual=1&autoplay=0', { sourceIrVisual });
 
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);
@@ -4048,6 +4178,7 @@ module.exports = {
   measureCuaTelemetry,
   patchForHeadless,
   buildPlayableAgentPreviewUrl,
+  buildHasSourceIrVisual,
   writeSpecsFile,
   summarizePlayableAgentReport,
   blueprintNeedsManualJoystickProbe,
@@ -4065,4 +4196,10 @@ module.exports = {
   runStoryboardVisualAudit,
   runStoryboardVideoAudit,
   shouldRunStoryboardVideoAudit,
+  ensureXvfb,
+  parseXvfbPidsFromPs,
+  listXvfbPids,
+  cleanupStaleXvfbArtifacts,
+  xvfbLockPath,
+  xvfbSocketPath,
 };

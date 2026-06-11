@@ -243,11 +243,11 @@ function compileStep(step, index, entityMap) {
     target: target,
     label: step.label || target || step.resource || step.kind || '',
   };
-  if (step.kind === 'collect') out.gain = step.resource || '';
-  if (step.kind === 'deliver') out.spend = step.resource || '';
-  if (step.kind === 'set_entity_state' || step.kind === 'build' || step.kind === 'upgrade') {
+  if (step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') out.gain = step.resource || '';
+  if (step.kind === 'deliver' || step.kind === 'transfer') out.spend = step.resource || '';
+  if (step.kind === 'set_entity_state' || step.kind === 'build' || step.kind === 'upgrade' || step.kind === 'unlock' || step.kind === 'combine' || step.kind === 'select' || step.kind === 'show') {
     out.setEntity = entityMap && !entityMap[step.entity || step.target || target] ? '' : (step.entity || step.target || target);
-    out.state = Number(step.state == null ? (step.kind === 'upgrade' ? 2 : 1) : step.state) || 1;
+    out.state = Number(step.state == null ? (step.kind === 'upgrade' || step.kind === 'combine' ? 2 : 1) : step.state) || 1;
   }
   if (step.kind === 'attack') out.damage = true;
   if (step.amount != null) out.amount = Number(step.amount) || 1;
