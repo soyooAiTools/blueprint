@@ -4,6 +4,7 @@
 var fs = require('fs');
 var path = require('path');
 var spawnSync = require('child_process').spawnSync;
+var vm = require('vm');
 
 var {
   detectSourceIrPreviewRenderer,
@@ -93,6 +94,131 @@ function parseArgs(argv) {
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n');
+}
+
+function extractAssignedObjectLiteral(html, name) {
+  var source = String(html || '');
+  var escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var re = new RegExp('(?:\\b(?:const|let|var)\\s+' + escaped + '\\s*=|\\b(?:window|globalThis)\\.' + escaped + '\\s*=)', 'g');
+  var match = re.exec(source);
+  if (!match) return null;
+  var openIndex = source.indexOf('{', re.lastIndex);
+  if (openIndex < 0) return null;
+  var depth = 0;
+  var quote = null;
+  var escapedChar = false;
+  for (var i = openIndex; i < source.length; i += 1) {
+    var ch = source[i];
+    if (quote) {
+      if (escapedChar) escapedChar = false;
+      else if (ch === '\\') escapedChar = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(openIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseAssignedObject(html, name) {
+  var literal = extractAssignedObjectLiteral(html, name);
+  if (!literal) return null;
+  return vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: 1000 });
+}
+
+function phaseGuideTexts(doc) {
+  return (doc && Array.isArray(doc.phases) ? doc.phases : []).map(function(phase, index) {
+    return {
+      index: index + 1,
+      id: String(phase && (phase.id || phase.phaseId) || ('phase' + (index + 1))),
+      guideText: String(phase && phase.guideText || ''),
+    };
+  });
+}
+
+function comparePhaseGuideTexts(expected, actual, carrier) {
+  var mismatches = [];
+  var max = Math.max(expected.length, actual.length);
+  for (var i = 0; i < max; i += 1) {
+    var e = expected[i] || { index: i + 1, id: 'phase' + (i + 1), guideText: '' };
+    var a = actual[i] || { index: i + 1, id: e.id, guideText: '' };
+    if (e.guideText !== a.guideText) {
+      mismatches.push({
+        code: 'source_webgl_guide_text_mismatch',
+        carrier: carrier,
+        phaseIndex: i + 1,
+        phaseId: e.id || a.id || ('phase' + (i + 1)),
+        expected: e.guideText,
+        actual: a.guideText,
+      });
+    }
+  }
+  return mismatches;
+}
+
+function assertSourceGuideTextParity(sourceIr, outDir, runtime) {
+  var expected = phaseGuideTexts(sourceIr);
+  var checks = [];
+  var violations = [];
+  function addJsonCheck(label, filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
+      checks.push({ carrier: label, path: filePath || null, skipped: true, reason: 'missing' });
+      return;
+    }
+    var doc = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    var actual = phaseGuideTexts(doc);
+    var mismatches = comparePhaseGuideTexts(expected, actual, label);
+    checks.push({ carrier: label, path: filePath, phaseCount: actual.length, mismatches: mismatches.length });
+    violations = violations.concat(mismatches);
+  }
+  function addHtmlCheck(label, filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
+      checks.push({ carrier: label, path: filePath || null, skipped: true, reason: 'missing' });
+      return;
+    }
+    var html = fs.readFileSync(filePath, 'utf8');
+    var playable = parseAssignedObject(html, '__BLUEPRINT_PLAYABLE_SCENE_IR__');
+    var webglGuides = phaseGuideTexts(playable);
+    var webglMismatches = comparePhaseGuideTexts(expected, webglGuides, label);
+    checks.push({ carrier: label, path: filePath, phaseCount: webglGuides.length, mismatches: webglMismatches.length });
+    violations = violations.concat(webglMismatches);
+  }
+  addJsonCheck('source-ir.json', path.join(outDir, 'source-ir.json'));
+  addJsonCheck('playable-scene-ir.json', path.join(outDir, 'playable-scene-ir.json'));
+
+  var webglIndex = path.join(outDir, 'index.html');
+  addHtmlCheck('webgl.index.__BLUEPRINT_PLAYABLE_SCENE_IR__', webglIndex);
+  var smokeOut = runtime && runtime.blueprintSmoke || path.join(outDir, 'blueprint-smoke');
+  var smokeIndex = path.join(smokeOut, 'index.html');
+  if (path.resolve(smokeIndex) !== path.resolve(webglIndex)) {
+    addHtmlCheck('webgl.blueprintSmoke.index.__BLUEPRINT_PLAYABLE_SCENE_IR__', smokeIndex);
+  }
+
+  var report = {
+    schemaVersion: '1.0.0',
+    kind: 'blueprint.sourceGuideTextParityReport',
+    generatedAt: new Date().toISOString(),
+    passed: violations.length === 0,
+    source: 'storyboard2html.sourceHtml.phases[].guideText',
+    expectedPhaseCount: expected.length,
+    checks: checks,
+    violations: violations,
+  };
+  writeJson(path.join(outDir, 'source-guide-text-parity-report.json'), report);
+  if (!report.passed) {
+    throw new Error('Source/WebGL guideText parity failed: ' + violations.map(function(item) {
+      return item.carrier + ' ' + item.phaseId + ' expected=' + JSON.stringify(item.expected) + ' actual=' + JSON.stringify(item.actual);
+    }).slice(0, 5).join('; '));
+  }
+  return report;
 }
 
 function readJsonIfExists(filePath) {
@@ -413,6 +539,9 @@ function firstAffectedPhaseFromReports(outDir, runtime) {
   var liveness = readJsonIfExists(path.join(outDir, 'source-phase-liveness-report.json'));
   var livenessPhase = phaseFromItems(liveness && liveness.violations);
   if (livenessPhase) return livenessPhase;
+  var guideTextParity = readJsonIfExists(path.join(outDir, 'source-guide-text-parity-report.json'));
+  var guideTextPhase = phaseFromItems(guideTextParity && guideTextParity.violations);
+  if (guideTextPhase) return guideTextPhase;
   var smokeOut = runtime && runtime.blueprintSmoke || path.join(outDir, 'blueprint-smoke');
   var proofDiff = readJsonIfExists(path.join(smokeOut, 'blueprint-proof-diff.json'));
   var proofPhase = phaseFromItems(proofDiff && proofDiff.blocking);
@@ -441,6 +570,7 @@ function buildDebugPlan(inputPath, outDir, opts, runtime, timing, failure) {
   var smokeOut = runtime && runtime.blueprintSmoke || path.join(outDir, 'blueprint-smoke');
   var preflight = readJsonIfExists(path.join(outDir, 'source-ir-report.json'));
   var liveness = readJsonIfExists(path.join(outDir, 'source-phase-liveness-report.json'));
+  var guideTextParity = readJsonIfExists(path.join(outDir, 'source-guide-text-parity-report.json'));
   var proofDiff = readJsonIfExists(path.join(smokeOut, 'blueprint-proof-diff.json'));
   var binding = readJsonIfExists(path.join(outDir, 'runtime-binding-smoke-report.json'));
   var affectedPhase = firstAffectedPhaseFromReports(outDir, runtime) || (opts.visualPhases ? String(opts.visualPhases).split(',')[0] : '');
@@ -502,6 +632,11 @@ function buildDebugPlan(inputPath, outDir, opts, runtime, timing, failure) {
         id: 'source-phase-liveness',
         status: gateStatusFromReport(liveness, 'passed'),
         report: path.join(outDir, 'source-phase-liveness-report.json'),
+      },
+      {
+        id: 'source-guide-text-parity',
+        status: gateStatusFromReport(guideTextParity, 'passed'),
+        report: path.join(outDir, 'source-guide-text-parity-report.json'),
       },
       {
         id: 'blueprint-proof-contract',
@@ -608,6 +743,9 @@ function main() {
     runtime = runTimed(timing, 'blueprint-smoke-and-visual', function() {
       return runSmokeAndVisual(inputPath, outDir, opts);
     });
+    var sourceGuideTextParityReport = runTimed(timing, 'source-guide-text-parity', function() {
+      return assertSourceGuideTextParity(artifacts.sourceIr, outDir, runtime);
+    });
     var runtimeBindingSmokeReport = null;
     if (opts.runtimeBindingSmoke) {
       runtimeBindingSmokeReport = runTimed(timing, 'runtime-binding-smoke', function() {
@@ -633,12 +771,14 @@ function main() {
       paths: Object.assign({}, artifacts.paths, {
         sourceIrReport: path.join(outDir, 'source-ir-report.json'),
         sourcePhaseLivenessReport: sourcePhaseLivenessReport,
+        sourceGuideTextParityReport: path.join(outDir, 'source-guide-text-parity-report.json'),
         semanticSource: path.join(outDir, 'semantic-source.json'),
         sourceIrBuildSummary: path.join(outDir, 'source-ir-build-summary.json'),
         pipelineTiming: path.join(outDir, 'pipeline-timing.json'),
         sourceIrDebugPlan: path.join(outDir, 'source-ir-debug-plan.json'),
         runtimeBindingSmoke: runtimeBindingSmokeReport,
       }, runtime),
+      sourceGuideTextParityPassed: sourceGuideTextParityReport.passed === true,
     };
     writeJson(path.join(outDir, 'source-ir-build-summary.json'), summary);
     finishTiming(timing, outDir, 'passed');
@@ -661,3 +801,9 @@ if (require.main === module) {
     process.exit(1);
   }
 }
+
+module.exports = {
+  assertSourceGuideTextParity: assertSourceGuideTextParity,
+  comparePhaseGuideTexts: comparePhaseGuideTexts,
+  parseAssignedObject: parseAssignedObject,
+};

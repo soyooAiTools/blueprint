@@ -10,6 +10,7 @@ var path = require('path');
 var {
   buildSourceIrPreviewHtml,
 } = require('../engine/source-ir-preview-renderer.cjs');
+var sourceIrBuild = require('../scripts/source-ir-build.cjs');
 var {
   SOURCE_SCENE_IR_SCHEMA_VERSION,
   normalizeSourceSceneIr,
@@ -75,6 +76,48 @@ function runBuild(inputPath, outDir, extraArgs) {
 }
 
 var sourceIr = fixtureSourceIr();
+var parityOut = path.join(tmp, 'guide-parity-out');
+fs.mkdirSync(path.join(parityOut, 'blueprint-smoke'), { recursive: true });
+fs.writeFileSync(path.join(parityOut, 'source-ir.json'), JSON.stringify(sourceIr, null, 2));
+fs.writeFileSync(path.join(parityOut, 'playable-scene-ir.json'), JSON.stringify({ phases: sourceIr.phases }, null, 2));
+fs.writeFileSync(path.join(parityOut, 'index.html'), [
+  '<!doctype html><html><body><script>',
+  'window.__BLUEPRINT_PLAYABLE_SCENE_IR__ = ' + JSON.stringify({ phases: sourceIr.phases }) + ';',
+  '</script></body></html>',
+].join('\n'));
+fs.writeFileSync(path.join(parityOut, 'blueprint-smoke', 'index.html'), [
+  '<!doctype html><html><body><script>',
+  'window.__BLUEPRINT_PLAYABLE_SCENE_IR__ = ' + JSON.stringify({ phases: sourceIr.phases }) + ';',
+  '</script></body></html>',
+].join('\n'));
+assert.strictEqual(sourceIrBuild.assertSourceGuideTextParity(sourceIr, parityOut, { blueprintSmoke: path.join(parityOut, 'blueprint-smoke') }).passed, true);
+var parityMismatchOut = path.join(tmp, 'guide-parity-mismatch-out');
+fs.mkdirSync(path.join(parityMismatchOut, 'blueprint-smoke'), { recursive: true });
+fs.writeFileSync(path.join(parityMismatchOut, 'source-ir.json'), JSON.stringify(sourceIr, null, 2));
+fs.writeFileSync(path.join(parityMismatchOut, 'playable-scene-ir.json'), JSON.stringify({ phases: sourceIr.phases }, null, 2));
+var driftedPhases = JSON.parse(JSON.stringify(sourceIr.phases));
+driftedPhases[0].guideText = 'Wrong WebGL guide';
+fs.writeFileSync(path.join(parityMismatchOut, 'index.html'), [
+  '<!doctype html><html><body><script>',
+  'window.__BLUEPRINT_PLAYABLE_SCENE_IR__ = ' + JSON.stringify({ phases: driftedPhases }) + ';',
+  '</script></body></html>',
+].join('\n'));
+fs.writeFileSync(path.join(parityMismatchOut, 'blueprint-smoke', 'index.html'), [
+  '<!doctype html><html><body><script>',
+  'window.__BLUEPRINT_PLAYABLE_SCENE_IR__ = ' + JSON.stringify({ phases: driftedPhases }) + ';',
+  '</script></body></html>',
+].join('\n'));
+assert.throws(function() {
+  sourceIrBuild.assertSourceGuideTextParity(sourceIr, parityMismatchOut, { blueprintSmoke: path.join(parityMismatchOut, 'blueprint-smoke') });
+}, /Source\/WebGL guideText parity failed/);
+var mismatchReport = JSON.parse(fs.readFileSync(path.join(parityMismatchOut, 'source-guide-text-parity-report.json'), 'utf8'));
+assert.strictEqual(mismatchReport.passed, false);
+assert.ok(mismatchReport.violations.some(function(violation) {
+  return violation.code === 'source_webgl_guide_text_mismatch' &&
+    violation.carrier === 'webgl.index.__BLUEPRINT_PLAYABLE_SCENE_IR__' &&
+    violation.expected === 'Collect gem' &&
+    violation.actual === 'Wrong WebGL guide';
+}));
 var rendererHtmlPath = path.join(tmp, 'renderer.html');
 fs.writeFileSync(rendererHtmlPath, buildSourceIrPreviewHtml(sourceIr, {
   html: '<div id="joystick"></div>',
