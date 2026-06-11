@@ -357,6 +357,174 @@ function phaseSemanticText(spec) {
   ].map(stringValue).filter(Boolean)[0] || '';
 }
 
+function labelIndexFromLists(resources, entities) {
+  var labels = {};
+  safeArray(resources).forEach(function(resource) {
+    var id = normalizeEntityId(resource && (resource.id || resource.name), '');
+    if (id) labels[id] = stringValue(resource.label || resource.name || resource.id) || id;
+    var carrier = normalizeEntityId(resource && resource.carrierEntity, '');
+    if (carrier && !labels[carrier]) labels[carrier] = labels[id] || carrier;
+  });
+  safeArray(entities).forEach(function(entity) {
+    var id = normalizeEntityId(entity && (entity.id || entity.name), '');
+    if (id) labels[id] = stringValue(entity.label || entity.chineseName || entity.name || entity.id) || id;
+  });
+  return labels;
+}
+
+function basePhaseTargetId(id) {
+  return stringValue(id).replace(/__phase\d+_target$/i, '');
+}
+
+function humanLabelForId(id, labels, fallback) {
+  var text = stringValue(id);
+  if (!text) return fallback || '目标';
+  var direct = stringValue(labels && labels[text]);
+  var base = basePhaseTargetId(text);
+  var baseLabel = stringValue(labels && labels[base]);
+  var label = direct || baseLabel || fallback || text;
+  label = label.replace(/\s*P\d+\s+target\s*$/i, '').trim();
+  if (!label || /^Item$/i.test(label)) return '物品';
+  if (/^Target$/i.test(label)) return '目标';
+  if (/^Consumer$/i.test(label)) return '顾客';
+  if (/^Producer$/i.test(label)) return '生产点';
+  if (/^UpgradePoint$/i.test(label)) return '升级点';
+  if (/^Reward$/i.test(label)) return '奖励';
+  if (/^CtaButton$/i.test(label)) return '下载按钮';
+  return label;
+}
+
+function firstStepOfKind(steps, kinds) {
+  kinds = safeArray(kinds);
+  for (var i = 0; i < safeArray(steps).length; i += 1) {
+    var step = steps[i];
+    if (step && kinds.indexOf(step.kind) >= 0) return step;
+  }
+  return null;
+}
+
+function uniqueActionKinds(steps) {
+  return uniqueStrings(safeArray(steps).map(function(step) {
+    return step && step.kind;
+  }).filter(function(kind) {
+    return kind && kind !== 'move_to' && kind !== 'wait';
+  }));
+}
+
+function actionKindLabel(kind) {
+  return {
+    select: '选中',
+    combine: '合成',
+    unlock: '解锁',
+    produce: '产出',
+    collect: '收集',
+    deliver: '送达',
+    transfer: '放入',
+    upgrade: '升级',
+    build: '建造',
+    show: '查看提示',
+    reward: '领取奖励',
+    attack: '消灭目标',
+    cta_finish: '下载',
+  }[kind] || '';
+}
+
+function joinedActionKindLabels(kinds) {
+  var labels = safeArray(kinds).map(actionKindLabel).filter(Boolean);
+  if (labels.length <= 1) return labels[0] || '';
+  if (labels.length === 2) return labels[0] + '和' + labels[1];
+  return labels.slice(0, -1).join('、') + '和' + labels[labels.length - 1];
+}
+
+function compactGuideText(text) {
+  var out = stringValue(text).replace(/\s+/g, '');
+  if (!out) return '';
+  if (!/[。！？]$/.test(out)) out += '。';
+  if (out.length <= 58) return out;
+  return out.slice(0, 57).replace(/[，、：；:;]$/g, '') + '。';
+}
+
+function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseIndex) {
+  var labels = labelIndexFromLists(resources, entities);
+  var semanticText = phaseSemanticText(spec);
+  var actions = uniqueActionKinds(steps);
+  function label(id, fallback) {
+    return humanLabelForId(id, labels, fallback);
+  }
+  function resourceLabel(step, fallback) {
+    return label(step && step.resource || step && step.target, fallback || '物品');
+  }
+  function targetLabel(step, fallback) {
+    return label(step && (step.target || step.to || step.entity || step.from), fallback || '目标');
+  }
+  function producerLabel(step) {
+    var current = targetLabel(step, '生产点');
+    var resource = resourceLabel(step);
+    return current === resource ? label('Producer', '生产点') : current;
+  }
+  if (isFinal || actions.indexOf('cta_finish') >= 0) {
+    return compactGuideText('本关完成，点击下载按钮继续体验完整游戏');
+  }
+  if (/错误|点错|红叉|扣除|惩罚/.test(semanticText)) {
+    return compactGuideText('避开错误' + label('Item', '物品') + '，只选订单里真正需要的内容');
+  }
+  if (/倒计时|计时|圆环|超时/.test(semanticText)) {
+    return compactGuideText('注意倒计时，尽快按当前目标完成操作');
+  }
+  if (actions.length >= 3) {
+    return compactGuideText('跟着高亮目标走，依次完成' + joinedActionKindLabels(actions));
+  }
+  var step = firstStepOfKind(steps, ['deliver']);
+  if (step) return compactGuideText('把' + resourceLabel(step) + '送到' + targetLabel(step, '顾客') + '处，完成订单');
+  step = firstStepOfKind(steps, ['transfer']);
+  if (step) return compactGuideText('把' + resourceLabel(step) + '放到' + targetLabel(step) + '处，完成这一步');
+  step = firstStepOfKind(steps, ['select']);
+  if (step) return compactGuideText('移动到' + targetLabel(step, '物品') + '旁，选中订单需要的' + targetLabel(step, '内容'));
+  step = firstStepOfKind(steps, ['combine']);
+  if (step) return compactGuideText('把两个' + resourceLabel(step) + '合在一起，升成更高级的' + resourceLabel(step));
+  step = firstStepOfKind(steps, ['collect']);
+  if (step) return compactGuideText('移动到' + targetLabel(step, resourceLabel(step)) + '旁，收集' + resourceLabel(step));
+  step = firstStepOfKind(steps, ['produce']);
+  if (step) return compactGuideText('观察' + producerLabel(step) + '自动产出' + resourceLabel(step));
+  step = firstStepOfKind(steps, ['reward']);
+  if (step) return compactGuideText('完成这一步后领取' + resourceLabel(step, '奖励') + '，让计数增加');
+  step = firstStepOfKind(steps, ['unlock']);
+  if (step) return compactGuideText('移动到' + targetLabel(step) + '，解锁新的区域或功能');
+  step = firstStepOfKind(steps, ['upgrade']);
+  if (step) return compactGuideText('移动到' + targetLabel(step, '升级点') + '，把它升级到下一档');
+  step = firstStepOfKind(steps, ['build']);
+  if (step) return compactGuideText('移动到' + targetLabel(step) + '，把建筑修好');
+  step = firstStepOfKind(steps, ['attack']);
+  if (step) return compactGuideText('移动到' + targetLabel(step) + '旁，消灭它');
+  step = firstStepOfKind(steps, ['show']);
+  if (step) return compactGuideText('看屏幕提示和高亮目标，确认当前要做什么');
+  step = firstStepOfKind(steps, ['move_to']);
+  if (step) return compactGuideText('拖动摇杆，移动到' + targetLabel(step) + '旁');
+  if (safeArray(steps).some(function(item) { return item && item.kind === 'wait'; })) {
+    return compactGuideText('稍等一下，看完这段演示后继续');
+  }
+  return compactGuideText(semanticText || ('第' + (phaseIndex + 1) + '步，按提示继续'));
+}
+
+function continuationGuideText(guide, phaseIndex, steps, resources, entities) {
+  var labels = labelIndexFromLists(resources, entities);
+  var step = firstStepOfKind(steps, ['combine', 'deliver', 'transfer', 'select', 'collect', 'produce', 'unlock', 'upgrade', 'build', 'reward', 'show', 'attack']);
+  var label = step ? humanLabelForId(step.resource || step.target || step.to || step.entity || step.from, labels, '目标') : '目标';
+  if (step && step.kind === 'combine') return compactGuideText('第' + (phaseIndex + 1) + '步：继续合成更高级的' + label);
+  if (step && step.kind === 'transfer') return compactGuideText('第' + (phaseIndex + 1) + '步：继续把' + label + '放到目标处');
+  if (step && step.kind === 'deliver') return compactGuideText('第' + (phaseIndex + 1) + '步：继续把' + label + '送到顾客处');
+  if (step && step.kind === 'select') return compactGuideText('第' + (phaseIndex + 1) + '步：继续按订单选择正确内容');
+  if (step && step.kind === 'produce') return compactGuideText('第' + (phaseIndex + 1) + '步：继续观察自动产出' + label);
+  if (step && step.kind === 'unlock') return compactGuideText('第' + (phaseIndex + 1) + '步：继续解锁新的区域或功能');
+  if (step && step.kind === 'upgrade') return compactGuideText('第' + (phaseIndex + 1) + '步：继续升级当前目标');
+  if (step && step.kind === 'build') return compactGuideText('第' + (phaseIndex + 1) + '步：继续把建筑修好');
+  if (step && step.kind === 'collect') return compactGuideText('第' + (phaseIndex + 1) + '步：继续收集' + label);
+  if (step && step.kind === 'reward') return compactGuideText('第' + (phaseIndex + 1) + '步：看奖励或计数继续增加');
+  if (step && step.kind === 'show') return compactGuideText('第' + (phaseIndex + 1) + '步：继续看屏幕提示和高亮目标');
+  if (step && step.kind === 'attack') return compactGuideText('第' + (phaseIndex + 1) + '步：继续消灭当前目标');
+  return compactGuideText('第' + (phaseIndex + 1) + '步：继续按提示处理当前目标');
+}
+
 function semanticFallbackDiagnosticForSpec(spec, index, phaseCount, resources) {
   var isFinal = index === phaseCount - 1;
   if (isFinal) return null;
@@ -459,7 +627,8 @@ function moduleHintsForSpec(spec, isFinal) {
   return uniqueStrings(modules);
 }
 
-function compilePhases(specs, resources) {
+function compilePhases(specs, resources, entities) {
+  var usedGuideTexts = {};
   return safeArray(specs).map(function(spec, index) {
     var isFinal = index === specs.length - 1;
     var steps = interactionStepsForSpec(spec, resources, isFinal);
@@ -481,10 +650,15 @@ function compilePhases(specs, resources) {
       }
     });
     if (isFinal) refs.push('CtaButton');
+    var guideText = plainGuideTextForSpec(spec, steps, resources, entities, isFinal, index);
+    if (usedGuideTexts[guideText]) {
+      guideText = continuationGuideText(guideText, index, steps, resources, entities);
+    }
+    usedGuideTexts[guideText] = true;
     return {
       id: spec.phaseId || ('phase' + (index + 1)),
       title: spec.phaseName || spec.title || ('phase' + (index + 1)),
-      guideText: spec.playerInstruction || spec.guideText || spec.autoModeHint || spec.phaseName || '',
+      guideText: guideText,
       showEntities: uniqueStrings(refs),
       plannedModuleIds: moduleHintsForSpec(spec, isFinal),
       steps: steps,
@@ -555,7 +729,7 @@ function compileSourceSceneIrFromStoryboard(input, options) {
   var resources = collectResourceSpecs(input, specs);
   var entities = compileEntities(input, specs, resources);
   var layout = sceneLayoutForEntities(entities);
-  var phases = compilePhases(specs, resources);
+  var phases = compilePhases(specs, resources, entities);
   var semanticFallbacks = semanticFallbackDiagnosticsForSpecs(specs, resources);
   var diagnostics = semanticFallbacks.length > 0 ? {
     storyboardSemanticFallbacks: semanticFallbacks,
@@ -606,6 +780,7 @@ module.exports = {
     compileEntities: compileEntities,
     collectResourceSpecs: collectResourceSpecs,
     compilePhases: compilePhases,
+    plainGuideTextForSpec: plainGuideTextForSpec,
     defaultDomHudContract: defaultDomHudContract,
     phaseFallbackTarget: phaseFallbackTarget,
     fallbackManualStepForSpec: fallbackManualStepForSpec,

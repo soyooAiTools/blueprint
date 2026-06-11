@@ -177,6 +177,9 @@ assert.notStrictEqual(phase1Target, phase2Target);
 assert.strictEqual(consecutiveTargetIr.phases[3].steps[0].target, 'Workshop');
 assert.ok(consecutiveTargetIr.entities.some(function(entity) { return entity.id === phase1Target && entity.kind === 'phase_target'; }));
 assert.ok(consecutiveTargetIr.entities.some(function(entity) { return entity.id === phase2Target && entity.kind === 'phase_target'; }));
+assert.ok(consecutiveTargetIr.entities.every(function(entity) {
+  return entity.kind !== 'phase_target' || !/\bP\d+\s+target\b/i.test(entity.label || '');
+}), 'phase target labels should stay player-readable in HUD target hints');
 assert.ok(consecutiveTargetIr.diagnostics.normalizationRepairs.filter(function(repair) {
   return repair.code === 'source_ir_consecutive_phase_target_anchor_materialized';
 }).length >= 2);

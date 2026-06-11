@@ -834,9 +834,10 @@ function createPhaseTargetAnchor(baseEntity, baseId, phase, phaseIndex, runOrdin
   var visual = Object.assign({}, baseEntity && baseEntity.visual || {});
   if (!visual.primitive) visual.primitive = 'cylinder';
   visual.color = visual.color || '#FFE45C';
+  var label = String(baseEntity && baseEntity.label || baseId || '目标').replace(/\s*P\d+\s+target\s*$/i, '').trim() || '目标';
   return {
     id: anchorId,
-    label: String(baseEntity && baseEntity.label || baseId) + ' P' + (phaseIndex + 1) + ' target',
+    label: label,
     kind: 'phase_target',
     position: phaseAnchorPosition(baseEntity && baseEntity.position, phaseIndex, runOrdinal, occupiedEntities),
     scale: [0.68, 0.68, 0.68],

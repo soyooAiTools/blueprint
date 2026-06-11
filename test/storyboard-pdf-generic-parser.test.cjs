@@ -260,6 +260,12 @@ var sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
   specs: compiled.specs,
   storyboardIr: ir,
 });
+assert.ok(sourceIr.phases.every(function(phase) {
+  return phase.guideText && phase.guideText.length <= 58;
+}), 'generated SourceIR guideText should be short enough for the HUD');
+assert.ok(!sourceIr.phases.some(function(phase) {
+  return /玩家看到什么|玩家做什么|玩法逻辑|Phase\s*\d|^[A-Za-z_]+:/.test(phase.guideText || '');
+}), 'generated SourceIR guideText should be plain player guidance, not raw PDF text or interaction ids');
 assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Item'; }));
 assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Target'; }));
 assert.ok(sourceIr.phases.some(function(phase) {
