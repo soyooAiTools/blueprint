@@ -250,16 +250,21 @@ function expandBeats(beats, target) {
   var hasFinal = beats.length > 0 && /cta|下载|安装|跳转|结束|收口|完整.*空间站/i.test(beats[beats.length - 1].text || '');
   var finalBeat = hasFinal ? beats[beats.length - 1] : null;
   var out = hasFinal ? beats.slice(0, -1) : beats.slice();
+  var contextText = compactText(beats.map(function(beat) { return beat && beat.text; }).join(' '));
+  var generated = 0;
   for (var i = out.length; i < target; i += 1) {
     if (finalBeat && i === target - 1) break;
-    var tmpl = DEFAULT_PHASES[i] || DEFAULT_PHASES[DEFAULT_PHASES.length - 1];
+    var contextual = contextualExpansionBeat(contextText, generated);
+    var tmpl = contextual || DEFAULT_PHASES[i] || DEFAULT_PHASES[DEFAULT_PHASES.length - 1];
     out.push({
       text: tmpl.title + '：' + tmpl.action,
       titleHint: tmpl.title,
       evidence: [],
-      confidence: 0.35,
+      confidence: contextual ? 0.42 : 0.35,
       templateFallback: true,
+      contextualExpansion: !!contextual,
     });
+    generated += 1;
   }
   if (finalBeat) out.push(finalBeat);
   return out;
@@ -305,6 +310,182 @@ function interactionFromText(text, index, total) {
   if (/交付|售卖|卖|投入|兑换|换得|deliver|sell/i.test(hay)) return 'deliver:Resource:Base';
   if (/移动|前往|靠近|引导|move|joystick/i.test(hay)) return 'move_to:Target';
   return DEFAULT_PHASES[index] && DEFAULT_PHASES[index].interaction || 'observe';
+}
+
+function hasScrapCue(text) {
+  return /垃圾|碎片|碎块|残骸|废料|废铁|金属|scrap|junk|debris|trash|garbage/i.test(text);
+}
+
+function hasCurrencyCue(text) {
+  return /美金|金币|金钱|钞票|现金|钱|收益|奖励|coin|cash|money|gold/i.test(text);
+}
+
+function hasCollectCue(text) {
+  var body = stringValue(text).replace(/采集工具|采集效率/g, '');
+  return /采集|收集|拾取|获得|捡|回收|collect|gather|pick/i.test(body);
+}
+
+function hasDeliverCue(text) {
+  return /交付|售卖|售出|卖|兑换|换得|回收站|回收到|送到|deliver|sell|exchange|recycle/i.test(text);
+}
+
+function hasSpendCue(text) {
+  return /投入|消耗|花费|使用.*(?:美金|金币|现金|钱)|用.*(?:美金|金币|现金|钱)|spend|cost|pay/i.test(text);
+}
+
+function inferCollectResourceId(text, context) {
+  var hay = text + ' ' + (context || '');
+  if (hasScrapCue(hay)) return 'MetalScrap';
+  if (/木头|木材|wood|tree/i.test(hay)) return 'Wood';
+  if (/玉米|corn/i.test(hay)) return 'Corn';
+  if (/冰|冰晶|ice/i.test(hay)) return 'Ice';
+  if (/水|water/i.test(hay)) return 'Water';
+  return 'Resource';
+}
+
+function inferCurrencyResourceId(text, context) {
+  var hay = text + ' ' + (context || '');
+  if (hasCurrencyCue(hay)) return 'Cash';
+  return '';
+}
+
+function inferDeliveryTargetId(text, context) {
+  var hay = text + ' ' + (context || '');
+  if (/回收站|recycle|recycler/i.test(hay)) return 'RecycleStation';
+  if (/基地|base/i.test(hay)) return 'HomeBase';
+  if (/顾客|客人|customer/i.test(hay)) return 'CustomerQueue';
+  return 'RecycleStation';
+}
+
+function inferBuildTargetId(text) {
+  if (/锻造间|锻造室|forge/i.test(text)) return 'ForgeRoom';
+  if (/船舱|舱室|cabin/i.test(text)) return 'CabinModule';
+  if (/空间站|基地|station/i.test(text)) return 'SpaceStationModule';
+  if (/餐厅|restaurant/i.test(text)) return 'NewRestaurant';
+  if (/新区域|区域|房间|area|room/i.test(text)) return 'NewArea';
+  return 'Facility';
+}
+
+function inferUpgradeTargetId(text) {
+  if (/钻头|drill/i.test(text)) return 'DrillTool';
+  if (/粉碎车|粉碎机|crusher/i.test(text)) return 'CrusherVehicle';
+  if (/液压车|液压|hydraulic/i.test(text)) return 'HydraulicVehicle';
+  if (/车辆|车|vehicle|car/i.test(text)) return 'Vehicle';
+  if (/工具|tool/i.test(text)) return 'Tool';
+  return 'Tool';
+}
+
+function inferAttackTargetId(text) {
+  if (/陨石|障碍|阻挡|石头|asteroid|obstacle|rock/i.test(text)) return 'AsteroidObstacle';
+  if (/敌人|怪物|enemy|monster/i.test(text)) return 'Enemy';
+  return 'Obstacle';
+}
+
+function inferShowTargetId(text, context) {
+  var hay = text + ' ' + (context || '');
+  if (/空间站|station/i.test(hay)) return 'SpaceStationModule';
+  if (/船舱|cabin/i.test(hay)) return 'CabinModule';
+  if (/区域|area/i.test(hay)) return 'NewArea';
+  return 'Target';
+}
+
+function phaseAmountFromText(text, fallback) {
+  var body = stringValue(text).replace(/^\s*(?:Phase\s*)?\d+\s*(?:[|,，:：.、]|\s+)/i, '');
+  var match = body.match(/(?:x|X|数量|收集|获得|增加|赚到|换得)?\s*(\d+)/);
+  return match ? Number(match[1]) || fallback : fallback;
+}
+
+function phaseCostFromText(text, fallback) {
+  var body = stringValue(text).replace(/^\s*(?:Phase\s*)?\d+\s*(?:[|,，:：.、]|\s+)/i, '');
+  var match = body.match(/(?:投入|消耗|花费|使用|cost|spend|pay)[^0-9]{0,8}(\d+)/i);
+  return match ? Number(match[1]) || fallback : fallback;
+}
+
+function dedupeInteractions(values) {
+  var seen = {};
+  var out = [];
+  safeArray(values).forEach(function(value) {
+    var text = stringValue(value);
+    if (!text || seen[text]) return;
+    seen[text] = true;
+    out.push(text);
+  });
+  return out;
+}
+
+function requiredInteractionsFromText(text, canonicalInteraction, index, total, context) {
+  var hay = compactText(text);
+  if (index === total - 1 || /cta|下载|安装|跳转|结束|立即|收口/i.test(hay) && index >= total - 2) {
+    return ['click:CtaButton'];
+  }
+  var out = [];
+  var currency = inferCurrencyResourceId(hay, context);
+  var collectResource = inferCollectResourceId(hay, context);
+  var hasCollect = hasCollectCue(hay);
+  var hasDeliver = hasDeliverCue(hay) ||
+    (hasCollect && currency && /(换得|兑换|售卖|卖|回收|使用.*(?:钻头|工具|车辆|车)|大型|更大|更多|继续)/i.test(hay));
+  var hasBuild = /建造|搭建|修建|建成|扩建|build/i.test(hay);
+  var hasUnlock = /解锁|打开|开启|unlock/i.test(hay);
+  var hasUpgrade = /升级(?:钻头|工具|车辆|车|粉碎车|液压车|处理车辆)|投入.*升级|消耗.*升级|花费.*升级|强化|upgrade/i.test(hay);
+  if (/升级(?:钻头|工具|车辆|车|粉碎车|液压车|处理车辆)后/.test(hay) && !hasSpendCue(hay)) hasUpgrade = false;
+  var hasAttack = /攻击|消灭|击败|射击|打爆|清障|处理.*障碍|attack|shoot/i.test(hay);
+  var hasShow = /展示|呈现|组成完整|全景|show|reveal/i.test(hay);
+  var hasRewardCue = /奖励|收益|换得|兑换|赚到|获得.*(?:美金|金币|现金|钱|coin|cash|money|gold)/i.test(hay);
+  var collectAmount = phaseAmountFromText(hay, /再次|第二|大型|更大|升级后|继续/.test(hay) ? 2 : 1);
+
+  if (hasCollect) {
+    out.push('collect:' + collectResource + ':' + collectAmount);
+  }
+  if (hasDeliver && collectResource) {
+    out.push('deliver:' + collectResource + ':' + inferDeliveryTargetId(hay, context) + ':' + collectAmount);
+  }
+  if ((hasDeliver || hasRewardCue) && currency) {
+    out.push('reward:' + currency + ':' + phaseAmountFromText(hay, /大型|升级后|继续|第二/.test(hay) ? 10 : 5));
+  }
+  if (hasBuild || hasUnlock) {
+    var buildTarget = inferBuildTargetId(hay);
+    if (currency && (hasSpendCue(hay) || hasBuild || hasUnlock)) out.push('transfer:' + currency + ':' + buildTarget + ':' + phaseCostFromText(hay, hasUnlock ? 15 : 5));
+    out.push((hasUnlock && !hasBuild ? 'unlock:' : 'build:') + buildTarget);
+  }
+  if (hasUpgrade) {
+    var upgradeTarget = inferUpgradeTargetId(hay);
+    if (currency && hasSpendCue(hay)) out.push('transfer:' + currency + ':' + upgradeTarget + ':' + phaseCostFromText(hay, 5));
+    out.push('upgrade:' + upgradeTarget + ':2');
+  }
+  if (hasAttack) out.push('attack:' + inferAttackTargetId(hay));
+  if (hasShow && !hasBuild && !hasUpgrade && !hasAttack) out.push('show:' + inferShowTargetId(hay, context));
+  if (!out.length && /移动|前往|靠近|引导|move|joystick/i.test(hay)) {
+    out.push(canonicalInteraction && canonicalInteraction !== 'observe' ? canonicalInteraction : 'move_to:Target');
+  }
+  if (!out.length && canonicalInteraction) out.push(canonicalInteraction);
+  return dedupeInteractions(out);
+}
+
+function primaryTargetFromInteractions(interactions, canonicalInteraction) {
+  var preferred = null;
+  safeArray(interactions).forEach(function(interaction) {
+    if (preferred) return;
+    var parts = stringValue(interaction).split(':');
+    var verb = parts[0];
+    if (verb === 'deliver' || verb === 'transfer' || verb === 'combine') preferred = parts[2];
+    else if (verb === 'build' || verb === 'upgrade' || verb === 'attack' || verb === 'show' || verb === 'unlock' || verb === 'select') preferred = parts[1];
+  });
+  if (preferred) return preferred;
+  return targetFromInteraction(interactions[0] || canonicalInteraction);
+}
+
+function contextualExpansionBeat(contextText, ordinal) {
+  if (!hasScrapCue(contextText) || !hasCurrencyCue(contextText)) return null;
+  var templates = [
+    { title: '继续回收资源', action: '继续拾取散落资源，送到回收站换得美金' },
+    { title: '升级采集工具', action: '投入美金升级工具，让下一轮采集效率提升' },
+    { title: '高效采集碎块', action: '使用升级后的工具收集更大的碎块，再回收换得美金' },
+    { title: '升级处理车辆', action: '投入美金升级处理车辆，提高大型资源处理效率' },
+    { title: '车辆回收大型资源', action: '驾驶升级后的车辆回收大型资源，送回回收站换得美金' },
+    { title: '解锁新区域', action: '投入美金解锁新区域或新船舱' },
+    { title: '展示完整空间站', action: '展示新区域与核心设施组成完整空间站' },
+  ];
+  return templates[ordinal % templates.length];
 }
 
 function targetFromInteraction(interaction) {
@@ -377,8 +558,10 @@ function planStoryboardAiFromEvidence(inputIr, options) {
   var rawBeats = extractBeats(ir);
   var fitted = fitBeats(rawBeats);
   var total = fitted.length;
+  var contextText = compactText(fitted.map(function(beat) { return beat && beat.text; }).join(' '));
   var phases = fitted.map(function(beat, index) {
     var interaction = interactionFromText(beat.text, index, total);
+    var requiredInteractions = requiredInteractionsFromText(beat.text, interaction, index, total, contextText);
     var title = titleFromText(beat.text, index, beat.titleHint);
     var phase = {
       phaseId: 'phase' + (index + 1),
@@ -387,8 +570,9 @@ function planStoryboardAiFromEvidence(inputIr, options) {
       playerAction: actionText(interaction, title),
       feedback: feedbackText(interaction),
       uiText: index === total - 1 ? '立即下载' : '跟随箭头完成目标',
-      primaryTarget: targetFromInteraction(interaction),
+      primaryTarget: primaryTargetFromInteractions(requiredInteractions, interaction),
       canonicalInteraction: interaction,
+      requiredInteractions: requiredInteractions,
       image: beat.imagePath || '',
       visualPrompt: title,
       sourceEvidence: beat.evidence || [],
@@ -433,6 +617,7 @@ module.exports = {
     mergeBeats: mergeBeats,
     expandBeats: expandBeats,
     interactionFromText: interactionFromText,
+    requiredInteractionsFromText: requiredInteractionsFromText,
     titleFromText: titleFromText,
     titleHintFromFacts: titleHintFromFacts,
   },

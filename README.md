@@ -238,8 +238,10 @@ phase、entity、resource、requiredInteractions、cost 和 completeCondition，
 
 - 策划填写规范：`docs/storyboard-flow-authoring-guide.md`
 - 示例模板：`fixtures/storyboard-flow-template.json`
+- 严格 parity 样例：`fixtures/storyboard-flow-space-junk-golden.json`
 - JSON contract：`contracts/storyboard-flow-prototype.v1.json`
 - CLI：`scripts/storyboard-flow-source-ir.cjs`、`scripts/storyboard-flow-diff.cjs`
+- 回归：`node test/storyboard-flow-space-junk-golden.test.cjs`，要求 Flow diff 为 `blocker=0,warn=0,info=0`
 
 ### Dashboard
 

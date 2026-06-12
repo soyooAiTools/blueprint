@@ -302,7 +302,7 @@ function describeTrigger(trigger) {
   if (trigger.type === 'resource_collected') return 'resource_collected(' + (trigger.resource || 'Resource') + ',' + (trigger.amount || 1) + ')';
   if (trigger.type === 'near_entity') return 'near_entity(' + (trigger.entity || 'Entity') + ',' + (trigger.range || 2) + ')';
   if (trigger.type === 'click_entity') return 'click_entity(' + (trigger.entity || 'CtaButton') + ')';
-  if (trigger.type === 'entity_state_reached') return 'entity_state_reached(' + (trigger.entity || 'Entity') + ',' + (trigger.state || 1) + ')';
+  if (trigger.type === 'entity_state_reached') return 'entity_state_reached(' + (trigger.entity || 'Entity') + ',' + (trigger.state == null ? 1 : trigger.state) + ')';
   if (trigger.type === 'all_built') return 'all_built()';
   return String(trigger.type || 'unknown');
 }

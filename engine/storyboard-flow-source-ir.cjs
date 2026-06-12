@@ -628,8 +628,12 @@ function lastTargetStep(steps) {
 function pushMoveTo(steps, target, radius) {
   target = cleanId(target, '');
   if (!target) return;
-  var previous = steps[steps.length - 1];
-  if (previous && previous.kind === 'move_to' && previous.target === target) return;
+  for (var i = steps.length - 1; i >= 0; i -= 1) {
+    if (steps[i] && steps[i].kind === 'move_to') {
+      if (steps[i].target === target) return;
+      break;
+    }
+  }
   steps.push({ kind: 'move_to', target: target, radius: radius || 1.8 });
 }
 
@@ -675,7 +679,7 @@ function flowStepsForPhase(phase, catalog, entityIds, phaseIndex, phaseCount) {
       if (!approachTarget && phase.target) approachTarget = phase.target;
       if (approachTarget) pushMoveTo(steps, approachTarget, 1.8);
       if (!costSpent) costSpent = pushPhaseCostSpend(steps, phase, approachTarget || target);
-      steps.push({ kind: interaction.verb, target: approachTarget || target, entity: target, state: 1 });
+      steps.push({ kind: interaction.verb, target: approachTarget || target, entity: target, state: interaction.verb === 'build' ? 2 : 1 });
       return;
     }
     if (interaction.verb === 'upgrade') {
@@ -749,7 +753,7 @@ function gateFromSteps(phase, steps, resourceIds, index, phaseCount) {
       return { kind: 'resource', resource: step.resource, threshold: step.amount || 1 };
     }
     if ((step.kind === 'unlock' || step.kind === 'build' || step.kind === 'upgrade' || step.kind === 'combine' || step.kind === 'show' || step.kind === 'select') && (step.entity || step.target)) {
-      return { kind: 'entity_state', entity: step.entity || step.target, state: step.level || step.state || 1 };
+      return { kind: 'entity_state', entity: step.entity || step.target, state: step.level != null ? step.level : (step.state != null ? step.state : 1) };
     }
     if ((step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'move_to') && (step.target || step.to)) {
       return { kind: 'near_entity', entity: step.target || step.to, radius: step.radius || 1.8 };
@@ -789,7 +793,8 @@ function stepSatisfiesEntityState(step, entity) {
   if (!step || !entity) return false;
   if ((step.entity || step.target) !== entity) return false;
   return step.kind === 'set_entity_state' || step.kind === 'unlock' || step.kind === 'build' ||
-    step.kind === 'upgrade' || step.kind === 'combine' || step.kind === 'show' || step.kind === 'select';
+    step.kind === 'upgrade' || step.kind === 'combine' || step.kind === 'show' || step.kind === 'select' ||
+    step.kind === 'attack';
 }
 
 function stepIncrementsResource(step, resource) {

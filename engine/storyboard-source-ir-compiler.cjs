@@ -127,7 +127,7 @@ function resourceAliasWords(resourceId) {
   if (/water/.test(text)) aliases = aliases.concat(['water', 'bucket', 'bottle', '水', '水桶', '桶装水']);
   if (/apple/.test(text)) aliases = aliases.concat(['apple', '苹果']);
   if (/corn/.test(text)) aliases = aliases.concat(['corn', 'field', '玉米', '玉米地']);
-  if (/coin|gold|money/.test(text)) aliases = aliases.concat(['coin', 'gold', 'money', '金币', '美金']);
+  if (/coin|gold|money|cash/.test(text)) aliases = aliases.concat(['coin', 'gold', 'money', 'cash', '金币', '美金', '钞票', '现金']);
   return uniqueStrings(aliases);
 }
 
@@ -180,8 +180,12 @@ function collectResourceSpecs(input, specs) {
   safeArray(specs).forEach(function(spec) {
     safeArray(spec.requiredInteractions).forEach(function(item) {
       var parts = splitInteraction(item);
-      if (parts[0] !== 'collect' || !parts[1]) return;
-      resources.push({ id: parts[1], label: parts[1], carrierEntity: inferResourceCarrierEntity(parts[1], input.entities) || normalizeEntityId(parts[1], 'Resource'), kind: 'resource', initial: 0 });
+      var verb = parts[0];
+      var resourceId = '';
+      if (verb === 'collect' || verb === 'produce' || verb === 'reward') resourceId = parts[1];
+      if (verb === 'deliver' || verb === 'transfer' || verb === 'combine') resourceId = parts[1];
+      if (!resourceId) return;
+      resources.push({ id: resourceId, label: resourceId, carrierEntity: inferResourceCarrierEntity(resourceId, input.entities) || normalizeEntityId(resourceId, 'Resource'), kind: 'resource', initial: 0 });
     });
     safeArray(spec.entitiesRequired).forEach(function(entity) {
       if (entity && entity.resource) {
@@ -309,6 +313,22 @@ function interactionSteps(item, resources, isFinal) {
   return [];
 }
 
+function compactRedundantMoveSteps(steps) {
+  var out = [];
+  var currentTarget = '';
+  safeArray(steps).forEach(function(step) {
+    if (!step || step.kind !== 'move_to') {
+      out.push(step);
+      return;
+    }
+    var target = normalizeEntityId(step.target, '');
+    if (target && target === currentTarget) return;
+    currentTarget = target;
+    out.push(step);
+  });
+  return out;
+}
+
 function stepRefs(step) {
   if (!step || step.kind === 'cta_finish') return [];
   return [step.target, step.from, step.to, step.entity].filter(Boolean);
@@ -344,7 +364,7 @@ function interactionStepsForSpec(spec, resources, isFinal) {
   safeArray(spec && spec.requiredInteractions).forEach(function(item) {
     steps = steps.concat(interactionSteps(item, resources, isFinal));
   });
-  return steps;
+  return compactRedundantMoveSteps(steps);
 }
 
 function phaseSemanticText(spec) {
@@ -354,7 +374,7 @@ function phaseSemanticText(spec) {
     spec && spec.autoModeHint,
     spec && spec.phaseName,
     spec && spec.title,
-  ].map(stringValue).filter(Boolean)[0] || '';
+  ].map(stringValue).filter(Boolean).join(' ');
 }
 
 function labelIndexFromLists(resources, entities) {
@@ -459,6 +479,15 @@ function showGuideTextForSpec(spec, step, labels, phaseIndex, isContinuation) {
   if (/倒计时|计时|圆环|超时/.test(semanticText)) {
     return compactGuideText('查看倒计时提示，尽快完成当前目标');
   }
+  if (/完整.*空间站|空间站.*完整/.test(semanticText)) {
+    return compactGuideText('查看完整空间站，准备进入下载收口');
+  }
+  if (/完整.*基地|基地.*完整|下载收口|核心设施组成完整/.test(semanticText)) {
+    return compactGuideText('查看完整基地，准备进入下载收口');
+  }
+  if (/新区域|新船舱|解锁.*区域/.test(semanticText)) {
+    return compactGuideText('查看新区域已经出现，准备继续下一步');
+  }
   if (/发光|闪烁/.test(semanticText) && /摇摆|镜头|拉远|转场|播放/.test(semanticText)) {
     return compactGuideText('观察目标发光和镜头变化，准备进入下一步');
   }
@@ -498,6 +527,23 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
     var resource = resourceLabel(step);
     return current === resource ? label('Producer', '生产点') : current;
   }
+  function amountPrefix(step) {
+    var amount = Number(step && step.amount || 0) || 0;
+    return amount > 1 ? String(amount) : '';
+  }
+  function collectionLoopGuide(collectStep, deliverStep, rewardStep, continuation) {
+    var resource = resourceLabel(collectStep);
+    var deliverTarget = targetLabel(deliverStep);
+    var reward = resourceLabel(rewardStep, '奖励');
+    var prefix = '';
+    if (/车辆|粉碎车|处理车辆|驾驶/.test(semanticText)) prefix = '驾驶升级后的车辆';
+    else if (/新钻头|钻头/.test(semanticText)) prefix = '使用新钻头';
+    else if (/升级后的工具|高效/.test(semanticText)) prefix = '使用升级后的工具';
+    else if (/继续|更多|再次/.test(semanticText) || continuation) prefix = '继续';
+    else if (/靠近|拾取|捡/.test(semanticText)) prefix = '靠近' + targetLabel(collectStep, resource);
+    var collectPhrase = prefix ? (prefix + '收集' + resource) : ('收集' + resource);
+    return compactGuideText(collectPhrase + '，送到' + deliverTarget + '换得' + reward);
+  }
   if (isFinal || actions.indexOf('cta_finish') >= 0) {
     return compactGuideText('本关完成，点击下载按钮继续体验完整游戏');
   }
@@ -513,10 +559,43 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
     var unlockStep = firstStepOfKind(steps, ['unlock']);
     var produceStep = firstStepOfKind(steps, ['produce']);
     var collectStep = firstStepOfKind(steps, ['collect']);
+    var deliverStep = firstStepOfKind(steps, ['deliver']);
+    var rewardStep = firstStepOfKind(steps, ['reward']);
+    var transferStep = firstStepOfKind(steps, ['transfer']);
+    var buildStep = firstStepOfKind(steps, ['build']);
+    var upgradeStep = firstStepOfKind(steps, ['upgrade']);
     if (selectStep && combineStep && unlockStep && produceStep && collectStep) {
       return compactGuideText('先选中' + targetLabel(selectStep, '物品') + '，再合成升级，解锁' + targetLabel(unlockStep) + '后收集产出的' + resourceLabel(collectStep));
     }
+    if (collectStep && deliverStep && rewardStep) {
+      return collectionLoopGuide(collectStep, deliverStep, rewardStep, false);
+    }
+    if (collectStep && deliverStep) {
+      return compactGuideText('收集' + resourceLabel(collectStep) + '，送到' + targetLabel(deliverStep) + '完成回收');
+    }
+    if (transferStep && buildStep) {
+      return compactGuideText('投入' + amountPrefix(transferStep) + resourceLabel(transferStep) + '，建造' + targetLabel(buildStep));
+    }
+    if (transferStep && upgradeStep) {
+      return compactGuideText('投入' + amountPrefix(transferStep) + resourceLabel(transferStep) + '，升级' + targetLabel(upgradeStep, '目标'));
+    }
+    if (transferStep && unlockStep) {
+      return compactGuideText('投入' + amountPrefix(transferStep) + resourceLabel(transferStep) + '，解锁' + targetLabel(unlockStep));
+    }
     return compactGuideText('依次完成' + joinedActionKindLabels(actions));
+  }
+  var transferThenBuild = firstStepOfKind(steps, ['transfer']);
+  var buildAfterTransfer = firstStepOfKind(steps, ['build']);
+  var upgradeAfterTransfer = firstStepOfKind(steps, ['upgrade']);
+  var unlockAfterTransfer = firstStepOfKind(steps, ['unlock']);
+  if (transferThenBuild && buildAfterTransfer) {
+    return compactGuideText('投入' + amountPrefix(transferThenBuild) + resourceLabel(transferThenBuild) + '，建造' + targetLabel(buildAfterTransfer));
+  }
+  if (transferThenBuild && upgradeAfterTransfer) {
+    return compactGuideText('投入' + amountPrefix(transferThenBuild) + resourceLabel(transferThenBuild) + '，升级' + targetLabel(upgradeAfterTransfer, '目标'));
+  }
+  if (transferThenBuild && unlockAfterTransfer) {
+    return compactGuideText('投入' + amountPrefix(transferThenBuild) + resourceLabel(transferThenBuild) + '，解锁' + targetLabel(unlockAfterTransfer));
   }
   var step = firstStepOfKind(steps, ['deliver']);
   if (step) return compactGuideText('把' + resourceLabel(step) + '送到' + targetLabel(step, '顾客') + '处，完成订单');
@@ -539,7 +618,10 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
   step = firstStepOfKind(steps, ['build']);
   if (step) return compactGuideText('移动到' + targetLabel(step) + '，把建筑修好');
   step = firstStepOfKind(steps, ['attack']);
-  if (step) return compactGuideText('移动到' + targetLabel(step) + '旁，消灭它');
+  if (step) {
+    if (/障碍|陨石|清除|挡路/.test(semanticText)) return compactGuideText('移动到' + targetLabel(step) + '旁，清除它');
+    return compactGuideText('移动到' + targetLabel(step) + '旁，消灭它');
+  }
   step = firstStepOfKind(steps, ['show']);
   if (step) return showGuideTextForSpec(spec, step, labels, phaseIndex, false);
   step = firstStepOfKind(steps, ['move_to']);
@@ -552,6 +634,19 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
 
 function continuationGuideText(guide, phaseIndex, steps, resources, entities, spec) {
   var labels = labelIndexFromLists(resources, entities);
+  var semanticText = phaseSemanticText(spec || {});
+  var collectStep = firstStepOfKind(steps, ['collect']);
+  var deliverStep = firstStepOfKind(steps, ['deliver']);
+  var rewardStep = firstStepOfKind(steps, ['reward']);
+  if (collectStep && deliverStep && rewardStep) {
+    var prefix = '继续';
+    if (/车辆|粉碎车|处理车辆|驾驶/.test(semanticText)) prefix = '驾驶升级后的车辆';
+    else if (/新钻头|钻头/.test(semanticText)) prefix = '使用新钻头';
+    else if (/升级后的工具|高效/.test(semanticText)) prefix = '使用升级后的工具';
+    return compactGuideText('第' + (phaseIndex + 1) + '步：' + prefix + '收集' + humanLabelForId(collectStep.resource, labels, '资源') +
+      '，送到' + humanLabelForId(deliverStep.target || deliverStep.to, labels, '目标') +
+      '换得' + humanLabelForId(rewardStep.resource, labels, '奖励'));
+  }
   var step = firstStepOfKind(steps, ['combine', 'deliver', 'transfer', 'select', 'collect', 'produce', 'unlock', 'upgrade', 'build', 'reward', 'show', 'attack']);
   var label = step ? humanLabelForId(step.resource || step.target || step.to || step.entity || step.from, labels, '目标') : '目标';
   if (step && step.kind === 'combine') return compactGuideText('第' + (phaseIndex + 1) + '步：继续合成更高级的' + label);
@@ -649,12 +744,13 @@ function moduleHintsForSpec(spec, isFinal) {
     if (['move_to', 'collect', 'build', 'upgrade', 'attack'].indexOf(verb) >= 0) {
       modules.push('player_input_joystick', 'move_to_target', 'proximity_trigger');
     }
-    if (['deliver', 'transfer', 'select', 'combine', 'unlock'].indexOf(verb) >= 0) {
+    if (['deliver', 'transfer', 'select', 'combine', 'unlock', 'show'].indexOf(verb) >= 0) {
       modules.push('player_input_joystick', 'move_to_target', 'proximity_trigger');
     }
     if (verb === 'collect') modules.push('collect_on_near', 'inventory_wallet');
     if (verb === 'produce' || verb === 'reward') modules.push('inventory_wallet');
-    if (verb === 'deliver' || verb === 'transfer') modules.push('inventory_wallet');
+    if (verb === 'deliver') modules.push('inventory_wallet', 'deliver_to_target');
+    if (verb === 'transfer') modules.push('inventory_wallet', 'deliver_to_target', 'cost_gate');
     if (verb === 'select') modules.push('player_input_tap');
     if (verb === 'combine') modules.push('upgrade_progress');
     if (verb === 'unlock') modules.push('build_progress');
@@ -671,8 +767,51 @@ function moduleHintsForSpec(spec, isFinal) {
   return uniqueStrings(modules);
 }
 
+function initialResourceState(resources) {
+  var state = {};
+  safeArray(resources).forEach(function(resource) {
+    if (resource && resource.id) state[resource.id] = Number(resource.initial || 0) || 0;
+  });
+  return state;
+}
+
+function cloneResourceState(state) {
+  return Object.assign({}, state || {});
+}
+
+function applyStepResourceDelta(state, step) {
+  if (!step || !step.resource) return;
+  var amount = Number(step.amount || step.cost || 1) || 1;
+  if (step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') {
+    state[step.resource] = Number(state[step.resource] || 0) + amount;
+  } else if (step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'combine') {
+    state[step.resource] = Math.max(0, Number(state[step.resource] || 0) - amount);
+  } else if (step.kind === 'set_resource') {
+    state[step.resource] = Number(step.amount != null ? step.amount : step.value) || 0;
+  }
+}
+
+function cumulativeResourceGate(gate, before, after) {
+  if (!gate || typeof gate !== 'object') return gate;
+  if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
+    var copy = Object.assign({}, gate);
+    copy.gates = safeArray(gate.gates).map(function(child) {
+      return cumulativeResourceGate(child, before, after);
+    });
+    return copy;
+  }
+  if (gate.kind !== 'resource' || !gate.resource) return gate;
+  var oldValue = Number(before && before[gate.resource] || 0);
+  var newValue = Number(after && after[gate.resource] || 0);
+  if (newValue <= oldValue) return gate;
+  var currentThreshold = Number(gate.threshold || gate.amount || 1) || 1;
+  if (currentThreshold >= newValue) return gate;
+  return Object.assign({}, gate, { threshold: newValue });
+}
+
 function compilePhases(specs, resources, entities) {
   var usedGuideTexts = {};
+  var resourceState = initialResourceState(resources);
   return safeArray(specs).map(function(spec, index) {
     var isFinal = index === specs.length - 1;
     var steps = interactionStepsForSpec(spec, resources, isFinal);
@@ -699,6 +838,11 @@ function compilePhases(specs, resources, entities) {
       guideText = continuationGuideText(guideText, index, steps, resources, entities, spec);
     }
     usedGuideTexts[guideText] = true;
+    var resourceBefore = cloneResourceState(resourceState);
+    var resourceAfter = cloneResourceState(resourceState);
+    steps.forEach(function(step) { applyStepResourceDelta(resourceAfter, step); });
+    var gate = cumulativeResourceGate(gateFromSpec(spec, steps, resources, isFinal), resourceBefore, resourceAfter);
+    resourceState = resourceAfter;
     return {
       id: spec.phaseId || ('phase' + (index + 1)),
       title: spec.phaseName || spec.title || ('phase' + (index + 1)),
@@ -706,7 +850,7 @@ function compilePhases(specs, resources, entities) {
       showEntities: uniqueStrings(refs),
       plannedModuleIds: moduleHintsForSpec(spec, isFinal),
       steps: steps,
-      gate: gateFromSpec(spec, steps, resources, isFinal),
+      gate: gate,
       duration: spec.duration || { min: 10, max: 15 },
     };
   });

@@ -129,10 +129,17 @@ function modulesForPattern(pattern) {
   }
 }
 
-function modulesForTrigger(trigger, isLastPhase) {
+function hasDamageStep(phase) {
+  return safeArray(phase && phase.steps).some(step => {
+    if (!step || typeof step !== 'object') return false;
+    return step.damage === true || String(step.kind || '').toLowerCase() === 'attack';
+  });
+}
+
+function modulesForTrigger(trigger, isLastPhase, context) {
   if (!trigger || typeof trigger !== 'object') return [];
   if (trigger.type === 'compound') {
-    return uniq(safeArray(trigger.triggers).flatMap(child => modulesForTrigger(child, isLastPhase)));
+    return uniq(safeArray(trigger.triggers).flatMap(child => modulesForTrigger(child, isLastPhase, context)));
   }
   if (trigger.type === 'resource_collected') return ['collect_on_near', 'inventory_wallet'];
   if (trigger.type === 'click_entity') {
@@ -141,7 +148,12 @@ function modulesForTrigger(trigger, isLastPhase) {
     return mods;
   }
   if (trigger.type === 'timer') return ['phase_gate_timer'];
-  if (trigger.type === 'entity_state_reached') return ['build_progress'];
+  if (trigger.type === 'entity_state_reached') {
+    if (context && (hasDamageStep(context.gamePhase) || hasDamageStep(context.sourcePhase))) {
+      return ['target_acquire', 'apply_damage', 'damageable'];
+    }
+    return ['build_progress'];
+  }
   if (trigger.type === 'near_entity') return ['proximity_trigger'];
   if (trigger.type === 'enemy_defeated') return ['target_acquire', 'apply_damage', 'damageable'];
   if (trigger.type === 'all_built') return ['build_progress'];
@@ -151,11 +163,12 @@ function modulesForTrigger(trigger, isLastPhase) {
 function modulesForStep(step) {
   if (!step || typeof step !== 'object') return [];
   const modules = [];
+  const kind = String(step.kind || '').toLowerCase();
   if (step.target) modules.push('move_to_target', 'proximity_trigger');
   if (step.gain) modules.push('collect_on_near', 'inventory_wallet');
   if (step.spend) modules.push('inventory_wallet');
-  if (step.damage) modules.push('target_acquire', 'apply_damage', 'damageable');
-  if (step.setEntity || step.state != null) modules.push('build_progress');
+  if (step.damage || kind === 'attack') modules.push('target_acquire', 'apply_damage', 'damageable');
+  if (!step.damage && kind !== 'attack' && (step.setEntity || step.state != null)) modules.push('build_progress');
   return modules;
 }
 
@@ -180,7 +193,7 @@ function targetSequenceForSteps(steps) {
 
 function inferPhaseModules(gamePhase, sourcePhase, isLastPhase) {
   const modules = [];
-  modules.push(...modulesForTrigger(gamePhase && gamePhase.trigger, isLastPhase));
+  modules.push(...modulesForTrigger(gamePhase && gamePhase.trigger, isLastPhase, { gamePhase, sourcePhase }));
   safeArray(gamePhase && gamePhase.steps).forEach(step => modules.push(...modulesForStep(step)));
   if (gamePhase && safeArray(gamePhase.showEntities).length > 0) modules.push('visual_binding');
   if (gamePhase && gamePhase.guideText) modules.push('guide_ui');

@@ -42,13 +42,15 @@ function gateSignature(gate) {
   if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
     return gate.kind + '(' + safeArray(gate.gates).map(gateSignature).join('&') + ')';
   }
+  var radius = gate.radius != null ? gate.radius : '';
+  if (gate.kind === 'cta_arrival') radius = radius || 2;
   return [
     gate.kind || '',
     gate.resource || '',
     gate.entity || gate.target || gate.ctaId || '',
     gate.threshold != null ? gate.threshold : '',
     gate.state != null ? gate.state : '',
-    gate.radius != null ? gate.radius : '',
+    radius,
   ].join(':');
 }
 
@@ -99,7 +101,7 @@ function sourceSummary(sourceIr) {
     resourceCount: safeArray(ir.resources).length,
     resources: safeArray(ir.resources).map(function(resource) {
       return { id: resource.id, label: resource.label, carrierEntity: resource.carrierEntity || null };
-    }),
+    }).sort(function(a, b) { return String(a.id || '').localeCompare(String(b.id || '')); }),
     phases: safeArray(ir.phases).map(phaseSummary),
     semanticHash: ir.semanticHash || null,
   };

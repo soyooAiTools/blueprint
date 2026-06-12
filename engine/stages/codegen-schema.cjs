@@ -134,7 +134,7 @@ function triggerToRequiredInteractions(trigger) {
     if (t.type === 'click_entity' && t.entity) out.push('click:' + t.entity);
     else if (t.type === 'near_entity' && t.entity) out.push('move_to:' + t.entity);
     else if (t.type === 'resource_collected' && t.resource) out.push('collect:' + t.resource + ':' + (t.amount || 1));
-    else if (t.type === 'entity_state_reached' && t.entity) out.push('state:' + t.entity + ':' + (t.state || 1));
+    else if (t.type === 'entity_state_reached' && t.entity) out.push('state:' + t.entity + ':' + (t.state == null ? 1 : t.state));
     else if (t.type === 'form_switched') out.push('switch_form:' + (t.formIndex || 0));
     else if (t.type === 'timer') out.push('wait:' + (t.seconds || 2));
   }

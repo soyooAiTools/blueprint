@@ -378,6 +378,30 @@ async function main() {
     generatedAt: '2026-06-07T00:00:00.000Z',
     includeThree: false,
   }));
+  assert.ok(buildSourceIrPreviewHtml(normalizeSourceSceneIr({
+    schemaVersion: SOURCE_SCENE_IR_SCHEMA_VERSION,
+    kind: 'blueprint.sourceSceneIR',
+    project: { name: 'Attack state preview', theme: 'default' },
+    scene: { ground: { kind: 'plane', size: [10, 10] } },
+    entities: [
+      { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule' } },
+      { id: 'Enemy', label: 'Enemy', kind: 'enemy', position: [3, 0, 0], visual: { primitive: 'box' } },
+    ],
+    phases: [{
+      id: 'phase1',
+      guideText: 'Attack enemy',
+      showEntities: ['Player', 'Enemy'],
+      steps: [{ kind: 'move_to', target: 'Enemy' }, { kind: 'attack', target: 'Enemy', state: 0 }],
+      gate: { kind: 'entity_state', entity: 'Enemy', state: 0 },
+    }],
+  }, {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+  }), {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+    includeThree: false,
+  }).indexOf('requiredState <= 0 ? currentState <= requiredState') >= 0);
   var repeatedPhase1Target = repeatedTargetIr.phases[0].steps[0].target;
   var repeatedPhase2Target = repeatedTargetIr.phases[1].steps[0].target;
   assert.notStrictEqual(repeatedPhase1Target, repeatedPhase2Target);

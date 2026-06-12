@@ -109,6 +109,10 @@ click:CtaButton
 - 只有显式 `combine:*` 会产生合成步骤；`visualNotes` 里的“合成、碰撞、merge”等字样不会生成合成。
 - 涉及资源的动作必须写资源 id。
 - 涉及目标的动作必须写目标 id。
+- 一个 phase 可以写多个动作，下游必须保留顺序。典型资源循环是 `collect -> deliver -> reward`，建造链路是 `transfer -> build/upgrade/unlock`。
+- `attack:Target` 表示目标被击败或清除，完成条件会落到 `entity_state_reached state=0`，下游条件必须是 `TargetState <= 0`。
+- `transfer/build/upgrade/unlock` 如果都指向同一个目标，不要再手写重复 `move_to:Target`；转换器会压缩同目标移动，避免把重复移动误当 gameplay。
+- `show:Target` 要保留语义实体标签，例如太空站展示应指向 `SpaceStationModule` / `完整空间站`。
 
 ## Flow 与 storyboard2html 对比
 
@@ -131,6 +135,18 @@ node scripts/storyboard-flow-diff.cjs <flow.json> <source-html> <out-dir>
 
 `blocker` 表示结构无法对齐；`warn` 表示 storyboard2html 与人工 Flow 有语义差异，应回到 parser/spec/source HTML 链路修正。
 
+严格 parity 回归样例：
+
+```bash
+cd /opt/blueprint-editor
+node test/storyboard-flow-space-junk-golden.test.cjs
+```
+
+该测试使用 `fixtures/storyboard-flow-space-junk-golden.json` 作为人工 Flow
+基准，生成 deterministic storyboard2html package 后做 Flow diff。期望计数固定为
+`{"blocker":0,"warn":0,"info":0}`。任何 warn 都代表 storyboard2html/source
+HTML 与流程图语义有差距，除非先证明 Flow fixture 本身写错。
+
 ## 小主厨餐厅样例关注点
 
 以 `/nickTemp/第一批需求/MC原创_3D流水线小主厨解锁餐厅.pdf` 为例，Flow 应显式表达：
@@ -139,3 +155,12 @@ node scripts/storyboard-flow-diff.cjs <flow.json> <source-html> <out-dir>
 - 金币成本通过 `resource: "Coin"` + `cost` 或显式 `transfer:Coin:UnlockCircle:<amount>` 表达。
 - 不存在合成玩法时，不写 `combine:*`；备注里出现碰撞或拖动不等于合成。
 - 重复生产/交付 phase 要写清楚不同目标或上下文，避免下游退化成 `产出 -> 交付 -> 扩建` 的循环。
+
+## 太空捡垃圾样例关注点
+
+以 `fixtures/storyboard-flow-space-junk-golden.json` 为例，Flow 应显式表达：
+
+- 12 个 runtime phase：收集金属废料、送入回收站、获得现金、建造/升级工具、建造载具、解锁舱段、展示完整空间站和 CTA。
+- `MetalScrap`、`Cash`、`RecycleStation`、`ForgeRoom`、`Tool`、`Vehicle`、`CabinModule`、`SpaceStationModule` 等语义 id 和中文标签要贯穿 storyboard2html/source HTML/SourceIR。
+- 收集、交付、奖励、转账、建造、升级、解锁不能被合并成单一 `move_to` 或泛化 `show`。
+- 末段 `show:SpaceStationModule` 的 guideText 应明确查看完整空间站，不要退化成“看屏幕提示”或“展示完整基地”。

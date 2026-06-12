@@ -167,7 +167,7 @@ function parsePhaseCondition(phase, index, phaseCount) {
   } else if ((match = condition.match(/entity:([A-Za-z0-9_]+)\.level\s*==\s*(\d+)/i))) {
     target = match[1];
     requiredInteractions.push('upgrade:' + target + ':' + match[2]);
-    trigger = { type: 'entity_state_reached', entity: target, state: Number(match[2]) || 1 };
+    trigger = { type: 'entity_state_reached', entity: target, state: Number.isFinite(Number(match[2])) ? Number(match[2]) : 1 };
     moduleHints.push('upgrade_progress', 'cost_gate');
   } else if ((match = condition.match(/entity:([A-Za-z0-9_]+)\.hp\s*<=\s*(\d+)/i))) {
     target = match[1];

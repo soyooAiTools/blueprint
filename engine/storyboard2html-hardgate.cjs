@@ -94,9 +94,12 @@ function findUserInputListeners(source) {
 function hasJoystickControl(source) {
   var html = stripComments(source);
   var hasControl = /id\s*=\s*["']joystick["']|#[\w-]*joystick|\bjoystick\b/.test(html);
-  var hasOverlayUi = /#[\w-]*joystick[\w-]*\s*\{[^}]*\bposition\s*:\s*fixed\b/.test(html)
+  var hasStaticOverlayUi = /#[\w-]*joystick[\w-]*\s*\{[^}]*\bposition\s*:\s*fixed\b/.test(html)
     || /id\s*=\s*["'][^"']*joystick[^"']*["'][^>]*style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b/.test(html)
     || /style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b[^"']*["'][^>]*id\s*=\s*["'][^"']*joystick[^"']*["']/.test(html);
+  var hasDynamicOverlayUi = /ensureElement\s*\(\s*["']joystick["']/.test(html)
+    && /\bjoystick\.style\.position\s*=\s*["']fixed["']/.test(html);
+  var hasOverlayUi = hasStaticOverlayUi || hasDynamicOverlayUi;
   var hasPointerDown = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointerdown['"]|joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointerdown['"]|\.addEventListener\s*\(\s*['"]pointerdown['"][\s\S]{0,260}joystick/.test(html);
   var hasPointerMove = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointermove['"]|joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointermove['"]|\.addEventListener\s*\(\s*['"]pointermove['"][\s\S]{0,260}joystick/.test(html);
   var hasPointerEnd = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|joystick[\s\S]{0,320}\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"][\s\S]{0,320}joystick/.test(html);
@@ -497,11 +500,15 @@ function evaluateVerifyReport(report, snapshotDoc, opts) {
   var validation = summary.validation || {};
   if (summary.enabled !== true) errors.push('phaseEvidenceSummary.enabled must be true');
   if (validation.passed !== true) errors.push('phaseEvidenceSummary.validation.passed must be true');
-  if (!numberCloseToOne(aggregate.triggeredPresentFullRate)) {
-    errors.push('triggeredPresentFullRate must be 1');
-  }
-  if (!numberCloseToOne(aggregate.triggeredAntiAutoplayHeldRate)) {
-    errors.push('triggeredAntiAutoplayHeldRate must be 1');
+  var triggeredPairs = numberValue(aggregate.triggeredPilotPairs);
+  var hasTriggeredPairCount = triggeredPairs !== null;
+  if (!hasTriggeredPairCount || triggeredPairs > 0) {
+    if (!numberCloseToOne(aggregate.triggeredPresentFullRate)) {
+      errors.push('triggeredPresentFullRate must be 1');
+    }
+    if (!numberCloseToOne(aggregate.triggeredAntiAutoplayHeldRate)) {
+      errors.push('triggeredAntiAutoplayHeldRate must be 1');
+    }
   }
   var expected = expectedPhaseCount(snapshotDoc, Object.assign({}, opts, { verifyReport: report }));
   var coverage = parseCoveragePair(report.phaseCoverage);

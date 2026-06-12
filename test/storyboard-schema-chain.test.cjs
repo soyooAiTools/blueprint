@@ -133,6 +133,38 @@ assert.ok(!repairedMisplacedCtaSourceIr.phases[0].steps.some(function(step) {
 }), 'non-final click:CtaButton must not compile to cta_finish');
 assert.strictEqual(repairedMisplacedCtaSourceIr.phases[1].steps[0].kind, 'cta_finish');
 
+var inferredResourceVerbSourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
+  projectName: 'ResourceVerbInference',
+  entities: [
+    { name: 'Player', label: 'Player' },
+    { name: 'RecycleStation', label: '回收站' },
+    { name: 'CashCounter', label: '美金计数' },
+    { name: 'CtaButton', label: '下载按钮' },
+  ],
+  specs: [
+    {
+      phaseId: 'phase1',
+      phaseName: '交付碎片领奖励',
+      requiredInteractions: ['deliver:MetalScrap:RecycleStation:1', 'reward:Cash:5'],
+    },
+    {
+      phaseId: 'phase2',
+      phaseName: '最终下载',
+      requiredInteractions: ['click:CtaButton'],
+    },
+  ],
+}, {
+  sourceHtmlPath: path.join(tmp, 'resource-verb-inference.html'),
+});
+assert.ok(inferredResourceVerbSourceIr.resources.some(function(resource) { return resource.id === 'MetalScrap'; }));
+assert.ok(inferredResourceVerbSourceIr.resources.some(function(resource) { return resource.id === 'Cash'; }));
+assert.ok(inferredResourceVerbSourceIr.phases[0].steps.some(function(step) {
+  return step.kind === 'deliver' && step.resource === 'MetalScrap';
+}));
+assert.ok(inferredResourceVerbSourceIr.phases[0].steps.some(function(step) {
+  return step.kind === 'reward' && step.resource === 'Cash';
+}));
+
 (function() {
   var logs = [];
   return withEnv({

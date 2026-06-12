@@ -138,6 +138,22 @@ assert.ok(bundle.phases[0].exitEvidence.some(item => item.indexOf('PhaseResource
 assert.ok(bundle.phases[1].exitEvidence.some(item => item.indexOf('EntityAdvanced(Turret)') >= 0));
 assert.ok(bundle.semanticHash && bundle.phases[0].semanticHash, 'proof bundle should carry reusable semantic hashes');
 
+var attackStateBundle = buildProofBundle({
+  gameSchema: {
+    phases: [
+      {
+        phaseId: 'attack',
+        showEntities: ['Enemy'],
+        trigger: { type: 'entity_state_reached', entity: 'Enemy', state: 0 },
+      },
+    ],
+  },
+  plans: { assemblyPlan: { phaseBindings: [], moduleInstances: [] }, cuaPlan: { steps: [] } },
+  specs: [{ phaseId: 'attack', requiredInteractions: ['attack:Enemy'] }],
+});
+assert.ok(attackStateBundle.phases[0].exitEvidence.indexOf('EnemyState <= 0') >= 0);
+assert.strictEqual(attackStateBundle.phases[0].exitEvidence.indexOf('EnemyState >= 0'), -1);
+
 var buildContract = moduleProofContract({
   id: 'Turret::build_progress',
   moduleId: 'build_progress',

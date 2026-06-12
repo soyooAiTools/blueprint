@@ -49,6 +49,8 @@ function inferCtaInteraction(text) {
 function normalizeCanonicalInteraction(phase, index, total) {
   var explicit = stringValue(phase.canonicalInteraction || phase.interaction || phase.action);
   if (explicit) return explicit;
+  var required = safeArray(phase.requiredInteractions).map(stringValue).filter(Boolean);
+  if (required.length) return required[0];
   var text = [
     phase.title,
     phase.sceneText || phase.scene,
@@ -115,6 +117,7 @@ function phaseText(phase) {
 function normalizePhase(phase, index, total) {
   phase = phase || {};
   var canonicalInteraction = normalizeCanonicalInteraction(phase, index, total);
+  var requiredInteractions = safeArray(phase.requiredInteractions).map(stringValue).filter(Boolean);
   var title = stringValue(phase.title || phase.phaseTitle || phase.phaseName || phase.chapterTitle || phase.name) || ('Phase ' + (index + 1));
   var sceneText = stringValue(phase.sceneText || phase.scene || phase.description || phase.visual && phase.visual.sceneText);
   var playerAction = stringValue(phase.playerAction || phase.instruction && phase.instruction.playerText || phase.interaction || phase.action);
@@ -129,6 +132,7 @@ function normalizePhase(phase, index, total) {
     uiText: uiText,
     primaryTarget: inferPrimaryTarget(phase, canonicalInteraction),
     canonicalInteraction: canonicalInteraction,
+    requiredInteractions: requiredInteractions,
     image: phase.image || phase.imageUrl || phase.asset || phase.visual && phase.visual.image || '',
     visualBrief: phase.visualBrief && typeof phase.visualBrief === 'object' ? clone(phase.visualBrief) : null,
     visualPrompt: stringValue(phase.visualPrompt || phase.prompt || phase.visual && phase.visual.prompt),
