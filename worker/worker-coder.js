@@ -53,6 +53,22 @@ const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper boun
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
 
+const UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT = [
+  '## 程序架构硬规则（最终 Unity 交付必须严格执行）',
+  '',
+  '当前 legacy 生成路径可能仍先输出 `GameFlowManagerMain.cs` staging 文件，但最终程序员交付必须由后处理清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`。',
+  '- `Assets/Scripts` 最终只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。',
+  '- `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。',
+  '- 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。',
+  '- 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。',
+  '- 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。',
+  '- Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。',
+  '- Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。',
+  '- 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。',
+  '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。',
+  ''
+].join('\n');
+
 function isClaudeDisabled() {
   var disabled = /^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_DISABLE_CLAUDE || ''));
   var enabled = /^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_ENABLE_CLAUDE || ''));
@@ -342,6 +358,7 @@ var GENERATE_PROMPT = [
   '',
   '## CRITICAL ARCHITECTURE',
   '',
+  UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT,
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
   '⚠️ The scene SHOULD be clean but MAY still contain template objects. ALWAYS clean up in Start() as the FIRST thing:',
   '```csharp',
@@ -355,10 +372,10 @@ var GENERATE_PROMPT = [
   '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
   '⚠️ CREATE all your game content from code in Start() AFTER the cleanup above.',
   '',
-  '### Strategy: Output ONLY GameFlowManagerMain.cs',
+  '### Strategy: Legacy staging entrypoint',
   '',
-  '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/GameFlowManagerMain.cs`',
-  '⚠️ Do NOT create new files like StateManagerExtension.cs, GameFlowHelper.cs, etc.',
+  '⚠️ In this legacy generation path, output only the staging file `Assets/Program/Script/Manager/GameFlowManagerMain.cs`; final delivery splitting is handled by the cleaner.',
+  '⚠️ Do NOT create arbitrary new files like StateManagerExtension.cs, GameFlowHelper.cs, etc.; they will bypass the cleaner contract.',
   '⚠️ Available utility classes (kept intact, you CAN call them):',
   '  - PoolManager (object pooling), AudioManager/SimpleAudioManager (sound)',
   '  - CTAManager (CTA button), LunaManager (Luna lifecycle), GameConstants, GameData',
@@ -366,11 +383,11 @@ var GENERATE_PROMPT = [
   '  - YangJoystick, TouchArea — WARNING: these are EMPTY STUBS, implement input yourself using IPointerDownHandler/IDragHandler or Input.GetMouseButton',
   '  - DOTween (DG.Tweening namespace, .dll)',
   '⚠️ All other game logic classes (Boss, Player, Enemy, Worker, etc.) are EMPTY stubs — do NOT call their methods.',
-  '⚠️ ALL game logic must be in GameFlowManagerMain.cs — it is the only entry point.',
+  '⚠️ GameFlowManagerMain.cs is the current compile entrypoint, but keep code organized by Core/Tool/Game responsibilities so the cleaner can split it correctly.',
   '',
   '#### GameFlowManagerMain.cs is ALREADY attached to a GameObject in the scene:',
   '- It executes on Start()',
-  '- Put ALL game logic here: shots, UI, input, camera, everything',
+  '- Keep runtime entry hooks here, and organize shots, UI, input, camera, entity, and audio logic by clear responsibility blocks',
   '- Keep the class name `GameFlowManagerMain`',
   '',
   '#### In Start(), initialize materials then create content:',
@@ -508,12 +525,12 @@ var GENERATE_PROMPT = [
   '- The method MUST be named shot_N — this is verified by automated checks and will fail if named differently',
   '- Use SetActive to toggle shot containers',
   '',
-  '### ⚠️ ONE FILE ONLY — ABSOLUTELY NO EXCEPTIONS ⚠️',
-  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs`',
-  '- Do NOT output ANY other file — not Player.cs, not GameHelper.cs, not any "Extension" or "Fix" file',
-  '- ALL game logic, ALL helper methods, ALL inner classes go INSIDE GameFlowManagerMain.cs',
-  '- If you need helper classes, define them as `private class` INSIDE GameFlowManagerMain',
-  '- Violating this rule = instant compilation failure',
+  '### ⚠️ LEGACY STAGING FILE RULES ⚠️',
+  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs` in this legacy codegen path',
+  '- Do NOT output arbitrary new files — not Player.cs, not GameHelper.cs, not any "Extension" or "Fix" file',
+  '- Keep helper code inside the staging file only because this path cannot compile arbitrary generated files',
+  '- Still follow the final Core/Tool/Game responsibility boundaries described above',
+  '- Violating this staging rule = instant compilation failure before the delivery cleaner runs',
   '',
   '### Rules:',
   '- Keep class name `GameFlowManagerMain` (already attached to scene object)',
@@ -552,8 +569,8 @@ var GENERATE_PROMPT = [
   '',
   '## Working with the existing SVN project',
   'The SVN project is a TEMPLATE. ALL other scripts are empty stubs.',
-  'GameFlowManagerMain.cs is the ONLY entry point — it runs Start() on scene load.',
-  'You MUST put ALL game logic in GameFlowManagerMain.cs. Do NOT create new files.',
+  'GameFlowManagerMain.cs is the legacy staging entrypoint — it runs Start() on scene load.',
+  'You MUST keep this legacy codegen output in GameFlowManagerMain.cs, while preserving final Core/Tool/Game responsibility boundaries for the cleaner.',
   'Do NOT create a Bootstrap with [RuntimeInitializeOnLoadMethod] — Luna ignores it.',
   '',
   'Output format:',
@@ -561,8 +578,8 @@ var GENERATE_PROMPT = [
   '// code',
   '```',
   '',
-  'Output ONLY ONE file: Assets/Program/Script/Manager/GameFlowManagerMain.cs — no other files.',
-  'ALL game logic must be SELF-CONTAINED in GameFlowManagerMain.cs.',
+  'Output ONLY ONE staging file: Assets/Program/Script/Manager/GameFlowManagerMain.cs — no arbitrary extra files in this legacy path.',
+  'Generated logic must be self-contained for compile, but organized so final delivery can split Core/Tool/Game cleanly.',
   'Do NOT reference any class from Utilities/Entities/AStar — they are empty stubs.',
   'Do NOT output UIManager.cs, Player.cs, CameraManager.cs, MainPanel.cs, Boss.cs, Npc.cs, or TouchArea.cs — they are all empty stubs and must stay that way.',
   '',
@@ -715,11 +732,12 @@ var FIX_PROMPT = [
   '- Removing shot methods or game objects to fix compile errors = REJECTED',
   '- The final code must be 200+ non-empty lines with real game logic',
   '',
-  '## FILE RULES (CRITICAL — ABSOLUTELY NO EXCEPTIONS):',
-  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs` — NO OTHER FILES',
+  UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT,
+  '## FILE RULES (legacy staging path):',
+  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs` in this legacy repair path; final delivery splitting is handled by the cleaner',
   '- Do NOT create StateManagerExtension.cs, GameFlowHelper.cs, etc.',
   '- Do NOT create files in Assets/Scripts/ — they will not be executed',
-  '- ALL fixes must be made INSIDE GameFlowManagerMain.cs',
+  '- ALL fixes must be made INSIDE GameFlowManagerMain.cs for this staging path, while preserving Core/Tool/Game responsibility boundaries',
   '- If you need helper classes, define them as `private class` INSIDE GameFlowManagerMain',
   '- Do NOT reference classes from Utilities/, Entities/, AStar/, BySakanakoChan/ — they are EMPTY STUBS',
   '- If an error says a class/method does not exist, REMOVE the reference — do NOT create a new file for it',
@@ -1437,6 +1455,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
   // V5 System Prompt — 简洁版，强调 Find+Move
   var sysPrompt = 'You are a Luna playable ad developer using the BASE TEMPLATE approach.\n'
     + 'The Unity scene already contains 242 pre-built 3D objects. You do NOT create objects.\n\n'
+    + UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT + '\n'
     + 'YOUR APPROACH:\n'
     + '1. GameObject.Find("Name") to get object references in Start()\n'
     + '2. transform.position = new Vector3(x,y,z) to show objects\n'
@@ -1445,7 +1464,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '5. Instantiate(obj) if you need more copies of an object\n'
     + '6. Write game logic (interactions, collisions, flow control)\n\n'
     + 'CRITICAL RULES:\n'
-    + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
+    + '- Current legacy codegen output is a GameFlowManagerMain.cs staging file; final delivery cleaner must split responsibilities into Core/Tool/Game.\n'
     + '- Do NOT use GFM_Create.Obj() or CreatePrimitive() — objects already exist\n'
     + '- Do NOT use GFM_UI.CreateCanvas() — Canvas already exists\n'
     + '- NO generics (no List<T>), use plain arrays\n'
@@ -1658,8 +1677,9 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
 
   // System prompt
   var sysPrompt = 'You are a Luna playable ad developer. You write C# code for Unity projects exported via Luna.\n'
+    + UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT + '\n'
     + 'CRITICAL RULES:\n'
-    + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
+    + '- Current legacy codegen output is a GameFlowManagerMain.cs staging file; final delivery cleaner must split responsibilities into Core/Tool/Game.\n'
     + '- V5: var go = GameObject.Find("__Pool_Cube_Red_01"); // Pre-existing pool objects with baked colors\n'
     + '- Legacy: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");\n'
     + '- GFM_Create.Obj signature: (PrimitiveType type, Vector3 position, Vector3 scale, string name)\n'

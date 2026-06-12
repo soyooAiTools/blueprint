@@ -42,6 +42,19 @@ var MAPPING_CHEATSHEET = [
   '- 不要把 HTML 相机绝对偏移数值硬塞 Unity, 用 FramePoint/SetCameraHeight 关系式',
 ].join('\n');
 
+var PROGRAM_ARCHITECTURE_CONTRACT = [
+  '## 程序架构契约（下游 Unity 生成必须遵守）',
+  '- 最终 `Assets/Scripts` 只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。',
+  '- `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。',
+  '- 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。',
+  '- 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。',
+  '- 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。',
+  '- Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。',
+  '- Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。',
+  '- 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。',
+  '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。'
+].join('\n');
+
 function countHtmlPhaseSlices(ctx) {
   var slices = ctx && ctx.blueprint && ctx.blueprint.htmlPhaseSlices;
   if (!slices || typeof slices !== 'object') return 0;
@@ -130,6 +143,8 @@ function buildSchemaPromptV3(ctx, opts) {
     lines.push('R17. 优先把 module 实现映射为 phases/onEnter/resources/npcs; 只有 unresolved 项才允许落入 customLogic');
     lines.push('R18. 对每个 moduleContracts/cuaSteps 的 phaseEvidenceSignals 声明的 signal, 必须在对应 phase 写入 evidence');
   }
+  lines.push('');
+  lines.push(PROGRAM_ARCHITECTURE_CONTRACT);
   lines.push('');
   lines.push(MAPPING_CHEATSHEET);
   lines.push('');

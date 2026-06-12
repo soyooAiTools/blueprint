@@ -360,7 +360,7 @@ void CheckEventRules() {
 ```
 
 ## 关键约束（Luna）
-- 所有代码在 GameFlowManagerMain.cs 一个文件
+- 当前生成期可填充 GameFlowManagerMain*.cs partial；最终程序员交付必须清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`，业务逻辑只落 `Game`
 - 用 `GameObject.Find("__Pool_{Shape}_{Color}_{NN}")` 获取池对象，不要用 GFM_Create.Obj()
 - 没有 GFM_Tools 类！用: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
 - 不能用 CreatePrimitive、Resources.Load、async/await、协程、List<T>

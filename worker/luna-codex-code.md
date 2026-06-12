@@ -4,9 +4,21 @@
 
 ## 你的工作
 
-在项目目录中生成 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`。
+当前编码阶段在 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs` 的 partial 骨架中填充逻辑；最终 Unity 交付会由后处理清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game` 三层结构。
 蓝图 JSON 在 `blueprint.json`，阅读它了解游戏流程。
 GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Pool/GFM_Luna 等，每个文件一个类），DO NOT Read 它们（~48KB），API 已在 prompt 内联。
+
+## 程序架构硬规则（最终 Unity 交付必须严格执行）
+
+1. `Assets/Scripts` 最终只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。
+2. `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。
+3. 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。
+4. 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。
+5. 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。
+6. Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。
+7. Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。
+8. 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。
+9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。
 
 ## 核心规则：基础样例工程模式
 
@@ -215,7 +227,7 @@ curl -s -X POST http://localhost:3080/build \
 
 ## 输出要求
 
-- 所有代码写入一个文件：`Assets/Program/Script/Manager/GameFlowManagerMain.cs`
+- 当前编码阶段优先修改 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs` partial 文件；不要创建随意命名的新业务文件。最终交付必须由后处理清洗为 `Core` / `Tool` / `Game`。
 - 代码必须完整，不要省略任何部分
 - 阅读 blueprint.json 了解蓝图需求
 - GFM_*.cs 工具类已拆分为独立文件（GFM_Audio/Pool/Event/Utils/Joystick/Luna/UI/Create/Grid/Pathfinding/Billboard），DO NOT Read 它们（~48KB），API 已在 prompt 内联

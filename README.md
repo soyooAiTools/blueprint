@@ -29,6 +29,17 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
                                     └────────── 反馈迭代 ←── 审核预览 ←────┘
 ```
 
+### Blueprint 2.0 Milestone（2026-06-12）
+
+当前生产主链路以 SourceSceneIR / source HTML 为语义事实源，SourceIR adapter 负责向 Blueprint/GameSchema/WebGL/Unity 下传 phase、guideText、实体、资源和视觉 contract。流程图 tab 是稳定 authoring contract：Flow 必须先经过 preflight、resource snapshot、SourceSceneIR 转换和 SourceIR 验证，再进入 WebGL/Luna/Unity 交付。
+
+2.0 交付规则：
+
+- WebGL 产物必须保留 `__gameState`、可驱动 phase hook、runtime binding smoke 和 source guideText parity 证据。
+- 程序员 Unity 工程必须导出为 `Assets/Scripts/Core` / `Tool` / `Game` 三层；核心模块、工具层和本项目业务分离。
+- 状态和步骤语义使用 enum，Player/NPC/Entity 走基类 + 可选组件组合，Audio 走集中式多音源管理。
+- schema prompt、V4/V5 prompt、Codex code runner 和 legacy worker prompt 都必须携带这套程序架构硬规则。
+
 ### Harness Engine Pipeline（8 阶段）
 
 ```
@@ -100,7 +111,7 @@ Blueprint 的 deterministic assembly 现在同时输出结构化 runtime snapsho
 | 构建 | Luna 7.1.0 + MSBuild + Bridge.NET (Linux ECS) |
 | 转换 | convertToSingleHTML 内联打包（~7MB） |
 
-> **注意**: 仅支持 V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）。
+> **注意**: 当前生产主链路以 SourceSceneIR / SourceIR 为事实源；V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）仅作为兼容和诊断入口保留。
 
 ## 目录结构
 
@@ -218,9 +229,9 @@ Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.
 | POST | `/api/projects/:id/generate-storyboard` | SSE 生成配图 |
 | POST | `/api/projects/:id/edit-frame` | AI 编辑单帧 |
 
-### 流程图作者入口（2026-06-12）
+### 流程图作者入口（Blueprint 2.0, 2026-06-12）
 
-项目详情页的 `流程图` tab 是 Blueprint 1.0 的人工语义作者入口。它面向策划填写
+项目详情页的 `流程图` tab 是 Blueprint 2.0 的人工语义作者入口。它面向策划填写
 phase、entity、resource、requiredInteractions、cost 和 completeCondition，
 并将 Flow 转换为 SourceSceneIR/source preview 后再进入 SourceIR/Blueprint/WebGL
 链路。Flow 是人工语义基准，不直接替代 storyboard2html/source HTML 的生产事实源。

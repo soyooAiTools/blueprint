@@ -75,6 +75,21 @@ function resolvePromptRules(blueprint) {
   return [];
 }
 
+function appendUnityProgramArchitectureRules(lines) {
+  lines.push('## 🚨 程序架构硬规则（最终 Unity 交付必须严格执行）');
+  lines.push('当前 V4 兼容路径可能仍先输出 `GameFlowManagerMain.cs` 单文件，但后处理交付必须拆成 `Core` / `Tool` / `Game`；生成时必须按这个最终架构契约划分职责。');
+  lines.push('1. `Assets/Scripts` 最终只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。');
+  lines.push('2. `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。');
+  lines.push('3. 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。');
+  lines.push('4. 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。');
+  lines.push('5. 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。');
+  lines.push('6. Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。');
+  lines.push('7. Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。');
+  lines.push('8. 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。');
+  lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
+  lines.push('');
+}
+
 function parseBlueprintToPromptV4(blueprint, opts) {
   opts = opts || {};
   blueprint = blueprint || {};
@@ -121,6 +136,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('- 没有线性 Phase/阶段概念，不要用 currentPhase 状态机');
   lines.push('- 用 bool[] ruleTriggered 跟踪哪些规则已触发');
   lines.push('');
+  appendUnityProgramArchitectureRules(lines);
 
   // ========== 2. 全局设置 ==========
   lines.push('# 全局设置');

@@ -126,6 +126,12 @@ function colorString(value, fallback) {
 
 function inferredPrimitive(entity, op) {
   var primitive = String(op && (op.primitive || op.kind) || '').toLowerCase();
+  var explicitKind = !!(op && op.kind && op.kind !== 'primitive');
+  if (explicitKind) {
+    if (primitive === 'capsule') return 'cylinder';
+    if (primitive === 'cube') return 'box';
+    return primitive || 'box';
+  }
   if (primitive === 'primitive') primitive = String(op && op.primitive || '').toLowerCase();
   if (!primitive || primitive === 'box') {
     var text = String(entity && entity.kind || '') + ' ' + String(entity && entity.id || '');

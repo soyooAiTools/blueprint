@@ -74,6 +74,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     lunaAppSuppressed: false,
     manualInteraction: false,
     positions: {},
+    movementBounds: null,
     resources: { ShipLevel: 0, tool: '镐子' },
     resourceBaselines: {},
     phaseEvidence: {},
@@ -705,6 +706,121 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     pos.z += dz / d * step;
     return d;
   }
+  function sourceGroundMovementBounds() {
+    var ground = manifest.sourceSceneContract && manifest.sourceSceneContract.ground || {};
+    var size = Array.isArray(ground.size) ? ground.size : [];
+    var radius = Number(ground.radius);
+    var width = Number(ground.width || size[0] || (isFinite(radius) ? radius * 2 : 0));
+    var depth = Number(ground.depth || ground.height || size[1] || ground.width || (isFinite(radius) ? radius * 2 : 0));
+    if (!isFinite(width) || width <= 0) width = 36;
+    if (!isFinite(depth) || depth <= 0) depth = 36;
+    var center = Array.isArray(ground.position) ? ground.position : [];
+    var cx = Number(ground.x != null ? ground.x : center[0]);
+    var cz = Number(ground.z != null ? ground.z : center[2]);
+    if (!isFinite(cx)) cx = 0;
+    if (!isFinite(cz)) cz = 0;
+    return {
+      minX: cx - width / 2 - 4,
+      maxX: cx + width / 2 + 4,
+      minZ: cz - depth / 2 - 4,
+      maxZ: cz + depth / 2 + 4
+    };
+  }
+  function expandMovementBounds(bounds, pos, margin) {
+    if (!bounds || !pos) return bounds;
+    var x = Number(pos.x);
+    var z = Number(pos.z);
+    if (!isFinite(x) || !isFinite(z)) return bounds;
+    margin = Number(margin);
+    if (!isFinite(margin)) margin = 4;
+    bounds.minX = Math.min(bounds.minX, x - margin);
+    bounds.maxX = Math.max(bounds.maxX, x + margin);
+    bounds.minZ = Math.min(bounds.minZ, z - margin);
+    bounds.maxZ = Math.max(bounds.maxZ, z + margin);
+    return bounds;
+  }
+  function sourceStepTargetNames() {
+    var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
+    var out = [];
+    function add(value) {
+      var name = worldTargetName(value);
+      if (name && out.indexOf(name) < 0) out.push(name);
+    }
+    phases.forEach(function(phase) {
+      (phase && phase.steps || []).forEach(function(step) {
+        add(step && (step.target || step.entity || step.to || step.from || step.setEntity));
+      });
+      (phase && phase.targetSequence || []).forEach(add);
+      (phase && phase.showEntities || []).forEach(add);
+      (phase && phase.runtimeVisibleEntities || []).forEach(add);
+    });
+    return out;
+  }
+  function overlayMovementBounds(composites) {
+    if (overlayRuntime.movementBounds) return overlayRuntime.movementBounds;
+    composites = composites || {};
+    var bounds = sourceGroundMovementBounds();
+    Object.keys(composites).forEach(function(name) {
+      expandMovementBounds(bounds, composites[name] && composites[name].position, 5);
+    });
+    sourceStepTargetNames().forEach(function(name) {
+      expandMovementBounds(bounds, composites[name] && composites[name].position, 6);
+    });
+    if (!isFinite(bounds.minX) || !isFinite(bounds.maxX) || bounds.minX >= bounds.maxX) {
+      bounds.minX = -36;
+      bounds.maxX = 36;
+    }
+    if (!isFinite(bounds.minZ) || !isFinite(bounds.maxZ) || bounds.minZ >= bounds.maxZ) {
+      bounds.minZ = -24;
+      bounds.maxZ = 24;
+    }
+    overlayRuntime.movementBounds = {
+      minX: Number(bounds.minX.toFixed(3)),
+      maxX: Number(bounds.maxX.toFixed(3)),
+      minZ: Number(bounds.minZ.toFixed(3)),
+      maxZ: Number(bounds.maxZ.toFixed(3))
+    };
+    try { window.__SOURCE_IR_OVERLAY_MOVEMENT_BOUNDS__ = overlayRuntime.movementBounds; } catch(e) {}
+    return overlayRuntime.movementBounds;
+  }
+  function clampOverlayPlayerPosition(player, composites) {
+    var bounds = overlayMovementBounds(composites);
+    if (!player || !bounds) return bounds;
+    player.x = Math.max(bounds.minX, Math.min(bounds.maxX, Number(player.x) || 0));
+    player.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, Number(player.z) || 0));
+    return bounds;
+  }
+  function sourceReachabilityReport(composites) {
+    composites = composites || {};
+    var bounds = overlayMovementBounds(composites);
+    var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
+    var checked = [];
+    var unreachable = [];
+    phases.forEach(function(phase) {
+      (phase && phase.steps || []).forEach(function(step) {
+        var target = worldTargetName(step && (step.target || step.entity || step.to || step.from || step.setEntity));
+        if (!target || !composites[target] || !composites[target].position) return;
+        var pos = composites[target].position;
+        var radius = Math.max(2.5, Number(step.radius) || 0);
+        var reachable = Number(pos.x) >= bounds.minX - radius &&
+          Number(pos.x) <= bounds.maxX + radius &&
+          Number(pos.z) >= bounds.minZ - radius &&
+          Number(pos.z) <= bounds.maxZ + radius;
+        var item = {
+          phase: phase.id || '',
+          stepIndex: step.index == null ? null : step.index,
+          kind: step.kind || '',
+          target: target,
+          position: { x: Number(pos.x) || 0, z: Number(pos.z) || 0 },
+          radius: radius,
+          reachable: reachable
+        };
+        checked.push(item);
+        if (!reachable) unreachable.push(item);
+      });
+    });
+    return { bounds: bounds, checked: checked.length, unreachable: unreachable };
+  }
   function cssHex(value) {
     var n = Number(value) || 0;
     return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6);
@@ -798,6 +914,14 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var pp = composites.Player.position || {};
       overlayRuntime.positions.Player = { x: Number(pp.x) || 0, y: 0, z: Number(pp.z) || 0 };
     }
+    overlayMovementBounds(composites);
+    try {
+      window.__SOURCE_IR_OVERLAY_REACHABILITY__ = sourceReachabilityReport(composites);
+      window.__SOURCE_IR_OVERLAY_DEBUG__ = {
+        movementBounds: overlayRuntime.movementBounds,
+        reachability: window.__SOURCE_IR_OVERLAY_REACHABILITY__
+      };
+    } catch(eReachability) {}
     overlayRuntime.initialized = true;
   }
   function overlayPhaseText() {
@@ -818,7 +942,13 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function stepLabel(step) {
     if (!step) return '';
     var composites = manifest.sourceEntityContract && manifest.sourceEntityContract.entityComposites || {};
-    return step.label || (step.target && composites[step.target] && composites[step.target].label) || step.target || '';
+    var target = worldTargetName(step.target || step.entity || step.setEntity || step.to || step.from || '');
+    var targetLabel = target && composites[target] && composites[target].label || entityTargetLabel(target);
+    var label = String(step.label || '').trim();
+    if (!label) return targetLabel || target || '';
+    if (target && label === target) return targetLabel || label;
+    if (targetLabel && targetLabel !== target && /^[A-Za-z0-9_]+(?:__phase\d+_target)?$/i.test(label)) return targetLabel;
+    return label;
   }
   function currentOverlayStep(info) {
     var steps = info && info.steps || [];
@@ -873,7 +1003,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       overlayRuntime.laserOpacity = 1;
       overlayRuntime.laserTarget = step.target;
     }
-    showOverlayToast(step.label || entityTargetLabel(step.target));
+    showOverlayToast(stepLabel(step));
     if ((step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') && step.resource) addResource(step.resource, step.amount || 1);
     if ((step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'combine') && step.resource) spendResource(step.resource, step.amount || step.cost || 1);
     spendResource(step.spend, step.amount || step.cost || 1);
@@ -964,8 +1094,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var inputY = manualOverride ? manualOverride.y : overlayInput.dy;
       player.x += inputX * speed * dt;
       player.z += inputY * speed * dt;
-      player.x = Math.max(-18, Math.min(72, player.x));
-      player.z = Math.max(-18, Math.min(18, player.z));
+      clampOverlayPlayerPosition(player, composites);
     }
     var ship = overlayRuntime.positions.SpaceShip;
     if (ship && player && Number(overlayRuntime.resources.ShipLevel || 0) > 0) {
@@ -1067,6 +1196,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       overlayPerformance: {
         lunaSuppressed: overlayRuntime.lunaSuppressed,
         manualInteraction: overlayRuntime.manualInteraction,
+        movementBounds: overlayRuntime.movementBounds || null,
+        targetReachability: window.__SOURCE_IR_OVERLAY_REACHABILITY__ || null,
         pixelRatio: 1,
         antialias: false
       },

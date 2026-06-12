@@ -71,6 +71,73 @@ assert.ok(sourceIr.phases[9].steps.some(function(step) {
 }));
 assert.deepStrictEqual(sourceIr.phases[11].gate, { kind: 'cta_arrival', ctaId: 'CtaButton', radius: 2 });
 
+var queueFlow = JSON.parse(JSON.stringify(flow));
+queueFlow.entities.push({ id: 'CustomerQueue', label: '排队顾客', kind: 'npc_group' });
+queueFlow.phases[0].visibleEntities.push('CustomerQueue');
+queueFlow.phases[0].visualNotes = '回收站门口有 5 名顾客排队等待。';
+var queueIr = buildSourceSceneIrFromStoryboardFlow(queueFlow, {
+  sourceHtmlPath: path.join(tmp, 'queue-source-ir-preview.html'),
+  generatedAt: '2026-06-12T00:00:00.000Z',
+});
+var queueEntity = queueIr.entities.filter(function(entity) { return entity.id === 'CustomerQueue'; })[0];
+assert.ok(queueEntity, 'CustomerQueue entity should exist');
+assert.strictEqual(queueEntity.visual.groupCount, 5);
+assert.strictEqual(queueEntity.visual.queueSpacing >= 0.8, true);
+assert.strictEqual(queueEntity.visual.primitive, 'cylinder');
+var archetypeFlow = JSON.parse(JSON.stringify(flow));
+archetypeFlow.entities.push({ id: 'DonutOven', label: '甜甜圈烤箱', kind: 'producer' });
+archetypeFlow.entities.push({ id: 'Donut', label: '甜甜圈', kind: 'resource' });
+archetypeFlow.entities.push({ id: 'GrilledShrimp', label: '烤大虾', kind: 'resource' });
+archetypeFlow.entities.push({ id: 'PlayerSpeed', label: '主厨速度', kind: 'stat' });
+archetypeFlow.entities.push({ id: 'ChefTray', label: '主厨托盘', kind: 'prop' });
+archetypeFlow.entities.push({ id: 'ChefUpgradeCircle', label: '主厨升级圈', kind: 'upgrade_point' });
+archetypeFlow.entities.push({ id: 'MoneyMagnetRange', label: '吸钱范围', kind: 'effect' });
+archetypeFlow.entities.push({ id: 'TakeawayWindow', label: '外卖窗口', kind: 'station' });
+archetypeFlow.phases[0].visibleEntities.push('DonutOven');
+archetypeFlow.phases[0].visibleEntities.push('Donut');
+archetypeFlow.phases[0].visibleEntities.push('GrilledShrimp');
+archetypeFlow.phases[0].visibleEntities.push('PlayerSpeed');
+archetypeFlow.phases[0].visibleEntities.push('ChefTray');
+archetypeFlow.phases[0].visibleEntities.push('ChefUpgradeCircle');
+archetypeFlow.phases[0].visibleEntities.push('MoneyMagnetRange');
+archetypeFlow.phases[0].visibleEntities.push('TakeawayWindow');
+var archetypeIr = buildSourceSceneIrFromStoryboardFlow(archetypeFlow, {
+  sourceHtmlPath: path.join(tmp, 'archetype-source-ir-preview.html'),
+  generatedAt: '2026-06-12T00:00:00.000Z',
+});
+var donutOvenEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'DonutOven'; })[0];
+var donutEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'Donut'; })[0];
+var shrimpEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'GrilledShrimp'; })[0];
+var speedEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'PlayerSpeed'; })[0];
+var trayEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'ChefTray'; })[0];
+var upgradeEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'ChefUpgradeCircle'; })[0];
+var magnetEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'MoneyMagnetRange'; })[0];
+var takeawayWindowEntity = archetypeIr.entities.filter(function(entity) { return entity.id === 'TakeawayWindow'; })[0];
+assert.strictEqual(donutOvenEntity.visual.archetype, 'donut_oven');
+assert.strictEqual(donutOvenEntity.visual.meshOps.length >= 4, true);
+assert.strictEqual(donutEntity.visual.archetype, 'donut');
+assert.ok(donutEntity.visual.meshOps.some(function(op) { return op.kind === 'torus'; }));
+assert.strictEqual(shrimpEntity.visual.archetype, 'shrimp');
+assert.ok(shrimpEntity.visual.meshOps.some(function(op) { return op.kind === 'cone'; }));
+assert.strictEqual(speedEntity.visual.archetype, 'ring_marker');
+assert.strictEqual(trayEntity.visual.archetype, 'tray');
+assert.strictEqual(upgradeEntity.visual.archetype, 'ring_marker');
+assert.strictEqual(magnetEntity.visual.archetype, 'ring_marker');
+assert.strictEqual(takeawayWindowEntity.visual.archetype, 'service_window');
+assert.strictEqual(takeawayWindowEntity.visual.meshOps.length >= 4, true);
+var queueHtml = buildSourceIrPreviewHtml(queueIr, {
+  includeThree: false,
+  sourceHtmlPath: path.join(tmp, 'queue-source-ir-preview.html'),
+  generatedAt: '2026-06-12T00:00:00.000Z',
+});
+assert.ok(queueHtml.indexOf('isNpcGroupEntity') >= 0);
+assert.ok(queueHtml.indexOf('makeNpcPerson') >= 0);
+assert.ok(queueHtml.indexOf('if (!count) return 0') >= 0);
+assert.ok(queueHtml.indexOf('buildMeshOpsGroup') >= 0);
+assert.ok(queueHtml.indexOf('phaseTargetBaseId') >= 0);
+assert.ok(queueHtml.indexOf('visualModelForTarget') >= 0);
+assert.ok(queueHtml.indexOf('playerMovementBounds') >= 0);
+
 var liveness = analyzeSourceIrPhaseLiveness(sourceIr, {});
 assert.strictEqual(liveness.passed, true, JSON.stringify(liveness.violations, null, 2));
 

@@ -8,11 +8,23 @@ var parser = require('../adapters/storyboard-static-parser.cjs');
 var planner = require('../engine/storyboard-ai-planner.cjs');
 var storyboardAi = require('../engine/storyboard-ai.cjs');
 var htmlBridge = require('../engine/storyboard-html-bridge.cjs');
+var {
+  FLOW_CONTRACT_PATH,
+  buildSourceSceneIrFromStoryboardFlow,
+  loadStoryboardFlow,
+  preflightStoryboardFlow,
+} = require('../engine/storyboard-flow-source-ir.cjs');
+var {
+  buildSourceIrPreviewHtml,
+} = require('../engine/source-ir-preview-renderer.cjs');
+var {
+  preflightSourceSceneIrHtml,
+} = require('../engine/source-scene-ir.cjs');
 
 var REPO_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard-html-package.cjs --out-dir <dir> [--project-name name] [--generation-mode codex|deterministic] [--model id] [--timeout-ms N] [--allow-empty-evidence] <file...>');
+  console.error('Usage: node scripts/storyboard-html-package.cjs --out-dir <dir> [--project-name name] [--generation-mode codex|deterministic] [--model id] [--timeout-ms N] [--flow-json flow.json] [--allow-empty-evidence] [--allow-template-expansion] <file...>');
   console.error('V1 supports png/jpg/jpeg/pdf/csv/xlsx/xls/docx/doc. HTML and video are manual_required.');
   process.exit(2);
 }
@@ -25,6 +37,8 @@ function parseArgs(argv) {
     model: '',
     timeoutMs: 0,
     allowEmptyEvidence: false,
+    allowTemplateExpansion: false,
+    flowPath: '',
     files: [],
   };
   for (var i = 2; i < argv.length; i += 1) {
@@ -34,7 +48,9 @@ function parseArgs(argv) {
     else if (arg === '--generation-mode') opts.generationMode = argv[++i] || '';
     else if (arg === '--model') opts.model = argv[++i] || '';
     else if (arg === '--timeout-ms') opts.timeoutMs = Number(argv[++i] || 0) || 0;
+    else if (arg === '--flow-json') opts.flowPath = argv[++i] || '';
     else if (arg === '--allow-empty-evidence') opts.allowEmptyEvidence = true;
+    else if (arg === '--allow-template-expansion') opts.allowTemplateExpansion = true;
     else opts.files.push(arg);
   }
   if (!opts.outDir || opts.files.length === 0) usage();
@@ -44,6 +60,11 @@ function parseArgs(argv) {
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n');
+}
+
+function writeText(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, String(value || ''));
 }
 
 function unsupportedSummary(evidence) {
@@ -71,6 +92,94 @@ function normalizeGenerationMode(value) {
   if (mode === 'source-ir' || mode === 'deterministic-source-ir') return 'deterministic';
   if (mode === 'dry-run' || mode === 'codex-dry-run') return 'deterministic';
   return mode === 'deterministic' ? 'deterministic' : 'codex';
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function flowCoreLoop(flow) {
+  return safeArray(flow && flow.phases).map(function(phase) {
+    return phase && phase.title || '';
+  }).filter(Boolean).slice(0, 8).join(' -> ');
+}
+
+function storyboardAiFromFlow(flow, options) {
+  options = options || {};
+  var phases = safeArray(flow && flow.phases).map(function(phase, index) {
+    var required = safeArray(phase.requiredInteractions).map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+    return {
+      phaseId: phase.id || ('phase' + (index + 1)),
+      title: phase.title || ('Phase ' + (index + 1)),
+      sceneText: phase.visualNotes || phase.notes || phase.guideText || '',
+      playerAction: phase.guideText || '',
+      feedback: phase.completeCondition || '',
+      uiText: phase.guideText || '',
+      primaryTarget: phase.target || '',
+      canonicalInteraction: required[0] || phase.action || '',
+      requiredInteractions: required,
+      visualPrompt: phase.title || '',
+      sourceEvidence: [options.flowPath || 'storyboard-flow'],
+      confidence: 1,
+    };
+  });
+  var ai = storyboardAi.normalizeStoryboardAi({
+    projectName: flow.projectName || flow.project && flow.project.name || options.projectName,
+    coreLoop: flowCoreLoop(flow),
+    phases: phases,
+  }, {
+    projectName: flow.projectName || flow.project && flow.project.name || options.projectName,
+    coreLoop: flowCoreLoop(flow),
+  });
+  ai.planning = {
+    schemaVersion: 'storyboard-ai-planning.v1',
+    source: 'storyboard-flow',
+    flowPath: options.flowPath || '',
+    rawBeatCount: phases.length,
+    phaseCount: ai.phases.length,
+    phaseCountPolicy: { min: 10, max: 13, default: phases.length },
+    strategy: 'flow_source',
+  };
+  ai.semanticHash = storyboardAi._internals.semanticHash({
+    schemaVersion: ai.schemaVersion,
+    project: ai.project,
+    phases: ai.phases,
+    planning: ai.planning,
+  });
+  return ai;
+}
+
+function riskyTemplateExpansion(storyboard) {
+  var planning = storyboard && storyboard.planning || {};
+  if (planning.strategy !== 'expand_to_12') return null;
+  var phases = safeArray(storyboard && storyboard.phases);
+  var defaultExpanded = phases.filter(function(phase) {
+    return safeArray(phase && phase.sourceEvidence).length === 0 &&
+      Number(phase && phase.confidence || 0) > 0 &&
+      Number(phase && phase.confidence || 0) <= 0.36;
+  });
+  if (defaultExpanded.length < 3) return null;
+  return {
+    code: 'storyboard_ai_unsafe_template_expansion',
+    severity: 'error',
+    message: 'StoryboardAI fell back to low-confidence generic template phases. Provide a storyboard Flow source or improve PDF phase extraction before generating source HTML.',
+    strategy: planning.strategy,
+    rawBeatCount: planning.rawBeatCount,
+    phaseCount: planning.phaseCount || phases.length,
+    defaultExpandedPhaseCount: defaultExpanded.length,
+    defaultExpandedPhaseTitles: defaultExpanded.map(function(phase) { return phase.title; }),
+  };
+}
+
+function assertNoUnsafeTemplateExpansion(storyboard, options) {
+  options = options || {};
+  if (options.allowTemplateExpansion) return null;
+  var risk = riskyTemplateExpansion(storyboard);
+  if (!risk) return null;
+  var err = new Error(risk.message);
+  err.code = 'STORYBOARD_HTML_UNSAFE_TEMPLATE_EXPANSION';
+  err.diagnostic = risk;
+  throw err;
 }
 
 function runNode(args, options) {
@@ -173,6 +282,138 @@ async function runSourceIrPreflight(htmlPath, outDir) {
   };
 }
 
+function buildFlowInputBundle(flow, sourceIr, options) {
+  options = options || {};
+  return {
+    kind: 'blueprint.storyboard2html.flowSourceInput',
+    schemaVersion: '1.0.0',
+    projectName: flow.projectName || flow.project && flow.project.name || options.projectName || '',
+    source: 'storyboard-flow',
+    flowPath: options.flowPath || '',
+    sourceSceneIrPath: path.join(options.outDir || '', 'source-scene-ir.json'),
+    generatedHtmlPath: options.htmlPath || '',
+    phaseCount: safeArray(sourceIr && sourceIr.phases).length,
+    entityCount: safeArray(sourceIr && sourceIr.entities).length,
+    resourceCount: safeArray(sourceIr && sourceIr.resources).length,
+    contract: FLOW_CONTRACT_PATH,
+    semanticHash: sourceIr && sourceIr.semanticHash || '',
+  };
+}
+
+async function buildPackageFromFlow(files, outDir, options, evidence) {
+  options = options || {};
+  var absOut = path.resolve(outDir);
+  var flowPath = path.resolve(options.flowPath);
+  var htmlPath = path.join(absOut, 'generated.html');
+  var sourceSceneIrPath = path.join(absOut, 'source-scene-ir.json');
+  var flowCopyPath = path.join(absOut, 'storyboard-flow.json');
+  var authoringPreflightPath = path.join(absOut, 'storyboard-flow-authoring-report.json');
+  var flowSourceIrReportPath = path.join(absOut, 'storyboard-flow-source-ir-report.json');
+  var inputBundlePath = path.join(absOut, 'storyboard2html-input.json');
+  var storyboardAiPath = path.join(absOut, 'storyboard-ai.json');
+
+  var flow = loadStoryboardFlow(flowPath);
+  writeJson(flowCopyPath, flow);
+  var storyboard = storyboardAiFromFlow(flow, {
+    projectName: options.projectName,
+    flowPath: flowPath,
+  });
+  writeJson(storyboardAiPath, storyboard);
+
+  var authoringPreflight = preflightStoryboardFlow(flow, {
+    generatedAt: options.generatedAt,
+  });
+  writeJson(authoringPreflightPath, authoringPreflight);
+  if (authoringPreflight.passed !== true) {
+    var authoringErr = new Error('Storyboard Flow authoring preflight failed; fix blocker issues before generating source HTML.');
+    authoringErr.code = 'STORYBOARD_HTML_FLOW_PREFLIGHT_FAILED';
+    authoringErr.authoringPreflightPath = authoringPreflightPath;
+    authoringErr.issueCounts = authoringPreflight.issueCounts;
+    throw authoringErr;
+  }
+
+  var sourceIr = buildSourceSceneIrFromStoryboardFlow(flow, {
+    sourceHtmlPath: htmlPath,
+    generatedAt: options.generatedAt,
+  });
+  writeJson(sourceSceneIrPath, sourceIr);
+  writeJson(inputBundlePath, buildFlowInputBundle(flow, sourceIr, {
+    projectName: options.projectName,
+    flowPath: flowPath,
+    outDir: absOut,
+    htmlPath: htmlPath,
+  }));
+  writeText(htmlPath, buildSourceIrPreviewHtml(sourceIr, {
+    generatedAt: options.generatedAt,
+  }));
+  var preflight = preflightSourceSceneIrHtml(fs.readFileSync(htmlPath, 'utf8'), {
+    sourceHtmlPath: htmlPath,
+    requireSourceIrRenderer: true,
+  });
+  var preflightPath = path.join(absOut, 'source-ir-preflight.json');
+  writeJson(preflightPath, preflight);
+
+  var flowSourceReport = {
+    schemaVersion: 'storyboard-flow-source-ir-report.v1',
+    inputPath: flowPath,
+    outDir: absOut,
+    sourceSceneIrPath: sourceSceneIrPath,
+    sourceIrPreviewHtmlPath: htmlPath,
+    authoringPreflightPath: authoringPreflightPath,
+    preflightPath: preflightPath,
+    contract: FLOW_CONTRACT_PATH,
+    phaseCount: sourceIr.phases.length,
+    entityCount: sourceIr.entities.length,
+    resourceCount: sourceIr.resources.length,
+    authoringIssueCounts: authoringPreflight.issueCounts,
+    resourceSnapshots: authoringPreflight.resourceSnapshots,
+    semanticHash: sourceIr.semanticHash,
+    passed: preflight.passed === true,
+  };
+  writeJson(flowSourceIrReportPath, flowSourceReport);
+  if (preflight.passed !== true) {
+    var preflightErr = new Error('Flow source HTML preflight failed.');
+    preflightErr.code = 'STORYBOARD_HTML_FLOW_SOURCE_PREFLIGHT_FAILED';
+    preflightErr.preflightPath = preflightPath;
+    throw preflightErr;
+  }
+
+  var report = {
+    schemaVersion: 'storyboard-html-package-report.v1',
+    sourcePipeline: 'storyboard-flow',
+    project: storyboard.project,
+    outDir: absOut,
+    inputs: files.map(function(file) { return path.resolve(file); }),
+    evidenceHash: evidence && evidence.semanticHash || '',
+    storyboardHash: storyboard.semanticHash,
+    phaseCount: sourceIr.phases.length,
+    planning: storyboard.planning,
+    generation: {
+      mode: 'flow-source-ir',
+      status: 'done',
+      logPath: '',
+      stdoutChars: 0,
+      stderrChars: 0,
+    },
+    unsupportedOrManualSources: evidence ? unsupportedSummary(evidence) : [],
+    artifacts: {
+      evidenceIr: path.join(absOut, 'evidence-ir.json'),
+      storyboardAi: storyboardAiPath,
+      storyboard2htmlInput: inputBundlePath,
+      generatedHtml: htmlPath,
+      sourceIrPreflight: preflightPath,
+      generateLog: '',
+      storyboardFlow: flowCopyPath,
+      storyboardFlowAuthoringReport: authoringPreflightPath,
+      storyboardFlowSourceIrReport: flowSourceIrReportPath,
+      sourceSceneIr: sourceSceneIrPath,
+    },
+    diagnostics: (evidence && evidence.diagnostics || []).concat(authoringPreflight.issues || []).concat(preflight.violations || []),
+  };
+  writeJson(path.join(absOut, 'audit-report.json'), report);
+  return report;
+}
+
 async function buildPackage(files, outDir, options) {
   options = options || {};
   var absOut = path.resolve(outDir);
@@ -180,6 +421,9 @@ async function buildPackage(files, outDir, options) {
 
   var evidence = parser.parseStaticSources(files, { projectName: options.projectName });
   writeJson(path.join(absOut, 'evidence-ir.json'), evidence);
+  if (options.flowPath) {
+    return buildPackageFromFlow(files, absOut, options, evidence);
+  }
   if (!options.allowEmptyEvidence && !hasAutomatableEvidence(evidence)) {
     var err = new Error('No automatable static storyboard evidence found. HTML/video-only references are manual_required in v1; provide PDF/Word/Excel/image input.');
     err.code = 'STORYBOARD_HTML_NO_AUTOMATABLE_EVIDENCE';
@@ -188,6 +432,9 @@ async function buildPackage(files, outDir, options) {
   }
 
   var storyboard = planner.planStoryboardAiFromEvidence(evidence, { projectName: options.projectName || evidence.project.name });
+  assertNoUnsafeTemplateExpansion(storyboard, {
+    allowTemplateExpansion: options.allowTemplateExpansion,
+  });
   storyboard.semanticHash = storyboardAi._internals.semanticHash({
     schemaVersion: storyboard.schemaVersion,
     project: storyboard.project,
@@ -246,17 +493,20 @@ async function main() {
     model: opts.model,
     timeoutMs: opts.timeoutMs,
     allowEmptyEvidence: opts.allowEmptyEvidence,
+    allowTemplateExpansion: opts.allowTemplateExpansion,
+    flowPath: opts.flowPath,
   });
   console.log('outDir=' + report.outDir);
   console.log('generatedHtml=' + report.artifacts.generatedHtml);
   console.log('phaseCount=' + report.phaseCount);
   console.log('manualRequiredCount=' + report.unsupportedOrManualSources.length);
+  console.log('generationMode=' + (report.generation && report.generation.mode || ''));
   console.log('storyboardHash=' + report.storyboardHash);
 }
 
 if (require.main === module) {
   main().catch(function(err) {
-    if (err && err.code === 'STORYBOARD_HTML_NO_AUTOMATABLE_EVIDENCE') {
+    if (err && (err.code === 'STORYBOARD_HTML_NO_AUTOMATABLE_EVIDENCE' || err.code === 'STORYBOARD_HTML_UNSAFE_TEMPLATE_EXPANSION')) {
       console.error('ERROR: ' + err.message);
     } else {
       console.error(err && err.stack || err);
@@ -271,5 +521,6 @@ module.exports = {
     normalizeGenerationMode: normalizeGenerationMode,
     hasAutomatableEvidence: hasAutomatableEvidence,
     unsupportedSummary: unsupportedSummary,
+    riskyTemplateExpansion: riskyTemplateExpansion,
   },
 };

@@ -507,6 +507,164 @@ function colorForEntity(id, kind, resourceIds) {
   return '#7dd3fc';
 }
 
+function entityHaystack(id, kind, label) {
+  return [id, kind, label].map(function(value) { return String(value || ''); }).join(' ');
+}
+
+function archetypeForEntity(id, kind, label, resourceIds) {
+  var text = entityHaystack(id, kind, label);
+  if (/speed|速度|\bstat\b/i.test(text)) return 'ring_marker';
+  if (/npc_group|queue|customer|crowd|people|顾客|食客|排队|人群/i.test(text)) return 'npc_group';
+  if (/unlock|upgrade|circle|range|解锁圈|升级圈|范围/i.test(text)) return 'ring_marker';
+  if (/tray|托盘/i.test(text)) return 'tray';
+  if (/player|chef|主厨|小主厨|hero|avatar/i.test(text)) return 'chef';
+  if (/oven|烤箱|炉/i.test(text)) return /donut|甜甜圈/i.test(text) ? 'donut_oven' : 'oven';
+  if (/shrimp|prawn|大虾|虾/i.test(text)) return 'shrimp';
+  if (/grill|bbq|铁板|烧烤台|烤台/i.test(text)) return 'grill';
+  if (/sofa|seat|chair|沙发|座位|座椅/i.test(text)) return 'sofa_seats';
+  if (/table|餐桌|桌/i.test(text)) return 'table';
+  if (/takeaway.*window|window|窗口|外卖窗口|station|柜台/i.test(text)) return 'service_window';
+  if (/awning|遮阳棚|雨棚/i.test(text)) return 'awning';
+  if (/road|street|马路|道路/i.test(text)) return 'road';
+  if (/fog|迷雾|雾墙|边界/i.test(text)) return 'fog';
+  if (/smoke|烟雾|烟|蒸汽/i.test(text)) return 'smoke';
+  if (/donut|甜甜圈/i.test(text)) return 'donut';
+  if (/money|cash|coin|钞票|现金|金币/i.test(text) || resourceIds[id] && /money|cash|coin/i.test(id)) return 'money_pile';
+  if (/question|问号/i.test(text)) return 'question_marks';
+  if (/area|zone|区域/i.test(text)) return 'floor_zone';
+  if (/order|订单|打包/i.test(text)) return 'order_stack';
+  return '';
+}
+
+function op(kind, position, size, color, extra) {
+  var out = {
+    kind: kind,
+    position: position,
+    size: size,
+    color: color,
+    source: 'storyboard-flow-archetype',
+  };
+  if (extra) Object.keys(extra).forEach(function(key) { out[key] = extra[key]; });
+  return out;
+}
+
+function withOpacity(opValue, opacity) {
+  opValue.opacity = opacity;
+  return opValue;
+}
+
+function meshOpsForArchetype(archetype, baseColor) {
+  var c = baseColor || '#7dd3fc';
+  if (archetype === 'chef') return [
+    op('cylinder', [0, 0.52, 0], [0.24, 0.3, 0.82], '#2563eb'),
+    op('sphere', [0, 1.08, 0], [0.24], '#ffd7a8'),
+    op('cylinder', [0, 1.36, 0], [0.18, 0.22, 0.16], '#ffffff'),
+    op('box', [0.34, 0.72, -0.08], [0.44, 0.08, 0.32], '#d97706'),
+  ];
+  if (archetype === 'donut_oven' || archetype === 'oven') return [
+    op('box', [0, 0.55, 0], [1.28, 0.96, 0.9], c),
+    op('box', [0, 0.58, -0.47], [0.82, 0.48, 0.05], '#0f172a'),
+    op('box', [0, 0.25, -0.53], [1.02, 0.08, 0.16], '#94a3b8'),
+    op('torus', [0, 0.58, -0.58], [0.22, 0.06], '#f59e0b', { rotation: [1.5708, 0, 0] }),
+    op('box', [-0.35, 1.08, 0.1], [0.18, 0.08, 0.36], '#e2e8f0'),
+    op('box', [0, 1.08, 0.1], [0.18, 0.08, 0.36], '#e2e8f0'),
+    op('box', [0.35, 1.08, 0.1], [0.18, 0.08, 0.36], '#e2e8f0'),
+  ];
+  if (archetype === 'grill') return [
+    op('box', [0, 0.46, 0], [1.5, 0.48, 0.9], '#334155'),
+    op('box', [0, 0.75, 0], [1.62, 0.12, 0.98], '#0f172a'),
+    op('box', [-0.38, 0.84, 0], [0.08, 0.08, 0.86], '#94a3b8'),
+    op('box', [0, 0.84, 0], [0.08, 0.08, 0.86], '#94a3b8'),
+    op('box', [0.38, 0.84, 0], [0.08, 0.08, 0.86], '#94a3b8'),
+    withOpacity(op('sphere', [-0.25, 1.2, -0.05], [0.16], '#cbd5e1'), 0.65),
+    withOpacity(op('sphere', [0.05, 1.42, 0.1], [0.2], '#e2e8f0'), 0.52),
+    withOpacity(op('sphere', [0.34, 1.22, 0], [0.15], '#cbd5e1'), 0.6),
+  ];
+  if (archetype === 'table') return [
+    op('box', [0, 0.72, 0], [1.5, 0.16, 0.9], '#8b5a2b'),
+    op('box', [-0.55, 0.36, -0.3], [0.12, 0.66, 0.12], '#6b3f1d'),
+    op('box', [0.55, 0.36, -0.3], [0.12, 0.66, 0.12], '#6b3f1d'),
+    op('box', [-0.55, 0.36, 0.3], [0.12, 0.66, 0.12], '#6b3f1d'),
+    op('box', [0.55, 0.36, 0.3], [0.12, 0.66, 0.12], '#6b3f1d'),
+  ];
+  if (archetype === 'sofa_seats') return [
+    op('box', [-0.42, 0.36, 0], [0.76, 0.32, 0.68], '#2563eb'),
+    op('box', [0.42, 0.36, 0], [0.76, 0.32, 0.68], '#3b82f6'),
+    op('box', [0, 0.72, 0.28], [1.72, 0.7, 0.18], '#1d4ed8'),
+    op('box', [-0.94, 0.52, 0], [0.18, 0.54, 0.72], '#1e40af'),
+    op('box', [0.94, 0.52, 0], [0.18, 0.54, 0.72], '#1e40af'),
+  ];
+  if (archetype === 'service_window') return [
+    op('box', [0, 0.78, 0], [1.5, 1.2, 0.24], '#ef4444'),
+    op('box', [0, 0.9, -0.14], [0.95, 0.48, 0.08], '#0f172a'),
+    op('box', [0, 0.38, -0.28], [1.65, 0.18, 0.48], '#f97316'),
+    op('box', [-0.66, 1.52, -0.06], [0.28, 0.18, 0.36], '#fde68a'),
+    op('box', [-0.22, 1.52, -0.06], [0.28, 0.18, 0.36], '#f87171'),
+    op('box', [0.22, 1.52, -0.06], [0.28, 0.18, 0.36], '#fde68a'),
+    op('box', [0.66, 1.52, -0.06], [0.28, 0.18, 0.36], '#f87171'),
+  ];
+  if (archetype === 'awning') return [
+    op('box', [-0.42, 1.05, 0], [0.44, 0.14, 1.08], '#ef4444'),
+    op('box', [0, 1.05, 0], [0.44, 0.14, 1.08], '#fef3c7'),
+    op('box', [0.42, 1.05, 0], [0.44, 0.14, 1.08], '#ef4444'),
+  ];
+  if (archetype === 'road') return [op('plane', [0, 0.02, 0], [2.4, 1.2], '#475569', { rotation: [-1.5708, 0, 0] })];
+  if (archetype === 'fog') return [withOpacity(op('box', [0, 0.55, 0], [1.9, 1.1, 0.18], '#94a3b8'), 0.42)];
+  if (archetype === 'smoke') return [
+    withOpacity(op('sphere', [-0.2, 0.72, 0], [0.28], '#cbd5e1'), 0.55),
+    withOpacity(op('sphere', [0.05, 0.98, 0.06], [0.35], '#e2e8f0'), 0.46),
+    withOpacity(op('sphere', [0.35, 0.8, -0.04], [0.24], '#cbd5e1'), 0.52),
+  ];
+  if (archetype === 'donut') return [
+    op('torus', [0, 0.52, 0], [0.36, 0.11], '#f59e0b', { rotation: [1.5708, 0, 0] }),
+    op('sphere', [-0.12, 0.64, -0.08], [0.035], '#f472b6'),
+    op('sphere', [0.13, 0.64, 0.04], [0.035], '#a78bfa'),
+    op('sphere', [0.03, 0.64, 0.14], [0.035], '#fef08a'),
+  ];
+  if (archetype === 'shrimp') return [
+    op('sphere', [-0.24, 0.52, 0], [0.18], '#fb923c'),
+    op('sphere', [-0.04, 0.58, 0], [0.2], '#f97316'),
+    op('sphere', [0.18, 0.54, 0], [0.17], '#fb923c'),
+    op('cone', [0.42, 0.55, 0], [0.16, 0, 0.34], '#fed7aa', { rotation: [0, 0, -1.5708] }),
+    op('sphere', [-0.4, 0.68, 0.07], [0.04], '#111827'),
+  ];
+  if (archetype === 'money_pile') return [
+    op('box', [-0.28, 0.2, -0.16], [0.68, 0.08, 0.38], '#16a34a'),
+    op('box', [0.24, 0.3, 0.02], [0.68, 0.08, 0.38], '#22c55e'),
+    op('box', [-0.04, 0.42, 0.18], [0.72, 0.08, 0.38], '#4ade80'),
+    op('box', [0.04, 0.55, -0.02], [0.58, 0.08, 0.34], '#86efac'),
+  ];
+  if (archetype === 'tray') return [
+    op('box', [0, 0.55, 0], [1.15, 0.1, 0.62], '#a16207'),
+    op('box', [0, 0.64, 0.28], [1.2, 0.12, 0.08], '#d97706'),
+    op('box', [0, 0.64, -0.28], [1.2, 0.12, 0.08], '#d97706'),
+  ];
+  if (archetype === 'ring_marker') return [op('torus', [0, 0.12, 0], [0.72, 0.08], c, { rotation: [1.5708, 0, 0] })];
+  if (archetype === 'question_marks') return [
+    op('torus', [-0.22, 0.72, 0], [0.16, 0.04], '#facc15'),
+    op('box', [-0.22, 0.42, 0], [0.08, 0.2, 0.08], '#facc15'),
+    op('sphere', [-0.22, 0.22, 0], [0.05], '#facc15'),
+    op('torus', [0.26, 0.82, 0], [0.18, 0.04], '#fde047'),
+    op('box', [0.26, 0.48, 0], [0.08, 0.24, 0.08], '#fde047'),
+    op('sphere', [0.26, 0.22, 0], [0.05], '#fde047'),
+  ];
+  if (archetype === 'floor_zone') return [withOpacity(op('plane', [0, 0.03, 0], [2.2, 1.4], c, { rotation: [-1.5708, 0, 0] }), 0.48)];
+  if (archetype === 'order_stack') return [
+    op('box', [-0.18, 0.24, 0], [0.46, 0.09, 0.36], '#f8fafc'),
+    op('box', [0.08, 0.38, 0.04], [0.46, 0.09, 0.36], '#bae6fd'),
+    op('box', [0.25, 0.52, -0.02], [0.42, 0.09, 0.32], '#f8fafc'),
+  ];
+  return [];
+}
+
+function labelYOffsetForArchetype(archetype) {
+  if (/oven|grill|service_window|awning/.test(archetype)) return 2.0;
+  if (/sofa|chef|question/.test(archetype)) return 1.75;
+  if (/road|floor_zone|ring_marker/.test(archetype)) return 0.8;
+  if (/donut|shrimp|money_pile|tray|order_stack/.test(archetype)) return 1.15;
+  return 1.55;
+}
+
 function computePhasePositionBounds(phases) {
   var points = phases.map(function(phase, index) {
     var pos = isObject(phase.position) ? phase.position : {};
@@ -529,10 +687,10 @@ function computePhasePositionBounds(phases) {
 function mapFlowPosition(point, bounds, offsetIndex) {
   var rangeX = Math.max(1, bounds.maxX - bounds.minX);
   var rangeY = Math.max(1, bounds.maxY - bounds.minY);
-  var baseX = ((point.x - bounds.minX) / rangeX - 0.5) * 22;
-  var baseZ = ((point.y - bounds.minY) / rangeY - 0.5) * 14;
+  var baseX = ((point.x - bounds.minX) / rangeX - 0.5) * 34;
+  var baseZ = ((point.y - bounds.minY) / rangeY - 0.5) * 22;
   var angle = (offsetIndex % 8) / 8 * Math.PI * 2;
-  var ring = offsetIndex === 0 ? 0 : 1.35 + Math.floor(offsetIndex / 8) * 0.8;
+  var ring = offsetIndex === 0 ? 0 : 6.8 + Math.floor(offsetIndex / 8) * 2.2;
   return [
     Number((baseX + Math.cos(angle) * ring).toFixed(2)),
     0,
@@ -566,6 +724,33 @@ function assignEntityPositions(phases, entityIds) {
   return positions;
 }
 
+function isNpcGroupEntity(id, kind, label) {
+  var text = [id, kind, label].map(function(value) { return String(value || ''); }).join(' ');
+  return /npc_group|queue|customer|crowd|people|顾客|食客|排队|人群/i.test(text);
+}
+
+function inferNpcGroupCount(id, kind, label, phases) {
+  if (!isNpcGroupEntity(id, kind, label)) return 0;
+  var haystacks = [];
+  safeArray(phases).forEach(function(phase) {
+    if (safeArray(phase.visibleEntities).indexOf(id) < 0 && String(phase.target || '') !== id) return;
+    haystacks.push([
+      phase.title,
+      phase.guideText,
+      phase.visualNotes,
+      phase.notes,
+      safeArray(phase.requiredInteractions).join(' '),
+    ].join(' '));
+  });
+  for (var i = 0; i < haystacks.length; i += 1) {
+    var match = String(haystacks[i] || '').match(/(\d+)\s*(?:名|个|位)?\s*(?:新)?(?:顾客|食客|客人|人群|人)/);
+    if (match) return Math.max(2, Math.min(10, Number(match[1]) || 4));
+  }
+  var text = [id, kind, label].join(' ');
+  if (/queue|排队|人群|大排长龙/i.test(text)) return 6;
+  return 4;
+}
+
 function buildEntities(phases, catalog, ids) {
   var positions = assignEntityPositions(phases, ids.entityIds);
   return Object.keys(ids.entityIds).sort(function(a, b) {
@@ -575,18 +760,29 @@ function buildEntities(phases, catalog, ids) {
   }).map(function(id) {
     var source = catalog.entities[id] || {};
     var kind = source.kind || source.type || (id === 'Player' ? 'player' : (ids.resourceIds[id] ? 'resource' : 'prop'));
+    var label = String(source.label || source.chineseName || source.name || labelFromId(id));
+    var groupCount = inferNpcGroupCount(id, kind, label, phases);
+    var archetype = archetypeForEntity(id, kind, label, ids.resourceIds);
+    var baseColor = colorForEntity(id, kind, ids.resourceIds);
+    var visualDefaults = {
+      primitive: primitiveForEntity(id, kind, ids.resourceIds),
+      color: baseColor,
+      archetype: archetype || null,
+      meshOps: archetype ? meshOpsForArchetype(archetype, baseColor) : [],
+    };
+    if (archetype) visualDefaults.labelYOffset = labelYOffsetForArchetype(archetype);
+    if (groupCount) {
+      visualDefaults.groupCount = groupCount;
+      visualDefaults.queueSpacing = 0.84;
+    }
     return {
       id: id,
-      label: String(source.label || source.chineseName || source.name || labelFromId(id)),
+      label: label,
       kind: kind,
       position: source.position || positions[id],
       scale: source.scale || [1, 1, 1],
       visibleFromPhase: source.visibleFromPhase || null,
-      visual: Object.assign({
-        primitive: primitiveForEntity(id, kind, ids.resourceIds),
-        color: colorForEntity(id, kind, ids.resourceIds),
-        meshOps: [],
-      }, isObject(source.visual) ? source.visual : {}),
+      visual: Object.assign(visualDefaults, isObject(source.visual) ? source.visual : {}),
       binding: source.binding || null,
     };
   });
@@ -866,8 +1062,8 @@ function buildPhases(phases, catalog, ids) {
 function buildScene(flow) {
   var scene = isObject(flow && flow.scene) ? clone(flow.scene) : {};
   if (!scene.backgroundColor) scene.backgroundColor = '#10231f';
-  if (!scene.ground) scene.ground = { kind: 'plane', size: [34, 24], color: '#20433a' };
-  if (!scene.camera) scene.camera = { kind: 'perspective', fov: 58, position: [0, 16, 22], lookAt: [0, 0, 0] };
+  if (!scene.ground) scene.ground = { kind: 'plane', size: [58, 40], color: '#20433a' };
+  if (!scene.camera) scene.camera = { kind: 'perspective', fov: 58, position: [0, 28, 38], lookAt: [0, 0, 0] };
   return scene;
 }
 
