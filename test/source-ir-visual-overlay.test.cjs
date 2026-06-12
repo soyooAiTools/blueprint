@@ -44,6 +44,7 @@ const manifest = {
   },
   sourcePhaseContract: {
     phaseCount: 1,
+    resources: [{ id: 'Ice', label: '冰块', carrierEntity: 'IceBlock', initial: 0 }],
     phases: [{ id: 'phase1', showEntities: ['Hero'], steps: [] }],
   },
   sourceSceneContract: {
@@ -104,6 +105,12 @@ assert.match(out, /function sourceVisualEnabled\(\)/);
 assert.match(out, /return hasPlayableSceneIr\(\);/);
 assert.match(out, /function sourceDomWorldLabelsEnabled\(\)/);
 assert.match(out, /source === 'source-scene-ir'/);
+assert.match(out, /function sourceResourceDescriptors\(\)/);
+assert.match(out, /function sourceInitialResourceValues\(\)/);
+assert.match(out, /function renderSourceResourcePills\(res\)/);
+assert.match(out, /source-ir-resource-pills/);
+assert.doesNotMatch(out, /data-k="ice">冰 0/);
+assert.doesNotMatch(out, /resources: \{ Ice: 0, Oxygen: 0, Scrap: 0/);
 assert.match(out, /function sourceAutoplayRuntimeActive\(\)/);
 assert.match(out, /function observerReadyRequested\(\)/);
 assert.match(out, /function sourceAutoplayObserverReady\(\)/);

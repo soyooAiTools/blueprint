@@ -23,6 +23,7 @@ import PropsPanel from './components/PropsPanel';
 import TopBar from './components/TopBar';
 import TaskPanel from './components/TaskPanel';
 import StoryboardPanel from './components/StoryboardPanel';
+import FlowAuthoringPanel from './components/FlowAuthoringPanel';
 import SpecReviewPanel from './components/SpecReviewPanel';
 import { ModalProviderWithContext, useModal } from './components/ModalProvider';
 import { exportToJSON, downloadJSON } from './utils/export';
@@ -908,6 +909,12 @@ function FlowEditor({ project, onBack, initialTab }) {
     await showAlert('✅ HTML 已确认，已提交 WebGL 生成流程');
   }, [project.id, projectName, globalParams, globalSettings, setNodes, setEdges, setEntities, setObjectRegistry, showAlert]);
 
+  const handleFlowSourceGenerated = useCallback(async (flowResult) => {
+    const nextSourceHtmlPath = flowResult?.sourceHtmlPath || flowResult?.paths?.html || '';
+    if (nextSourceHtmlPath) setSourceHtmlPath(nextSourceHtmlPath);
+    await showAlert('Flow SourceIR 已生成，可在顶部提交 WebGL');
+  }, [showAlert]);
+
   const handleApprove = useCallback(async () => {
     try {
       const result = await approveProject(project.id);
@@ -969,6 +976,12 @@ function FlowEditor({ project, onBack, initialTab }) {
         >
           🎬 分镜
         </button>
+        <button
+          className={`app-tab ${activeTab === 'flow' ? 'app-tab-active' : ''}`}
+          onClick={() => setActiveTab('flow')}
+        >
+          🧭 流程图
+        </button>
         {hasContent && (
           <button
             className={`app-tab ${activeTab === 'blueprint' ? 'app-tab-active' : ''}`}
@@ -995,6 +1008,14 @@ function FlowEditor({ project, onBack, initialTab }) {
             hasExistingNodes={nodes.length > 0}
             showAlert={showAlert}
             showConfirm={showConfirm}
+          />
+        ) : activeTab === 'flow' ? (
+          <FlowAuthoringPanel
+            projectId={project.id}
+            projectName={projectName}
+            sourceHtmlPath={sourceHtmlPath}
+            onSourceHtmlGenerated={handleFlowSourceGenerated}
+            showAlert={showAlert}
           />
         ) : activeTab === 'blueprint' ? (
           <>

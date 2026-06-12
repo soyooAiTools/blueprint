@@ -47,9 +47,22 @@ var src = fs.readFileSync(workerPath, 'utf8');
   'function applyStoryboardDomHudVisibility()',
   'var contract = va.sourceEntityContract && va.sourceEntityContract.domHudContract',
   "['bp-storyboard-scene-tone', 'bp-storyboard-hud', 'bp-storyboard-target']",
-  'if (applyStoryboardDomHudVisibility()) return'
+  'if (applyStoryboardDomHudVisibility()) return',
+  'function storyboardResourceDescriptors(va)',
+  'function storyboardPhaseResourceValues(res, phase)',
+  'function renderStoryboardResourcePills(res, va, phase)',
+  'renderStoryboardResourcePills(res, va, phaseInfo && phaseInfo.phase)'
 ].forEach(function(needle) {
   assert.ok(src.indexOf(needle) >= 0, 'missing source HUD bridge suppression snippet: ' + needle);
+});
+
+[
+  'bp-storyboard-oxygen',
+  'bp-storyboard-scrap',
+  'bp-storyboard-coin',
+  'bp-storyboard-tool'
+].forEach(function(forbidden) {
+  assert.strictEqual(src.indexOf(forbidden), -1, 'storyboard HUD must not hard-code legacy resource chip: ' + forbidden);
 });
 
 assert.ok(src.indexOf('va.sourcePhaseContract') >= 0,
@@ -58,6 +71,10 @@ assert.ok(src.indexOf('va.fidelityContract') >= 0,
   'phase drive helpers should fall back to fidelityContract phases');
 assert.ok(src.indexOf('setTimeout(resolve, 50)') >= 0,
   '__driveToPhase should wait a short settle window after rAF');
+assert.ok(src.indexOf('msbuild exited non-zero with warnings only; UnityScriptsCompiler.js exists, continuing') >= 0,
+  'linux bridge build should continue when Bridge exits non-zero with warnings only and compiled JS exists');
+assert.ok(src.indexOf('const compiledJsPath = path.join(binDir, \'UnityScriptsCompiler.js\')') >= 0,
+  'warning-only msbuild fallback must verify compiled JS exists before continuing');
 
 // Scope guard: this PR restores target hooks only. It must not reintroduce the
 // unrelated dirty source-visual/asset-baking WIP that was excluded from PR #27.

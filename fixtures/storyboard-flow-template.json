@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "storyboard-flow-prototype.v1",
+  "kind": "blueprint.storyboardFlowPrototype",
+  "projectName": "MC原创_3D流水线小主厨解锁餐厅",
+  "project": {
+    "name": "MC原创_3D流水线小主厨解锁餐厅",
+    "theme": "restaurant"
+  },
+  "entities": [
+    { "id": "Player", "label": "小主厨", "kind": "player" },
+    { "id": "OrderCounter", "label": "订单柜台", "kind": "station" },
+    { "id": "IngredientBox", "label": "食材箱", "kind": "station" },
+    { "id": "Fryer", "label": "炸炉", "kind": "station" },
+    { "id": "CustomerQueue", "label": "顾客队列", "kind": "npc" },
+    { "id": "MoneyRegister", "label": "收银台", "kind": "station" },
+    { "id": "UnlockCircle", "label": "解锁圈", "kind": "unlock" },
+    { "id": "NewRestaurant", "label": "新餐厅", "kind": "building" },
+    { "id": "CtaButton", "label": "下载按钮", "kind": "cta" }
+  ],
+  "resources": [
+    { "id": "Ingredient", "label": "食材", "carrierEntity": "IngredientBox", "initial": 0 },
+    { "id": "Meal", "label": "餐食", "carrierEntity": "Fryer", "initial": 0 },
+    { "id": "Coin", "label": "金币", "carrierEntity": "MoneyRegister", "initial": 0 }
+  ],
+  "phases": [
+    {
+      "id": "phase01_order",
+      "order": 1,
+      "title": "接到订单",
+      "action": "show",
+      "target": "OrderCounter",
+      "guideText": "查看顾客订单，准备开始烹饪。",
+      "requiredInteractions": ["show:OrderCounter"],
+      "completeCondition": "OrderCounter.visible",
+      "visibleEntities": ["Player", "OrderCounter", "CustomerQueue"],
+      "position": { "x": 0, "y": 0 }
+    },
+    {
+      "id": "phase02_collect",
+      "order": 2,
+      "title": "领取食材",
+      "action": "collect",
+      "target": "IngredientBox",
+      "resource": "Ingredient",
+      "amount": 1,
+      "guideText": "移动到食材箱，领取本次订单食材。",
+      "requiredInteractions": ["collect:Ingredient:1"],
+      "completeCondition": "Ingredient >= 1",
+      "visibleEntities": ["Player", "IngredientBox", "OrderCounter"],
+      "position": { "x": 260, "y": 110 }
+    },
+    {
+      "id": "phase03_cook",
+      "order": 3,
+      "title": "烹饪餐食",
+      "action": "produce",
+      "target": "Fryer",
+      "resource": "Meal",
+      "amount": 1,
+      "guideText": "把食材送到炸炉，制作餐食。",
+      "requiredInteractions": ["transfer:Ingredient:Fryer:1", "produce:Meal:1"],
+      "completeCondition": "Meal >= 1",
+      "visibleEntities": ["Player", "Fryer", "IngredientBox"],
+      "position": { "x": 520, "y": 0 }
+    },
+    {
+      "id": "phase04_deliver",
+      "order": 4,
+      "title": "交付餐食",
+      "action": "deliver",
+      "target": "CustomerQueue",
+      "resource": "Meal",
+      "amount": 1,
+      "guideText": "将餐食交给排队顾客。",
+      "requiredInteractions": ["deliver:Meal:CustomerQueue:1"],
+      "completeCondition": "CustomerQueue.packed",
+      "visibleEntities": ["Player", "CustomerQueue", "Fryer"],
+      "position": { "x": 780, "y": 110 }
+    },
+    {
+      "id": "phase05_reward",
+      "order": 5,
+      "title": "获得金币",
+      "action": "produce",
+      "target": "MoneyRegister",
+      "resource": "Coin",
+      "amount": 20,
+      "guideText": "收取订单金币，准备扩建餐厅。",
+      "requiredInteractions": ["reward:Coin:20"],
+      "completeCondition": "Coin >= 20",
+      "visibleEntities": ["Player", "MoneyRegister", "CustomerQueue"],
+      "position": { "x": 1040, "y": 0 }
+    },
+    {
+      "id": "phase06_unlock_area",
+      "order": 6,
+      "title": "进入解锁圈",
+      "action": "unlock",
+      "target": "UnlockCircle",
+      "resource": "Coin",
+      "cost": 20,
+      "guideText": "移动到解锁圈，消耗金币开启新区域。",
+      "requiredInteractions": ["unlock:UnlockCircle"],
+      "completeCondition": "UnlockCircle.unlocked",
+      "visibleEntities": ["Player", "UnlockCircle", "MoneyRegister"],
+      "position": { "x": 1300, "y": 110 }
+    },
+    {
+      "id": "phase07_new_restaurant",
+      "order": 7,
+      "title": "展示新餐厅",
+      "action": "show",
+      "target": "NewRestaurant",
+      "guideText": "新餐厅区域出现，继续完成下一单。",
+      "requiredInteractions": ["show:NewRestaurant"],
+      "completeCondition": "NewRestaurant.visible",
+      "visibleEntities": ["Player", "NewRestaurant", "UnlockCircle"],
+      "position": { "x": 1560, "y": 0 }
+    },
+    {
+      "id": "phase08_second_order",
+      "order": 8,
+      "title": "第二单生产",
+      "action": "produce",
+      "target": "Fryer",
+      "resource": "Meal",
+      "amount": 1,
+      "guideText": "在新区域继续制作餐食。",
+      "requiredInteractions": ["collect:Ingredient:1", "transfer:Ingredient:Fryer:1", "produce:Meal:1"],
+      "completeCondition": "Meal >= 1",
+      "visibleEntities": ["Player", "NewRestaurant", "Fryer"],
+      "position": { "x": 1820, "y": 110 }
+    },
+    {
+      "id": "phase09_second_deliver",
+      "order": 9,
+      "title": "第二单交付",
+      "action": "deliver",
+      "target": "CustomerQueue",
+      "resource": "Meal",
+      "amount": 1,
+      "guideText": "把新做好的餐食交给顾客。",
+      "requiredInteractions": ["deliver:Meal:CustomerQueue:1", "reward:Coin:30"],
+      "completeCondition": "Coin >= 30",
+      "visibleEntities": ["Player", "CustomerQueue", "NewRestaurant"],
+      "position": { "x": 2080, "y": 0 }
+    },
+    {
+      "id": "phase10_cta",
+      "order": 10,
+      "title": "下载引导",
+      "action": "cta_finish",
+      "target": "CtaButton",
+      "guideText": "完成餐厅解锁，点击按钮下载完整游戏。",
+      "requiredInteractions": ["click:CtaButton"],
+      "completeCondition": "CtaButton.clicked",
+      "visibleEntities": ["Player", "NewRestaurant", "CtaButton"],
+      "position": { "x": 2340, "y": 110 }
+    }
+  ]
+}

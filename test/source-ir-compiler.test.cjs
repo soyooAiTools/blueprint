@@ -256,8 +256,14 @@ var assetManifest = compileVisualAssetManifest(sourceIr, {
 });
 assert.strictEqual(assetManifest.kind, 'blueprint.sourceIr.visualAssetManifest');
 assert.strictEqual(assetManifest.sourceVisualIrHash, sourceVisualIr.semanticHash);
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.resources, [
+  { id: 'Water', label: '水', kind: 'resource', carrierEntity: 'WaterDrop', initial: 0 },
+]);
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.phases[0].runtimeResources, { Water: 0 });
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.phases[1].runtimeResources, { Water: 2 });
 assert.strictEqual(assetManifest.visualRuntimeContract.kind, 'blueprint.sourceIr.visualRuntimeContract');
 assert.strictEqual(assetManifest.visualRuntimeContract.summary.phaseCount, 2);
+assert.deepStrictEqual(assetManifest.visualRuntimeContract.phases[1].runtimeResources, { Water: 2 });
 assert.strictEqual(assetManifest.visualRuntimeContract.phaseDriver.sourceFunction, '__driveToSourcePhase');
 
 var built = buildSourceIrBlueprintContext(sourceIr, {

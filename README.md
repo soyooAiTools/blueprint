@@ -218,6 +218,29 @@ Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.
 | POST | `/api/projects/:id/generate-storyboard` | SSE 生成配图 |
 | POST | `/api/projects/:id/edit-frame` | AI 编辑单帧 |
 
+### 流程图作者入口（2026-06-12）
+
+项目详情页的 `流程图` tab 是 Blueprint 1.0 的人工语义作者入口。它面向策划填写
+phase、entity、resource、requiredInteractions、cost 和 completeCondition，
+并将 Flow 转换为 SourceSceneIR/source preview 后再进入 SourceIR/Blueprint/WebGL
+链路。Flow 是人工语义基准，不直接替代 storyboard2html/source HTML 的生产事实源。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects/:id/storyboard-flow` | 读取项目 Flow、最近校验报告和生成物 |
+| PUT | `/api/projects/:id/storyboard-flow` | 保存 Flow JSON |
+| POST | `/api/projects/:id/storyboard-flow/validate` | 运行 Flow authoring preflight |
+| POST | `/api/projects/:id/storyboard-flow/source-ir` | 生成 SourceSceneIR 与 source preview HTML |
+| POST | `/api/projects/:id/storyboard-flow/diff` | 对比人工 Flow 与 storyboard2html source HTML |
+| GET | `/api/projects/:id/storyboard-flow/artifacts/*` | 访问 Flow/source/diff 生成物 |
+
+相关文件：
+
+- 策划填写规范：`docs/storyboard-flow-authoring-guide.md`
+- 示例模板：`fixtures/storyboard-flow-template.json`
+- JSON contract：`contracts/storyboard-flow-prototype.v1.json`
+- CLI：`scripts/storyboard-flow-source-ir.cjs`、`scripts/storyboard-flow-diff.cjs`
+
 ### Dashboard
 
 | 方法 | 路径 | 说明 |

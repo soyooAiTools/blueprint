@@ -142,6 +142,38 @@ export async function confirmSpecs(id, specs) {
   return request('/projects/' + id + '/confirm-specs', { method: 'POST', body: JSON.stringify({ specs }) });
 }
 
+export async function getStoryboardFlow(id) {
+  return request('/projects/' + encodeURIComponent(id) + '/storyboard-flow');
+}
+
+export async function saveStoryboardFlow(id, flow) {
+  return request('/projects/' + encodeURIComponent(id) + '/storyboard-flow', {
+    method: 'PUT',
+    body: JSON.stringify({ flow }),
+  });
+}
+
+export async function validateStoryboardFlow(id, flow) {
+  return request('/projects/' + encodeURIComponent(id) + '/storyboard-flow/validate', {
+    method: 'POST',
+    body: JSON.stringify({ flow }),
+  });
+}
+
+export async function generateStoryboardFlowSourceIr(id, flow) {
+  return request('/projects/' + encodeURIComponent(id) + '/storyboard-flow/source-ir', {
+    method: 'POST',
+    body: JSON.stringify({ flow }),
+  });
+}
+
+export async function diffStoryboardFlow(id, flow, sourceHtmlPath) {
+  return request('/projects/' + encodeURIComponent(id) + '/storyboard-flow/diff', {
+    method: 'POST',
+    body: JSON.stringify({ flow, sourceHtmlPath }),
+  });
+}
+
 export async function generateStoryboardHtmlPackage(formData) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 900000);

@@ -178,6 +178,12 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:storyboard2html-contract', ['node', 'test/storyboard2html-contract.test.cjs'], 'Validate storyboard2html HTML contract and hardgate command shape.'));
   }
 
+  if (/^(scripts\/storyboard-flow-source-ir\.cjs|engine\/storyboard-flow-source-ir\.cjs)$/.test(file)) {
+    addTag(plan, 'storyboard-flow');
+    addTag(plan, 'source-ir');
+    addCommand(plan, command('unit:storyboard-flow-source-ir', ['node', 'test/storyboard-flow-source-ir.test.cjs'], 'Validate human flowchart to SourceSceneIR conversion.'));
+  }
+
   if (/^(contracts\/cua-probe|engine\/stages\/runtime-contract\.cjs|engine\/playable-flow-manifest\.cjs)/.test(file)) {
     addTag(plan, 'runtime-contract');
     addCommand(plan, command('unit:runtime-contract-module-gate', ['node', 'test/runtime-contract-module-gate.test.cjs'], 'Validate runtime contract hardgate summary semantics.'));

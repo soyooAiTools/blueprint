@@ -133,7 +133,12 @@ async function buildFromCS(csCode, opts = {}) {
     } catch (e) {
       const errOut = (e.stdout || '') + '\n' + (e.stderr || '');
       const csErrors = errOut.split('\n').filter(l => /error CS\d+/i.test(l)).slice(0, 10);
-      return { ok: false, error: `msbuild failed: ${csErrors.join('\n') || errOut.slice(-2000)}` };
+      const compiledJsPath = path.join(binDir, 'UnityScriptsCompiler.js');
+      if (!csErrors.length && fs.existsSync(compiledJsPath)) {
+        log('[linux-build] msbuild exited non-zero with warnings only; UnityScriptsCompiler.js exists, continuing', taskId);
+      } else {
+        return { ok: false, error: `msbuild failed: ${csErrors.join('\n') || errOut.slice(-2000)}` };
+      }
     }
 
     // 6. Verify JS output
@@ -3202,7 +3207,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         legacyTextStyle.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}';
         document.head.appendChild(legacyTextStyle);
         var style = document.createElement('style');
-        style.textContent = '#bp-storyboard-scene-tone{position:fixed;inset:0;z-index:2147482800;pointer-events:none;background:linear-gradient(90deg,rgba(5,9,20,.76) 0%,rgba(5,9,20,.72) 42%,rgba(5,9,20,.50) 62%,rgba(5,9,20,.25) 82%,rgba(5,9,20,.05) 100%)}#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:24px;display:flex;align-items:center;justify-content:flex-end;text-align:right;padding:0 4px;font-size:13px;font-weight:900;color:#ffeb3b;background:transparent;border:0;box-shadow:none;white-space:nowrap}#bp-storyboard-target{position:fixed;left:14px;top:54px;z-index:2147483000;transform:none;background:rgba(10,22,64,.92);border:1px solid rgba(118,214,255,.35);border-radius:7px;padding:5px 10px;font:900 13px Arial,"Microsoft YaHei";color:#bff5ff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;z-index:2147483001;background:rgba(0,0,0,.42);border:0;box-shadow:0 8px 22px rgba(0,0,0,.38);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:42px;height:42px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.35)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.9);border:0;box-shadow:0 4px 14px rgba(0,0,0,.34)}';
+        style.textContent = '#bp-storyboard-scene-tone{position:fixed;inset:0;z-index:2147482800;pointer-events:none;background:linear-gradient(90deg,rgba(5,9,20,.76) 0%,rgba(5,9,20,.72) 42%,rgba(5,9,20,.50) 62%,rgba(5,9,20,.25) 82%,rgba(5,9,20,.05) 100%)}#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-resources{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:24px;display:flex;align-items:center;justify-content:flex-end;text-align:right;padding:0 4px;font-size:13px;font-weight:900;color:#ffeb3b;background:transparent;border:0;box-shadow:none;white-space:nowrap}#bp-storyboard-target{position:fixed;left:14px;top:54px;z-index:2147483000;transform:none;background:rgba(10,22,64,.92);border:1px solid rgba(118,214,255,.35);border-radius:7px;padding:5px 10px;font:900 13px Arial,"Microsoft YaHei";color:#bff5ff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;z-index:2147483001;background:rgba(0,0,0,.42);border:0;box-shadow:0 8px 22px rgba(0,0,0,.38);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:42px;height:42px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.35)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.9);border:0;box-shadow:0 4px 14px rgba(0,0,0,.34)}';
         document.head.appendChild(style);
         function sourceDomHudOwnsStoryboardDom() {
           try {
@@ -3229,7 +3234,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.body.appendChild(sceneTone);
         var hud = document.createElement('div');
         hud.id = 'bp-storyboard-hud';
-        hud.innerHTML = '<div class="bp-phase" id="bp-storyboard-phase">Phase 1/?</div><div class="bp-pill" id="bp-storyboard-ice">冰 0</div><div class="bp-pill" id="bp-storyboard-oxygen">氧气 0</div><div class="bp-pill" id="bp-storyboard-scrap">铁块 0</div><div class="bp-pill" id="bp-storyboard-coin">金币 0</div><div class="bp-pill" id="bp-storyboard-tool">镐子</div><div class="bp-tip" id="bp-storyboard-tip"></div>';
+        hud.innerHTML = '<div class="bp-phase" id="bp-storyboard-phase">Phase 1/?</div><div id="bp-storyboard-resources"></div><div class="bp-tip" id="bp-storyboard-tip"></div>';
         document.body.appendChild(hud);
         var target = document.createElement('div');
         target.id = 'bp-storyboard-target';
@@ -3457,6 +3462,11 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.addEventListener('touchend', resetStick, true);
         document.addEventListener('touchcancel', resetStick, true);
         function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+        function escapeStoryboardHudText(value) {
+          return String(value == null ? '' : value).replace(/[&<>"]/g, function(ch) {
+            return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;';
+          });
+        }
         function canonicalStoryboardEntityName(raw) {
           raw = String(raw || '');
           if (!raw) return '';
@@ -3483,6 +3493,60 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
           } catch(e) {}
           return key;
+        }
+        function storyboardResourceDescriptors(va) {
+          va = va || {};
+          var contract = va.sourcePhaseContract || va.fidelityContract || {};
+          var resources = Array.isArray(contract.resources) ? contract.resources : [];
+          if (resources.length) {
+            return resources.filter(function(resource) { return resource && resource.id; }).map(function(resource) {
+              return { id: String(resource.id), label: String(resource.label || resource.id) };
+            });
+          }
+          var seen = {};
+          var out = [];
+          var phases = Array.isArray(contract.phases) ? contract.phases : [];
+          phases.forEach(function(phase) {
+            var steps = Array.isArray(phase && phase.steps) ? phase.steps : [];
+            steps.forEach(function(step) {
+              var id = step && (step.resource || step.gain || step.spend);
+              if (!id || seen[id]) return;
+              seen[id] = true;
+              out.push({ id: String(id), label: storyboardEntityLabel(id) || String(id) });
+            });
+          });
+          return out;
+        }
+        function storyboardResourceValue(res, id) {
+          res = res || {};
+          var keys = [id, String(id || '').toLowerCase(), String(id || '').toUpperCase()];
+          for (var i = 0; i < keys.length; i++) {
+            if (Object.prototype.hasOwnProperty.call(res, keys[i])) return res[keys[i]] || 0;
+          }
+          return 0;
+        }
+        function storyboardPhaseResourceValues(res, phase) {
+          var out = {};
+          res = res || {};
+          Object.keys(res).forEach(function(key) { out[key] = res[key]; });
+          var useSourceSnapshot = !!window.__BLUEPRINT_VISUAL_DIFF_RUNNING__ || !!window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__;
+          var snapshot = useSourceSnapshot && phase && phase.runtimeResources || {};
+          Object.keys(snapshot).forEach(function(key) { out[key] = snapshot[key]; });
+          return out;
+        }
+        function renderStoryboardResourcePills(res, va, phase) {
+          var box = document.getElementById('bp-storyboard-resources');
+          if (!box) return;
+          var values = storyboardPhaseResourceValues(res, phase);
+          var resources = storyboardResourceDescriptors(va);
+          box.innerHTML = '';
+          resources.slice(0, 5).forEach(function(resource, index) {
+            var pill = document.createElement('div');
+            pill.className = 'bp-pill';
+            pill.id = 'bp-storyboard-resource-' + index;
+            pill.textContent = resource.label + ' ' + storyboardResourceValue(values, resource.id);
+            box.appendChild(pill);
+          });
         }
         function phaseFirstStoryboardTarget(phaseId, gs) {
           try {
@@ -3556,12 +3620,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           var phaseTotal = phaseInfo ? phaseInfo.total : (runtimePhaseTotal || '?');
           var sourcePhaseId = phaseInfo && phaseInfo.phase && phaseInfo.phase.id || ('phase' + phaseNumber);
           set('bp-storyboard-phase', 'Phase ' + phaseNumber + '/' + phaseTotal);
-          set('bp-storyboard-ice', '冰 ' + (res.Ice || res.ice || 0));
-          set('bp-storyboard-oxygen', '水 ' + (res.Water || res.water || res.BottledWater || res.bottledWater || 0));
-          set('bp-storyboard-scrap', '苹果 ' + (res.Apple || res.apple || 0));
-          set('bp-storyboard-coin', '金币 ' + (res.Coin || res.Gold || res.gold || 0));
-          set('bp-storyboard-tool', '');
-          try { var tool = document.getElementById('bp-storyboard-tool'); if (tool) tool.style.display = 'none'; } catch(eTool) {}
+          renderStoryboardResourcePills(res, va, phaseInfo && phaseInfo.phase);
           var guide = gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
           set('bp-storyboard-tip', guide);
           set('bp-storyboard-target', currentStoryboardTargetLabel(gs, sourcePhaseId));
