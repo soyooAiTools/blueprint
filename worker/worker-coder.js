@@ -66,6 +66,13 @@ const UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT = [
   '- Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。',
   '- 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。',
   '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。',
+  '- 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。',
+  '- 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。',
+  '- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组。',
+  '- 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。',
+  '- 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。',
+  '- 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。',
+  '- Luna staging 代码可以为了 WebGL 稳定使用骨架绑定和对象池映射；这些写法不得泄漏成程序员交付版的业务依赖。',
   ''
 ].join('\n');
 
@@ -224,7 +231,7 @@ var GENERATE_PROMPT = [
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #1 — READ THIS FIRST ⛔⛔⛔',
   '',
-  'ALL visible 3D objects MUST be created using GFM_Create.Obj() or GFM_Create.Ground(). V5 MODE: Objects are PRE-CREATED as __Pool_{Shape}_{Color}_{NN} — use GameObject.Find() instead.',
+  'Visible 3D objects come from Luna-compatible pools or pre-bound scene references. V5 MODE: Objects are PRE-CREATED as __Pool_{Shape}_{Color}_{NN}; use existing bound fields / GameSceneCtrl first, and only let the staging binding layer resolve pool literals.',
   'CreatePrimitive() and new GameObject() with mesh/renderer are FORBIDDEN — they produce INVISIBLE objects in Luna WebGL.',
   '',
   'AVAILABLE GFM_ classes (DO NOT invent others): GFM_Create, GFM_UI, GFM_Utils, GFM_Audio, GFM_Pool, GFM_Luna, GFM_Joystick, GFM_Grid, GFM_Pathfinding, GFM_ReturnTimer.',
@@ -238,12 +245,12 @@ var GENERATE_PROMPT = [
   '  // GFM_Create.ResetPool(); // V5: No longer needed — pool objects are pre-created',
   '',
   'Then create objects like:',
-  '  // V5: var cube = GameObject.Find("__Pool_Cube_Blue_01"); // Pre-existing pool object',
+  '  // V5: var cube = GameSceneCtrl.instance.Get("CubeEntity"); // Pre-bound pool object',
   '  // Legacy: var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), Vector3.one, "MyCube");',
   '  // GFM_Create.SetColor(cube, ...); // V5: Colors are pre-baked — use __Pool_Cube_Blue_01 instead',
   '  var ground = GFM_Create.Ground(20f, 20f);',
   '',
-  'V5 MODE: Use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") for pre-existing pool objects. Legacy mode uses GFM_Create.Obj().',
+  'V5 MODE: Use RegisterEntityBindings()/GameSceneCtrl for pre-existing pool objects; only legacy/staging binding code may resolve __Pool_{Shape}_{Color}_{NN}. Legacy mode uses GFM_Create.Obj().',
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #2 — EVERY SHOT MUST HAVE VISIBLE UI ⛔⛔⛔',
   '',
@@ -265,7 +272,7 @@ var GENERATE_PROMPT = [
   '## CRITICAL LUNA CONSTRAINTS',
   '',
   '### Absolutely DO NOT use:',
-  '- Do NOT use CreatePrimitive or new Mesh — V5: use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") for pre-placed pool objects. Legacy: use GFM_Create.Obj().',
+  '- Do NOT use CreatePrimitive or new Mesh — V5: use existing bound fields / GameSceneCtrl for pre-placed pool objects. Legacy: use GFM_Create.Obj().',
   '- TileMap, New InputSystem, Terrain (use mesh-based terrain instead)',
   '- Generics (Luna does NOT support generic syntax — use non-generic overloads)',
   '- Resources.GetBuiltinResource — NOT implemented in Luna, use GFM_UI for text/font',
@@ -286,21 +293,21 @@ var GENERATE_PROMPT = [
   '- String.Format, Regex (memory leak prone in Luna)',
   '- Multi-dimensional arrays (use 1D or jagged arrays, 10x perf difference)',
   '- Application.OpenURL → use Luna.Unity.Playable.InstallFullGame() for CTA',
-  '- public Inspector references (the scene file will NOT be modified — all references MUST be resolved in code)',
+  '- For Luna staging, references come from skeleton bindings; for programmer delivery with AIBridge/MCP, scene/Inspector references MUST be hydrated instead of resolved by runtime scene scans.',
   '- `new Material(Shader.Find(...))` — does NOT work in Luna (creates invisible/pink objects)',
   '- ⛔ `GameObject.CreatePrimitive()` objects are INVISIBLE in Luna WebGL — MUST use GFM_Create.Obj() instead',
   '',
   '### Object Creation (CRITICAL — Luna object pool system):',
   '- ⛔ CreatePrimitive() objects are INVISIBLE in Luna. You MUST use GFM_Create for all 3D objects.',
   '- The scene has a pre-placed object pool: 50 Cubes, 20 Spheres, 10 Planes, 10 Cylinders at y=-9999.',
-  '- V5: Pool objects are named __Pool_{Shape}_{Color}_{NN} (e.g. __Pool_Cube_Red_01). Use GameObject.Find() to get references. Legacy: GFM_Create.Obj() fetches from pool.',
+  '- V5: Pool objects are named __Pool_{Shape}_{Color}_{NN} (e.g. __Pool_Cube_Red_01). Use RegisterEntityBindings()/GameSceneCtrl to get references. Legacy: GFM_Create.Obj() fetches from pool.',
   '```csharp',
   'void Start() {',
   '    // GFM_Create.ResetPool();  // V5: No longer needed — pool objects are pre-created as __Pool_{Shape}_{Color}_{NN}',
   '    // GFM_Create.InitMaterialFromScene();  // V5: No longer needed — colors are pre-baked into pool object names',
   '    // Create objects using pool (Luna-compatible!):',
-  '    // V5: var cube = GameObject.Find("__Pool_Cube_Blue_01");',
-  '    // V5: var sphere = GameObject.Find("__Pool_Sphere_Red_01");',
+  '    // V5: var cube = GameSceneCtrl.instance.Get("CubeEntity");',
+  '    // V5: var sphere = GameSceneCtrl.instance.Get("SphereEntity");',
   '    // Legacy: var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0, 1, 0), Vector3.one, "MyCube");',
   '    // Legacy: var sphere = GFM_Create.Obj(PrimitiveType.Sphere, new Vector3(3, 1, 0), Vector3.one * 0.5f, "Ball");',
   '    var ground = GFM_Create.Ground(20f, 20f);  // Creates a ground plane',
@@ -397,7 +404,7 @@ var GENERATE_PROMPT = [
   '',
   '// V5: Colors are pre-baked into pool names — no SetColor() needed',
   '// Use __Pool_Cube_Brown_01 for brown objects, __Pool_Cube_Green_01 for green, etc.',
-  '// Get references via: var building = GameObject.Find("__Pool_Cube_Brown_01");',
+  '// Get references via: var building = GameSceneCtrl.instance.Get("Building");',
   '```',
   '- ⛔ DO NOT use: new Material(), Shader.Find(), FindObjectOfType<Renderer>()',
   '- ⛔ DO NOT use: GameObject.Find("__MaterialSource") — GFM_Create handles material setup internally',
@@ -407,7 +414,7 @@ var GENERATE_PROMPT = [
   '```',
   '',
   '#### Then create your game world from code:',
-  '- 3D objects: V5: `GameObject.Find("__Pool_Cube_Red_01")` (pre-existing pool). Legacy: `GFM_Create.Obj(PrimitiveType.Cube/Sphere/Plane, pos, scale, "name")`',
+  '- 3D objects: V5: existing bound fields / `GameSceneCtrl.instance.Get("EntityName")` (pre-existing pool). Legacy: `GFM_Create.Obj(PrimitiveType.Cube/Sphere/Plane, pos, scale, "name")`',
   '- UI Canvas: `Canvas canvas = GFM_UI.CreateCanvas(1920, 1080);`',
   '- UI Text: `Text txt = GFM_UI.CreateText(canvas, "Hello", new Vector2(0, 100), 28);`',
   '- UI Button: `Button btn = GFM_UI.CreateButton(canvas, "Go", new Vector2(0,-200), new Vector2(300,80), ()=>{});`',
@@ -427,7 +434,7 @@ var GENERATE_PROMPT = [
   '#### MANDATORY: Create ALL Scene Objects from Blueprint',
   '- Every single object mentioned in the blueprint/storyboard MUST be created as a 3D object in the scene.',
   '- This includes: buildings, turrets, trees, resources, NPCs, vehicles, conveyor belts, generators, walls, decorations.',
-  '- Use GFM_Create.Obj(PrimitiveType.Cube/Sphere/Cylinder, pos, scale, "label") for each visible object. V5: Objects are pre-created as __Pool_{Shape}_{Color}_{NN} — use GameObject.Find() instead.',
+  '- Use GFM_Create.Obj(PrimitiveType.Cube/Sphere/Cylinder, pos, scale, "label") for each visible object. V5: Objects are pre-created as __Pool_{Shape}_{Color}_{NN} — use existing bindings / GameSceneCtrl instead.',
   '- Different object types should use different primitive shapes:',
   '  - Buildings/structures: Cube (scaled appropriately)',
   '  - Trees/plants: Cylinder (tall thin) + Sphere (on top as crown)',
@@ -708,7 +715,7 @@ var FIX_PROMPT = [
   '- Do NOT create or configure Light components (Light.type is NOT available in Luna Bridge.NET)',
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
-  '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
+  '- Do not scan the scene at runtime for template objects. V5 uses pre-bound pool objects; programmer delivery uses AIBridge/MCP Inspector hydration.',
   '- Materials: V5 mode — colors are pre-baked into pool object names (__Pool_Cube_Red_01). No InitMaterialFromScene() or SetColor() needed.',
   '- V5: Objects have pre-baked colors via pool naming (__Pool_{Shape}_{Color}_{NN}). No SetColor() needed.',
   '- GFM_UI.CreateCanvas() returns **Canvas** (component), NOT GameObject. Write: Canvas canvas = GFM_UI.CreateCanvas(w,h);',
@@ -1452,17 +1459,16 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
 
   log('[coder] V5 BASE TEMPLATE prompt: ' + prompt.length + ' chars, ' + (hasFeedback ? 'INCREMENTAL FIX' : 'FULL GENERATION'), taskId);
 
-  // V5 System Prompt — 简洁版，强调 Find+Move
+  // V5 System Prompt — 简洁版，强调绑定引用 + Move
   var sysPrompt = 'You are a Luna playable ad developer using the BASE TEMPLATE approach.\n'
     + 'The Unity scene already contains 242 pre-built 3D objects. You do NOT create objects.\n\n'
     + UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT + '\n'
     + 'YOUR APPROACH:\n'
-    + '1. GameObject.Find("Name") to get object references in Start()\n'
+    + '1. Use existing bound fields / RegisterEntityBindings() / GameSceneCtrl.instance.Get("Name") to get object references\n'
     + '2. transform.position = new Vector3(x,y,z) to show objects\n'
     + '3. transform.position = new Vector3(0,-999,0) to hide objects\n'
     + '4. Colors are pre-baked into pool names (__Pool_Cube_Red_01) — no SetColor() needed\n'
-    + '5. Instantiate(obj) if you need more copies of an object\n'
-    + '6. Write game logic (interactions, collisions, flow control)\n\n'
+    + '5. Write game logic (interactions, collisions, flow control)\n\n'
     + 'CRITICAL RULES:\n'
     + '- Current legacy codegen output is a GameFlowManagerMain.cs staging file; final delivery cleaner must split responsibilities into Core/Tool/Game.\n'
     + '- Do NOT use GFM_Create.Obj() or CreatePrimitive() — objects already exist\n'
@@ -1563,7 +1569,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
   }
 
   userMsg += '\n\nGenerate the COMPLETE GameFlowManagerMain.cs file. '
-    + 'Use GameObject.Find() to get pre-built objects. '
+    + 'Use existing bound fields / RegisterEntityBindings() / GameSceneCtrl to get pre-built objects; do not add direct GameObject.Find("__Pool_*") in business TODO code. '
     + 'Move objects to show/hide them. Write game logic. '
     + 'Output the file in a ```csharp code block.';
 
@@ -1608,7 +1614,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     writeFiles(clientDir, files, log, taskId);
     log('[coder] V5 Post-fix: stripped generic method calls for Luna compatibility', taskId);
 
-    // Verify: V5 checks Find-based approach
+    // Verify: V5 checks binding-based approach
     var mainFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
     var mainSrc = '';
     if (fs.existsSync(mainFilePath)) {
@@ -1616,16 +1622,17 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     }
     var lineCount = mainSrc.split('\n').length;
     var findCalls = (mainSrc.match(/GameObject\.Find/g) || []).length;
+    var bindingCalls = (mainSrc.match(/GameSceneCtrl\.instance\.Get|RegisterEntityBindings|_entityBindingIds/g) || []).length;
     var gfmCreateCalls = (mainSrc.match(/GFM_Create\.Obj/g) || []).length;
     var hasGameEnded = /GameEnded/.test(mainSrc);
 
-    log('[coder] V5 Verification: ' + lineCount + ' lines, ' + findCalls + ' Find() calls, ' + gfmCreateCalls + ' GFM_Create.Obj() calls (should be 0)', taskId);
+    log('[coder] V5 Verification: ' + lineCount + ' lines, ' + bindingCalls + ' binding refs, ' + findCalls + ' legacy Find() calls, ' + gfmCreateCalls + ' GFM_Create.Obj() calls (should be 0)', taskId);
 
     if (gfmCreateCalls > 0) {
-      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use Find() instead', taskId);
+      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use existing bindings / GameSceneCtrl instead', taskId);
     }
-    if (findCalls === 0) {
-      log('[coder] ⚠️ WARNING: No GameObject.Find() calls — AI may not be using base template objects', taskId);
+    if (bindingCalls === 0 && findCalls === 0) {
+      log('[coder] ⚠️ WARNING: No binding refs or legacy GameObject.Find() calls — AI may not be using base template objects', taskId);
     }
     if (!hasGameEnded) {
       log('[coder] ⚠️ WARNING: No GameEnded() call — Luna lifecycle may not end properly', taskId);
@@ -1680,13 +1687,13 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
     + UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT + '\n'
     + 'CRITICAL RULES:\n'
     + '- Current legacy codegen output is a GameFlowManagerMain.cs staging file; final delivery cleaner must split responsibilities into Core/Tool/Game.\n'
-    + '- V5: var go = GameObject.Find("__Pool_Cube_Red_01"); // Pre-existing pool objects with baked colors\n'
+    + '- V5: var go = GameSceneCtrl.instance.Get("EntityName"); // Pre-existing bound pool object with baked colors\n'
     + '- Legacy: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");\n'
     + '- GFM_Create.Obj signature: (PrimitiveType type, Vector3 position, Vector3 scale, string name)\n'
     + '- PrimitiveType: Cube, Sphere, Cylinder, Capsule, Quad, Plane\n'
     + '- Ground: var ground = GFM_Create.Ground(width, depth); // 2 params: float width, float depth\n'
     + '- V5: Colors pre-baked into pool names — no SetColor() needed\n'
-    + '- Use GameObject.Find("__Pool_Cube_Brown_01") for pre-colored objects\n'
+    + '- Use bound fields / GameSceneCtrl for pre-colored objects; only staging binding tables should mention __Pool_* literals\n'
     + '- NO CreatePrimitive, NO Resources.Load, NO async/await, NO coroutines\n'
     + '- Use Update() with event-driven condition checks (not sequential phases)\n'
     + '- NO generics (no List<T>), use plain arrays\n'

@@ -1,8 +1,8 @@
 /**
  * Blueprint V5 Prompt Generator — 基础样例工程模式
  * 
- * 核心变化：场景已预制 160 个带颜色的对象，AI 只需 Find + Move + 写逻辑
- * 不再需要 GFM_Create.Obj / GFM_UI.CreateCanvas 等创建 API
+ * 核心变化：场景已预制 160 个带颜色的对象，AI 优先使用骨架绑定字段 / GameSceneCtrl，
+ * 只在 Luna staging 绑定层兜底解析池对象；不再需要 GFM_Create.Obj / GFM_UI.CreateCanvas 等创建 API。
  */
 
 var fs = require('fs');
@@ -202,6 +202,13 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('7. Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。');
   lines.push('8. 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。');
   lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
+  lines.push('10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。');
+  lines.push('11. 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。');
+  lines.push('12. `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组。');
+  lines.push('13. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
+  lines.push('14. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
+  lines.push('15. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');
+  lines.push('16. Luna staging 代码可以为了 WebGL 稳定使用骨架绑定和对象池映射；这些写法不得泄漏成程序员交付版的业务依赖。');
   lines.push('');
 }
 
@@ -303,31 +310,28 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('不要把功能重新塞回主文件。按职责把方法放进对应 partial 文件。');
   lines.push('`GameFlowManagerMain.cs` 应保持轻量：只保留初始化、Update 节拍、CheckEventRules 编排，以及对各系统方法的直接调用。');
   appendUnityProgramArchitectureRules(lines);
-  lines.push('每个字段、每个方法的说明注释必须紧邻定义本身；不要只在文件顶部写总说明。');
-  lines.push('任何多行 `if (...)`、含 `&&` / `||` 的条件链，都必须在前一行写注释解释这个 gate 为什么存在。');
+  lines.push('说明注释只写在关键且不容易看懂的位置，并且要紧邻对应代码；不要只在文件顶部写总说明，也不要给字段名和普通 lifecycle 方法堆机械注释。');
+  lines.push('复杂 `if (...)`、含多层 `&&` / `||` 的 gate，前一行用中文大白话说明这个 gate 为什么存在。');
   lines.push('');
   lines.push('## 代码结构硬要求');
-  lines.push('1. **每个字段声明都必须有详细中文注释**，说明用途、生命周期、由谁更新。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-field` 会扫描每个 public/private 字段;无注释直接报 warning。');
-  lines.push('2. **每个方法都必须有详细中文注释**，说明输入、输出、副作用、调用时机。');
-  lines.push('   优先使用 `///` XML doc summary;紧邻方法上方一行 `//` 也算合规。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-method` 强制此项。');
-  lines.push('3. **每个 ≥3 行的条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
+  lines.push('1. **不要给每个字段/方法机械补注释**。字段名、方法名已经能说明含义时保持干净；只有关键业务规则、容易踩坑的限制、复杂状态切换需要中文大白话注释。');
+  lines.push('2. **每个 ≥3 行的复杂条件分支建议有注释**，说明为什么进入该条件，而不是只写代码结果。');
   lines.push('   `if`/`else if`/`switch case` 块体 ≥ 3 行时由 `delivery-comment-coverage-condition` 校验。');
   lines.push('   单行 guard (`if (x == null) return;`) 不强制注释,避免噪声。');
-  lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
-  lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
-  lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
-  lines.push('7. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
+  lines.push('3. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。只有复用或能明显降低阅读难度时才拆私有方法；不要为一行代码拆函数。');
+  lines.push('4. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
+  lines.push('5. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
+  lines.push('6. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
+  lines.push('当前代码是 Luna/WebGL staging 层：对象池映射只用于稳定构建。程序员交付版会通过 AIBridge/MCP 把引用写进 Inspector/scene，业务代码不能依赖运行时查找。');
   lines.push('');
   lines.push('你只需要：');
-  lines.push('1. 优先使用骨架中已经绑定好的实体字段；如果代码里有 `RegisterEntityBindings()`，不要再写 `GameObject.Find("__Pool_*")`');
+  lines.push('1. 优先使用骨架中已经绑定好的实体字段 / `GameSceneCtrl.instance.Get("entityName")`；如果代码里有 `RegisterEntityBindings()`，不要再写 `GameObject.Find("__Pool_*")`');
   lines.push('2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）');
   lines.push('3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）');
-  lines.push('4. 颜色已烘焙 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，无需 SetColor');
+  lines.push('4. 颜色已烘焙 — 使用对象分配表里的已绑定池对象，无需 SetColor');
   lines.push('5. 写游戏逻辑（交互、碰撞检测、流程控制）');
   lines.push('');
   lines.push('## 骨架已预创建的变量（直接使用，不要重新创建）');
@@ -367,7 +371,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('public partial class GameFlowManagerMain : MonoBehaviour');
   lines.push('{');
-  lines.push('    // === 对象引用（Start 中通过 Find 获取）===');
+  lines.push('    // === 对象引用（优先由 RegisterEntityBindings / GameSceneCtrl 绑定）===');
   
   // 根据蓝图实体生成引用声明
   var findLines = [];
@@ -375,8 +379,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entityNames.length; i++) {
     var eName = entityNames[i];
     var pName = prefabMap[eName];
-    lines.push('    GameObject ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + '; // → Find("' + pName + '")');
-    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameObject.Find("' + pName + '"); // MUST NOT be null — verify pool name matches');
+    lines.push('    GameObject ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + '; // staging 绑定池对象 `' + pName + '`');
+    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameSceneCtrl.instance != null ? GameSceneCtrl.instance.Get("' + eName + '") : null; // 新骨架优先从绑定表取');
   }
   
   lines.push('');
@@ -386,7 +390,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('    void Start()');
   lines.push('    {');
-  lines.push('        // 1. 获取对象引用');
+  lines.push('        // 1. 获取对象引用（新骨架优先来自 RegisterEntityBindings / GameSceneCtrl）');
   for (var fi = 0; fi < findLines.length; fi++) {
     lines.push(findLines[fi]);
   }
@@ -437,6 +441,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('# 对象分配表');
   lines.push('以下是蓝图实体 → 场景对象的映射。新骨架会用 RegisterEntityBindings 自动绑定；不要在 TODO 区重复 Find。');
   lines.push('对象名格式为 __Pool_[Shape]_[Color]_[NN]（如 __Pool_Cube_Red_01），颜色已烘焙，这些是场景中已存在的 3D 对象。');
+  lines.push('注意：这张表服务 Luna staging 绑定；程序员交付版由 AIBridge/MCP 把这些引用写进 Inspector/scene，不把 pool literal 当业务依赖。');
   lines.push('');
   lines.push('| 蓝图实体 | 场景对象名 | 说明 |');
   lines.push('|----------|-----------|------|');
@@ -497,7 +502,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     lines.push('## ' + e.name + (e.label ? ' (' + e.label + ')' : ''));
-    lines.push('场景对象: `GameObject.Find("' + (prefabMap[e.name] || '__Pool_Cube_White_01') + '")`');
+    lines.push('场景对象绑定: `' + (prefabMap[e.name] || '__Pool_Cube_White_01') + '`（通过 RegisterEntityBindings / GameSceneCtrl 使用，不要在 TODO 区重复 Find）');
     lines.push('模板: ' + (e.template || 'Static'));
     
     if (e.visual) {
@@ -554,7 +559,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   // ========== 8. Luna 限制（精简版）==========
   lines.push('# Luna WebGL 限制（精简版）');
   lines.push('');
-  lines.push('## 场景对象池（已存在，直接 Find 使用）');
+  lines.push('## 场景对象池（已存在，优先经绑定表使用）');
   lines.push('场景中预置了 160 个带颜色的 3D 对象，命名规则: `__Pool_{Shape}_{Color}_{NN}`');
   lines.push('- 形状: Cube(每色5个), Sphere(每色5个), Cylinder(每色3个), Plane(每色3个)');
   lines.push('- 颜色: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink');
@@ -576,7 +581,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 不要在 Awake/Start 中 SetActive(false) 所有对象');
   lines.push('');
   lines.push('## 操作 API');
-  lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，直接 Find 对应颜色的对象');
+  lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，使用对象分配表里已经绑定的对象');
   lines.push('- 玩家移动：点击屏幕设定目标点，由骨架 MovePlayer() 自动朝目标走；不要再创建虚拟摇杆');
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
@@ -683,11 +688,12 @@ function parseBlueprintToPromptV5(blueprint, opts) {
 
   // ========== 8d. 正确代码模式参考（必须严格遵循）==========
   lines.push('# 📋 正确代码模式参考（直接照抄，不要自创写法）');
+  lines.push('以下示例默认实体已经由 `RegisterEntityBindings()` 注册。只有骨架绑定层可以兜底解析 pool literal，业务 TODO 区不要重复写 `GameObject.Find("__Pool_*")`。');
   lines.push('');
   lines.push('## CheckEventRules 的正确写法');
   lines.push('```csharp');
   lines.push('void CheckEventRules() {');
-  lines.push('  var p = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  var p = GameSceneCtrl.instance.Get("Player");');
   lines.push('  if (p == null) return;');
   lines.push('  var playerPos = p.transform.position;');
   lines.push('');
@@ -700,7 +706,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');
   lines.push('  if (currentPhaseName == "phase_1") {');
-  lines.push('    var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
+  lines.push('    var target = GameSceneCtrl.instance.Get("Target");');
   lines.push('    if (target != null && Vector3.Distance(playerPos, target.transform.position) < 1.5f) {');
   lines.push('      AddCompletedPhase("phase_xxx_2"); // 用蓝图中 Rule 的真实 ID');
   lines.push('      currentPhaseName = "phase_2";');
@@ -730,16 +736,16 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  GFM_CameraController.Instance.FramePoint(Vector3.zero, 8f);');
   lines.push('');
   lines.push('  // 2. 玩家放在屏幕中心附近（坐标 -6~6 范围）');
-  lines.push('  var player = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  var player = GameSceneCtrl.instance.Get("Player");');
   lines.push('  player.transform.position = new Vector3(-3, 0, 0);');
   lines.push('  player.transform.localScale = Vector3.one * 1.0f;');
   lines.push('');
   lines.push('  // 3. 目标对象放在可见范围内');
-  lines.push('  var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
+  lines.push('  var target = GameSceneCtrl.instance.Get("Target");');
   lines.push('  target.transform.position = new Vector3(3, 2, 0);');
   lines.push('');
   lines.push('  // 4. 暂时不需要的对象放在屏幕外（不用 SetActive）');
-  lines.push('  var later = GameObject.Find("__Pool_Cube_Green_01"); // 暂不需要的对象');
+  lines.push('  var later = GameSceneCtrl.instance.Get("LaterObject");');
   lines.push('  later.transform.position = new Vector3(0, -999, 0);');
   lines.push('}');
   lines.push('```');

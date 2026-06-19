@@ -1,5 +1,7 @@
 # Luna 行为模板实现手册（事件驱动版）
 
+> 本文件只给 Luna/WebGL staging 代码参考。程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration，引用进入 `GMP_EntityBindingManager.mBindings` 或 `[SerializeField]` 字段；不要把这里的平行数组、运行时 `Find` 或一次性模板拆法照搬成最终交付结构。
+
 > ⚠️ **最重要的规则**: Phase/Rule 推进必须由玩家操作触发，绝对禁止用 gameTimer/计时器 自动推进！
 > CUA 验证器会检测: 如果游戏在无玩家输入下自动跑完所有 Phase → **直接 FAIL**。
 
@@ -17,7 +19,7 @@ const int E_CONVEYOR = 2;
 const int MAX_ENTITIES = 50;
 const int RULE_COUNT = 10;
 
-// 实体运行时数据（平行数组）
+// 实体运行时数据（仅限 staging；交付版收口到 mBindings）
 GameObject[] eGo = new GameObject[MAX_ENTITIES];
 bool[] eActive = new bool[MAX_ENTITIES];
 int[] eState = new int[MAX_ENTITIES];     // 0=初始, 1=触发中, 2=完成
@@ -64,23 +66,20 @@ void CheckEventRules() {
 }
 ```
 
-## 获取3D对象（从预制池 Find）
+## 获取3D对象（优先从绑定表取）
 
 ```csharp
-// ✅ 正确：从预制池 Find 对象（颜色已烘焙，不需要 SetColor）
-var cube = GameObject.Find("__Pool_Cube_Red_01");
+// ✅ staging 正确：先从骨架绑定表取对象（颜色已烘焙，不需要 SetColor）
+var cube = GameSceneCtrl.instance.Get("Crate");
 cube.transform.position = new Vector3(0, 1, 0);  // 移到场景中 = 显示
 cube.transform.localScale = new Vector3(1, 2, 1);
 
-// ✅ 地面已存在
-var ground = GameObject.Find("__Ground");
-
-// ✅ 需要更多同类对象时，Instantiate 复制（仅当池对象用完时）
-var extraCube = Instantiate(cube);
-extraCube.transform.position = new Vector3(3, 1, 0);
+// ✅ 地面、HUD、相机同样来自骨架字段或绑定表，不在业务循环里扫场景
+var ground = GameSceneCtrl.instance.Get("__Ground");
 ```
 
 > ⛔ **绝对禁止**: `GFM_Create.Obj()`, `GFM_Create.Ground()`, `GFM_Create.SetColor()`, `CreatePrimitive()`
+> 程序员交付版额外禁止业务代码里的 `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)`；这些引用必须由 MCP/Inspector 预先写好。
 
 ## PlayerController 模板
 
@@ -361,7 +360,7 @@ void CheckEventRules() {
 
 ## 关键约束（Luna）
 - 当前生成期可填充 GameFlowManagerMain*.cs partial；最终程序员交付必须清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`，业务逻辑只落 `Game`
-- 用 `GameObject.Find("__Pool_{Shape}_{Color}_{NN}")` 获取池对象，不要用 GFM_Create.Obj()
+- 用骨架绑定字段或 `GameSceneCtrl.instance.Get("entityName")` 获取池对象；只有 staging 绑定表可以出现 `__Pool_*` literal，不要用 GFM_Create.Obj()
 - 没有 GFM_Tools 类！用: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
 - 不能用 CreatePrimitive、Resources.Load、async/await、协程、List<T>
 - 隐藏用 position=(0,-999,0)，不用 SetActive(false)

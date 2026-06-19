@@ -52,7 +52,13 @@ var PROGRAM_ARCHITECTURE_CONTRACT = [
   '- Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。',
   '- Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。',
   '- 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。',
-  '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。'
+  '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。',
+  '- 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。',
+  '- 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。',
+  '- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组。',
+  '- 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。',
+  '- 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。',
+  '- 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。'
 ].join('\n');
 
 function countHtmlPhaseSlices(ctx) {

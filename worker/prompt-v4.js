@@ -87,6 +87,13 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('7. Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。');
   lines.push('8. 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。');
   lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
+  lines.push('10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。');
+  lines.push('11. 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。');
+  lines.push('12. `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组。');
+  lines.push('13. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
+  lines.push('14. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
+  lines.push('15. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');
+  lines.push('16. V4 legacy 代码只作为 Luna/WebGL staging 兼容层；旧数组/对象池写法不得泄漏成程序员交付版的业务结构。');
   lines.push('');
 }
 
@@ -306,9 +313,9 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   }
 
   // ========== 5.5 必须创建的对象清单 ==========
-  lines.push('# ⚠️ 必须创建的对象清单（MANDATORY）');
+  lines.push('# ⚠️ 必须绑定的对象清单（MANDATORY）');
   lines.push('');
-  lines.push('在 Start() 中，你 **必须** 用 GameObject.Find("__Pool_Shape_Color_NN") 获取以下所有对象。');
+  lines.push('V4 legacy 兼容层可以在 Start() 的 staging 绑定代码里解析对象池；如果已有绑定表或 GameSceneCtrl，优先使用绑定表，不要在业务逻辑里重复 Find。');
   lines.push('⛔ 禁止 GFM_Create.Obj / GFM_Create.Ground / GFM_Create.SetColor（Luna不支持）');
   lines.push('对象池预创建后隐藏在 y=-999，需要时移到场景中。');
   lines.push('');
@@ -392,12 +399,12 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('   - 不要把逻辑重新塞回主文件');
   lines.push('   - `Flow.cs` 内部按职责放置 phase-specific 方法：`Phase_<id>_Init()` / `Phase_<id>_OnTap()` / `Phase_<id>_OnAutoPlayArrive()` / `Snapshot_<id>_GateEntities()`');
   lines.push('   - `GameFlowManagerMain.cs` 不应再出现 phase-specific TODO、OnAutoPlayArrive 大 switch、或 Snapshot helper');
-  lines.push('   - 每个字段、每个方法的注释必须紧邻定义本身，不能只在文件顶部给一段总注释');
+  lines.push('   - 关键注释必须紧邻对应代码，不能只在文件顶部给一段总说明；自解释字段和普通方法不要机械补注释');
   lines.push('   - 任何多行 if 条件或含 && / || 的条件链，都必须在前一行写注释解释该条件的业务意图');
-  lines.push('2. 用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]');
+  lines.push('2. V4 staging 可用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]；程序员交付版必须收口到 `GMP_EntityBindingManager.mBindings`，不要把隐藏并行数组当最终结构。');
   lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
-  lines.push('4. Update() / HandlePlayerInteractions() / OnAutoPlayArrive() 必须保持轻量，只负责直接调用更小的方法');
-  lines.push('5. 每个字段、每个方法、每个条件分支都必须写详细注释，解释用途和意图');
+  lines.push('4. Update() / HandlePlayerInteractions() / OnAutoPlayArrive() 必须保持轻量；只有复用或明显提升阅读性时才拆小方法，不要为一行代码拆函数。');
+  lines.push('5. 注释只写关键、难懂、容易踩坑的地方，用中文大白话解释原因；不要给每个字段、方法、条件分支都补机械注释。');
   lines.push('6. 禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage，方法必须直接调用');
   lines.push('7. CheckEventRules(): 检查每条规则的条件，满足且 ruleTriggered[i]==false → 执行动作 + 标记已触发');
   lines.push('   示例:');
@@ -408,11 +415,11 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('     // 每条规则独立判断，不依赖其他规则的顺序');
   lines.push('   }');
   lines.push('8. 动态实体（敌人/弹药/金币）用对象池: 预创建数组，隐藏在 y=-999');
-  lines.push('9. 获取3D对象: var go = GameObject.Find("__Pool_Cube_Red_01"); // 从预制池获取');
+  lines.push('9. 获取3D对象: 优先用绑定字段或 GameSceneCtrl.instance.Get("entityName")；只有 V4 staging 绑定层才可兜底解析 `__Pool_*`。');
   lines.push('   go.transform.position = new Vector3(x,y,z); // 移到场景中=显示');
   lines.push('   go.transform.localScale = new Vector3(sx,sy,sz); // 设置大小');
   lines.push('   可用池对象: __Pool_{Cube|Sphere|Cylinder}_{Red|Blue|Green|Yellow|Brown|White|Gray}_{01-99}');
-  lines.push('8. 地面已存在: var ground = GameObject.Find("__Ground");');
+  lines.push('8. 地面已存在: var ground = GameSceneCtrl.instance.Get("__Ground");');
   lines.push('9. ⛔ 禁止: GFM_Create.Obj(), GFM_Create.Ground(), GFM_Create.SetColor(), CreatePrimitive()');
   lines.push('   池对象颜色已烘焙，直接用不同颜色后缀的池对象代替SetColor');
   lines.push('10. 虚拟摇杆: 在 Start() 中 var joystick = GFM_Joystick.Create(canvas, 200f);');
@@ -432,7 +439,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('');
   lines.push('1. **不要访问 .transform.parent** — Luna 中 parent 可能为 undefined，直接崩溃');
   lines.push('2. **不要用 transform.SetParent()** — 改用 GFM_UI 创建 UI 元素（它内部处理了层级）');
-  lines.push('3. **AddComponent 后 Start()/Awake() 不会自动调用** — 手动调用 comp.Start()');
+  lines.push('3. **不要依赖 runtime AddComponent** — 需要的组件应预先挂好或通过现有 GFM_UI 等工具 API 处理');
   lines.push('4. **不要用 FindObjectOfType / FindObjectsOfType** — Luna 中可能返回 null');
   lines.push('5. **不要用 GetComponentInChildren / GetComponentInParent** — 层级遍历不稳定');
   lines.push('6. **所有对象引用保存在成员变量或数组中** — 不要运行时查找，创建时就存好引用');

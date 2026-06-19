@@ -1537,13 +1537,14 @@ ${inlinePromptMd}
   const combinedSrc = mainSrc + '\n' + systemsSrc;
   const lineCount = mainLineCount + systemsLineCount;
   const findCalls = (combinedSrc.match(/GameObject\.Find/g) || []).length;
+  const bindingCalls = (combinedSrc.match(/GameSceneCtrl\.instance\.Get|RegisterEntityBindings|_entityBindingIds/g) || []).length;
   const gfmCreateCalls = (combinedSrc.match(/GFM_Create\.Obj/g) || []).length;
   const hasGameEnded = /GameEnded/.test(combinedSrc);
 
   if (hasSystems) {
-    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${findCalls} Find() calls`, taskId);
+    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls`, taskId);
   } else {
-    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
+    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
   }
 
   if (hasFeedback && opts.existingCode) {
@@ -1560,7 +1561,7 @@ ${inlinePromptMd}
   }
 
   if (gfmCreateCalls > 0) {
-    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use Find() instead', taskId);
+    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use existing bindings / GameSceneCtrl instead', taskId);
   }
   if (!hasGameEnded) {
     log('[codex-code] ⚠️ WARNING: No GameEnded() call', taskId);
@@ -1573,12 +1574,12 @@ ${inlinePromptMd}
     : 0;
   const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
   const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.2 && realTodoCount > 5;
-  if (lineCount < 100 || (findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
+  if (lineCount < 100 || (bindingCalls === 0 && findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
     const stubReason = lineCount < 100
       ? `Only ${lineCount} lines (need ≥100)`
       : isUnmodifiedSkeleton
         ? `Skeleton unmodified (${skeletonLineCount}→${lineCount} lines, ${realTodoCount} unfilled TODOs) — codex code runner likely timed out`
-        : `0 Find() and 0 GFM_Create.Obj() calls (no objects created)`;
+        : `0 binding refs, 0 Find(), and 0 GFM_Create.Obj() calls (no objects referenced)`;
     log(`[codex-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
     if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
       log('[codex-code] Clearing feedbackHistory to force FULL_GENERATION on next attempt', taskId);

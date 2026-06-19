@@ -19,19 +19,25 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 7. Tool 层要沉淀跨项目稳定工具：相机、UI 创建/布局、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案。
 8. 音频必须集中式管理，支持多个 BGM/SFX/loop/one-shot source；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。
 9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。
+10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
+11. 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。
+12. `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组。
+13. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
+14. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。
+15. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。
+16. 当前 partial 骨架是 Luna/WebGL staging 层；为了 WebGL 稳定可以使用骨架绑定和对象池映射，但这些写法不得泄漏成程序员交付版的业务依赖。
 
 ## 核心规则：基础样例工程模式
 
-场景已预制 160 个带颜色的 3D 对象 + UI 元素。**优先使用池对象（Find），只有池对象数量不够时才用 Instantiate 复制**。
+场景已预制 160 个带颜色的 3D 对象 + UI 元素。**优先使用骨架已绑定字段 / `GameSceneCtrl.instance.Get("name")`，只有骨架绑定层缺口才兜底解析池对象**。
 ⛔ **绝对不要用 GFM_Create.Obj() / GFM_Create.Ground() / CreatePrimitive()** — 这些在 Luna 中不可见或会导致问题。
 
 你只需要：
-1. `GameObject.Find("名称")` 获取对象引用
+1. 通过骨架字段、`RegisterEntityBindings()` 或 `GameSceneCtrl.instance.Get("名称")` 获取对象引用；不要在业务 TODO 区重复写 `GameObject.Find("__Pool_*")`
 2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）
 3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）
-4. 颜色已烘焙在对象中 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，**不要用 SetColor**
-5. `Instantiate(obj)` 复制池对象（仅当同色同形状的 5 个池对象全部用完时才用）
-6. 写游戏逻辑（交互、碰撞检测、流程控制）
+4. 颜色已烘焙在对象中 — 使用对象分配表里已经绑定的 `__Pool_{Shape}_{Color}_{NN}` 对象，**不要用 SetColor**
+5. 写游戏逻辑（交互、碰撞检测、流程控制）
 
 ## 骨架已预创建的变量（直接使用，不要重新创建）
 
@@ -50,22 +56,22 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - **绝对不要用 SetActive()** — Luna 中 SetActive 会导致对象消失且无法恢复
 - 不要用 `GFM_Tools` — 这个类不存在！可用的类是 `GFM_Create`, `GFM_UI`, `GFM_Luna`, `GFM_Audio`, `GFM_Pool`, `GFM_Utils`, `GFM_Joystick`, `GFM_Grid`, `GFM_Pathfinding`
 - 不要用 `GFM_Event` / 订阅 / Fire / FireNow 调业务逻辑；phase、输入、资源、UI、场景逻辑必须直接调用命名方法
-- ⛔ **不要用 `GFM_Create.Obj()` / `GFM_Create.Ground()` / `GFM_Create.SetColor()`** — 池对象颜色已烘焙，直接 Find 使用
+- ⛔ **不要用 `GFM_Create.Obj()` / `GFM_Create.Ground()` / `GFM_Create.SetColor()`** — 池对象颜色已烘焙，通过绑定字段或 GameSceneCtrl 使用
 - 不要用 `CreatePrimitive()` — 在 Luna 中不可见
 - 不要用泛型 `List<T>` / `Dictionary<K,V>` — 用数组
 - 不要用 coroutine / async / await — 用 Update + timer
 - 不要用 LINQ / System.Linq
 - 隐藏用 `position=(0,-999,0)`，不用 `SetActive(false)` / `SetActive(true)`
-- Pool 名字必须用字面量字符串如 `"__Pool_Cube_Red_01"`，**不要拼接字符串**（Bridge.NET 字符串格式化不可靠）。prompt.md 中有蓝图实体→池对象的完整映射表，直接复制使用
+- 绑定表里的 Pool 名字必须用字面量字符串如 `"__Pool_Cube_Red_01"`，**不要拼接字符串**（Bridge.NET 字符串格式化不可靠）。prompt.md 中有蓝图实体→池对象的完整映射表，绑定层直接复制使用
 - 新命名规则: `__Pool_{Shape}_{Color}_{NN}`，Shape=Cube/Sphere/Cylinder/Plane，Color=Red/Blue/Green/Yellow/Orange/Purple/White/Brown/Cyan/Pink
 - 不要定义 `class EventPool`（和模板冲突）
 - 不要用 `transform.parent` / `SetParent` / `FindObjectOfType`
 - 不要用泛型方法：`GetComponent<T>()` → 用 `(T)GetComponent(typeof(T))`
 - ⛔ **绝对不要用 `Resources.GetBuiltinResource`（泛型或非泛型）** — Luna runtime 未实现，会抛 "method not implemented" 导致 Start() 崩溃。字体加载由 GFM_UI.CreateText 内部处理（模板已提供 Resources/DefaultFont.ttf）
-- 不要用 `FindObjectOfType<T>()` → 用 `(T)FindObjectOfType(typeof(T))`
+- 不要用 `FindObjectOfType<T>()` 或 `(T)FindObjectOfType(typeof(T))`；需要的对象必须来自骨架已缓存引用或绑定表
 - 不要直接设置 `Text.font` / `Text.fontSize` / `Text.alignment` / `Text.horizontalOverflow`；Luna 的 UI.Text backing element 可能未初始化。创建文字用 `GFM_UI.CreateText`，后续只更新 `.text`
 
-## 场景对象池（已存在，直接 Find 使用）
+## 场景对象池（已存在，优先经绑定表使用）
 
 160 个预烘焙颜色池对象，命名规则：`__Pool_{Shape}_{Color}_{NN}`
 
@@ -84,7 +90,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 
 ## 操作 API
 
-- ⛔ **不要用 GFM_Create.SetColor()** — 颜色已烘焙在池对象中，Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 即可
+- ⛔ **不要用 GFM_Create.SetColor()** — 颜色已烘焙在池对象中，使用对象分配表里已经绑定的池对象即可
 - 虚拟摇杆: `var joystick = GFM_Joystick.Create(uiCanvas, 200f);` 用骨架的 uiCanvas
 - 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`
 - CTA: `Luna.Unity.Playable.InstallFullGame()`
