@@ -73,15 +73,13 @@ function makeRoot() {
   fs.writeFileSync(path.join(root, 'Packages', 'manifest.json'), JSON.stringify({ dependencies: {} }, null, 2));
   var scriptGuids = [];
   scriptGuids.push({ name: 'GMP_MainManager', guid: writeScript('Assets/Scripts/Core/Modules/GMP_MainManager.cs', 'using UnityEngine;\npublic class GMP_MainManager : MonoBehaviour { void Start() {} void Update() {} }\n') });
-  scriptGuids.push({ name: 'GMP_PhaseController', guid: writeScript('Assets/Scripts/Core/Modules/GMP_PhaseController.cs', 'using UnityEngine;\npublic class GMP_PhaseController : MonoBehaviour { public void Tick(float dt) {} }\n') });
+  scriptGuids.push({ name: 'GMP_PhaseController', guid: writeScript('Assets/Scripts/Core/Modules/GMP_PhaseController.cs', 'using UnityEngine;\npublic class GMP_PhaseController : MonoBehaviour {}\n') });
   var audioGuid = writeScript('Assets/Scripts/Core/Modules/GMP_Audio.cs', [
     'using UnityEngine;',
     'public class GMP_Audio : MonoBehaviour',
     '{',
     '  public AudioSource[] mLoopSources = new AudioSource[0];',
     '  public AudioSource[] mOneShotSources = new AudioSource[0];',
-    '  public void PlayLoop(string key, AudioClip clip) {}',
-    '  public void PlayOneShot(AudioClip clip) {}',
     '}',
   ].join('\n'));
   scriptGuids.push({ name: 'GMP_Audio', guid: audioGuid, audio: true });
@@ -106,7 +104,7 @@ function makeRoot() {
     'public class GMP_ChefEntity : GMP_BaseGameFlowEntity',
     '{',
     '  public int ServedCount;',
-    '  public void AddServedCount() { ServedCount += 1; }',
+    '  public string CurrentRecipe = "shrimp";',
     '}',
   ].join('\n'));
   hydration.writeHydrationReport(root, path.join(root, 'MCP_HYDRATION_REPORT.json'));
@@ -156,6 +154,16 @@ assert.ok(layoutFail.errors.some(function(error) { return error.indexOf('Core/To
 assert.ok(layoutFail.errors.some(function(error) { return error.indexOf('project-specific entity label mapping') >= 0; }));
 
 var audioFailRoot = makeRoot();
+fs.writeFileSync(path.join(audioFailRoot, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_AudioCaller.cs'), [
+  'using UnityEngine;',
+  'public class GMP_AudioCaller : MonoBehaviour',
+  '{',
+  '  void Start()',
+  '  {',
+  '    if (GMP_Audio.instance != null) GMP_Audio.instance.PlayLoop("bgm", null);',
+  '  }',
+  '}',
+].join('\n'));
 fs.writeFileSync(path.join(audioFailRoot, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_Audio.cs'), [
   'using UnityEngine;',
   'public class GMP_Audio : MonoBehaviour',
@@ -200,6 +208,13 @@ fs.rmSync(path.join(missingHydrationRoot, 'MCP_HYDRATION_REPORT.json'), { force:
 var missingHydration = hardgate.validateProgrammerDelivery(missingHydrationRoot, summary);
 assert.strictEqual(missingHydration.passed, false);
 assert.ok(missingHydration.errors.some(function(error) { return error.indexOf('MCP_HYDRATION_REPORT.json missing') >= 0; }));
+
+var staleSummaryRoot = makeRoot();
+var staleSummary = hardgate.validateProgrammerDelivery(staleSummaryRoot, Object.assign({}, summary, {
+  unusedScriptNamesRemoved: ['GMP_Audio.cs']
+}));
+assert.strictEqual(staleSummary.passed, false);
+assert.ok(staleSummary.errors.some(function(error) { return error.indexOf('PROGRAMMER_DELIVERY_SUMMARY') >= 0 && error.indexOf('GMP_Audio.cs') >= 0; }));
 
 var logicVisualRoot = makeRoot();
 var chefGuid = crypto.createHash('sha1').update('Assets/Scripts/Game/Entities/GMP_ChefEntity.cs').digest('hex').slice(0, 32);

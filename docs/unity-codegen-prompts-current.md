@@ -277,12 +277,14 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 - 不再为了分层生成只调用一次、只包一两行的 helper、空壳类、不会被调用的方法。
 - 不再把单例/管理器写成场景实例之外的一组静态 `Init/Get/Return` 工作流方法。
 - 不再为理论上进不去的分支堆大量查找、创建、修复式兜底代码。
+- 不再为没有音频调用的项目强制生成 `PlayLoop` / `PlayOneShot` 等播放 API；音频播放接口只在项目真的调用音频时出现。
+- 不再为同一个玩法状态生成多个 owner；简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，HUD 目标提示只由 HudController 写。
 
 当前仍保留的稳定性保护：
 
 - Luna staging 仍保留受控对象池 literal，避免破坏 WebGL 稳定链路。
 - source HTML / storyboard2html / guideText parity 仍是事实源红线。
-- cleaner / hardgate / maintainability gate 继续负责最终交付收口。
+- cleaner / hardgate / maintainability gate 继续负责最终交付收口，其中 strict maintainability 已经阻断未调用方法、重复状态 owner、`Vector3.Distance` 门槛和静态 `Init/Get/Return` 工作流；hardgate 会校验 summary 中“已删除脚本”与真实文件一致。
 
 ## 回归测试
 

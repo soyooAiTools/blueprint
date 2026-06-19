@@ -16,15 +16,20 @@ function makeRoot(options) {
   var root = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-maintainability-'));
   fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Common'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Base'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Components'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Entities'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Player'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Tool'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Assets', 'Scenes'), { recursive: true });
 
   var main = [
     'public class GMP_MainManager : MonoSingleton<GMP_MainManager>',
     '{',
-    '  public void Start() { InitCoreModules(); }',
+    '  GMP_LevelRuleEngine mLevel = new GMP_LevelRuleEngine();',
+    '  GMP_ChefEntity mChef = new GMP_ChefEntity();',
+    '  public void Start() { InitCoreModules(); mLevel.TryServe(mChef); }',
     '  public void Update() { }',
     '  void InitCoreModules() { }',
     '}',
@@ -34,8 +39,9 @@ function makeRoot(options) {
     'public class GMP_LevelRuleEngine',
     '{',
     '  public void TryServe(GMP_ChefEntity chef) { chef.AddServedCount(); }',
+    options.unusedMethodLeak ? '  public void NeverCalled() { }' : '',
     '}',
-  ].join('\n'));
+  ].filter(Boolean).join('\n'));
   fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_ChefEntity.cs'), options.thinEntity ? [
     'public class GMP_ChefEntity : GMP_BaseGameFlowEntity',
     '{',
@@ -104,6 +110,66 @@ function makeRoot(options) {
       'public class GMP_NewObjectLeak',
       '{',
       '  public GameObject Build() { return new GameObject("RuntimeOnly"); }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.vectorDistanceLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_DistanceLeak.cs'), [
+      'using UnityEngine;',
+      'public class GMP_DistanceLeak',
+      '{',
+      '  public bool IsNear(Vector3 a, Vector3 b) { return Vector3.Distance(a, b) < 2f; }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.staticWorkflowLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_StaticWorkflowLeak.cs'), [
+      'public class GMP_StaticWorkflowLeak',
+      '{',
+      '  public static void Init() { }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.duplicateStateLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Player', 'GMP_Player.cs'), [
+      'public class GMP_Player : GMP_PlayerBase',
+      '{',
+      '  public struct FormDef { public string formId; public float moveSpeed; }',
+      '  public FormDef[] Forms;',
+      '  public float MoveSpeed { get { return Forms != null && Forms.Length > 0 ? Forms[0].moveSpeed : 6f; } }',
+      '}'
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_PlayerBase.cs'), [
+      'public class GMP_PlayerBase',
+      '{',
+      '  public float mMoveSpeed = 4f;',
+      '}'
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Components', 'GMP_MovementComponent.cs'), [
+      'public class GMP_MovementComponent',
+      '{',
+      '  public float mDefaultSpeed = 5f;',
+      '}'
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EconomyManager.cs'), [
+      'public class GMP_EconomyManager',
+      '{',
+      '  private int[] mInvVals = new int[8];',
+      '  private int mGold = 0;',
+      '}'
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_UIManager.cs'), [
+      'public class GMP_UIManager',
+      '{',
+      '  public object mTargetHintText;',
+      '  public void SetTargetHint(string targetEntity) {}',
+      '}'
+    ].join('\n'));
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_HudController.cs'), [
+      'public class GMP_HudController',
+      '{',
+      '  public object mTargetHintText;',
+      '  public void SetTargetHint(string targetEntity) {}',
       '}'
     ].join('\n'));
   }
@@ -223,6 +289,46 @@ try {
   assert.strictEqual(newGameObjectReport.summary.newGameObjectGameLayerCount, 1);
 } finally {
   cleanup(newGameObjectRoot);
+}
+
+var unusedMethodRoot = makeRoot({ unusedMethodLeak: true });
+try {
+  var unusedMethodReport = gate.validateMaintainability(unusedMethodRoot, { strict: true });
+  assert.strictEqual(unusedMethodReport.passed, false);
+  assert.ok(unusedMethodReport.errors.some(function(error) { return error.code === 'unused-methods'; }));
+  assert.strictEqual(unusedMethodReport.summary.unusedMethodCount, 1);
+} finally {
+  cleanup(unusedMethodRoot);
+}
+
+var distanceRoot = makeRoot({ vectorDistanceLeak: true });
+try {
+  var distanceReport = gate.validateMaintainability(distanceRoot, { strict: true });
+  assert.strictEqual(distanceReport.passed, false);
+  assert.ok(distanceReport.errors.some(function(error) { return error.code === 'vector3-distance-threshold'; }));
+  assert.strictEqual(distanceReport.summary.vector3DistanceCount, 1);
+} finally {
+  cleanup(distanceRoot);
+}
+
+var staticWorkflowRoot = makeRoot({ staticWorkflowLeak: true });
+try {
+  var staticWorkflowReport = gate.validateMaintainability(staticWorkflowRoot, { strict: true });
+  assert.strictEqual(staticWorkflowReport.passed, false);
+  assert.ok(staticWorkflowReport.errors.some(function(error) { return error.code === 'static-workflow-methods'; }));
+  assert.strictEqual(staticWorkflowReport.summary.staticWorkflowMethodCount, 1);
+} finally {
+  cleanup(staticWorkflowRoot);
+}
+
+var duplicateStateRoot = makeRoot({ duplicateStateLeak: true });
+try {
+  var duplicateStateReport = gate.validateMaintainability(duplicateStateRoot, { strict: true });
+  assert.strictEqual(duplicateStateReport.passed, false);
+  assert.ok(duplicateStateReport.errors.some(function(error) { return error.code === 'duplicate-state-owners'; }));
+  assert.ok(duplicateStateReport.summary.duplicateStateOwnerCount >= 4);
+} finally {
+  cleanup(duplicateStateRoot);
 }
 
 console.log('programmer delivery maintainability gate tests passed');

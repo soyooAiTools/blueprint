@@ -275,8 +275,7 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs')));
   const playerBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs'), 'utf8');
   assert.match(playerBaseSrc, /public class PlayerBase : BaseGameFlowEntity/);
-  assert.match(playerBaseSrc, /public float mMoveSpeed/);
-  assert.match(playerBaseSrc, /void MoveByDirection\(Vector3 direction, float dt\)/);
+  assert.doesNotMatch(playerBaseSrc, /mMoveSpeed|MoveByDirection/, 'PlayerBase should not own project player movement tuning');
   // 反馈 01 #8 架构图:Player 走单例语义。
   assert.match(playerBaseSrc, /public\s+static\s+PlayerBase\s+instance/);
   assert.match(playerBaseSrc, /instance\s*=\s*this/);
@@ -615,18 +614,18 @@ try {
     assert.match(audioText, /public void Init\(\)/);
     assert.doesNotMatch(audioText, /public static GMP_Audio Init/, 'Audio should initialize from the scene-mounted instance, not a static creator');
     assert.match(audioText, /using System\.Collections\.Generic;/);
-    assert.match(audioText, /public AudioClip\[\] mBgmList/);
-    assert.match(audioText, /public AudioClip\[\] mSfxList/);
+    assert.doesNotMatch(audioText, /public AudioClip\[\] mBgmList/);
+    assert.doesNotMatch(audioText, /public AudioClip\[\] mSfxList/);
     assert.match(audioText, /public AudioSource\[\] mLoopSources/);
     assert.match(audioText, /public AudioSource\[\] mOneShotSources/);
     assert.match(audioText, /public int mRuntimeOneShotSourceCount = 6/);
-    assert.match(audioText, /Dictionary<string, AudioSource> mLoopSourceByKey/);
+    assert.doesNotMatch(audioText, /Dictionary<string, AudioSource> mLoopSourceByKey/);
     assert.match(audioText, /GetComponents<AudioSource>\(\)/);
-    assert.match(audioText, /void PlayBGM\(int index\)/);
-    assert.match(audioText, /void PlaySFX\(int index\)/);
-    assert.match(audioText, /void PlayLoop\(string key, AudioClip clip\)/);
-    assert.match(audioText, /void PlayOneShot\(AudioClip clip\)/);
-    assert.match(audioText, /NextOneShotSource\(\)/);
+    assert.doesNotMatch(audioText, /void PlayBGM\(int index\)/);
+    assert.doesNotMatch(audioText, /void PlaySFX\(int index\)/);
+    assert.doesNotMatch(audioText, /void PlayLoop\(string key, AudioClip clip\)/);
+    assert.doesNotMatch(audioText, /void PlayOneShot\(AudioClip clip\)/);
+    assert.doesNotMatch(audioText, /NextOneShotSource\(\)/);
     assert.doesNotMatch(audioText, /private AudioSource mSfxSource/);
     assert.doesNotMatch(audioText, /private AudioSource mBgmSource/);
   } finally {
@@ -997,7 +996,8 @@ try {
     assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player [^"]*Player/, 'Player runtime init should fail loudly when source Player is missing');
     assert.doesNotMatch(deliveryPlayer, /CreatePrimitive\(PrimitiveType\.Cylinder\)/, 'Player runtime init must not create primitive fallback players');
     assert.doesNotMatch(deliveryPlayer, /__Pool_(?:Cylinder|Capsule|Cube)/, 'Player runtime init must not scan old Luna primitive pools');
-    assert.match(deliveryPlayer, /moveSpeed=6f/, 'Player fallback speed should match source HTML 6u/s');
+    assert.match(deliveryPlayer, /public float MoveSpeed = 6f;/, 'Player should expose one movement speed value matching source HTML 6u/s');
+    assert.doesNotMatch(deliveryPlayer, /FormDef|Forms|mCurrentFormIndex|mFormObjects/, 'single-form projects should not keep unused form speed state');
     assert.match(deliveryPlayer, /private readonly GMP_MovementComponent mMovementComponent = new GMP_MovementComponent\(\);/, 'Player should keep movement as a plain C# ability object');
     assert.match(deliveryPlayer, /private readonly GMP_InventoryComponent mInventoryComponent = new GMP_InventoryComponent\(\);/, 'Player should keep inventory as a plain C# ability object');
     assert.doesNotMatch(deliveryPlayer, /EnsureRuntimeComponents|RequireComponent\(typeof\(GMP_(?:Movement|Trigger|Interaction|Inventory)Component\)\)/, 'Player should not generate runtime component hydration helpers');
@@ -1019,7 +1019,8 @@ try {
     assert.match(deliveryMovement, /public class GMP_MovementComponent\s*\{/, 'movement ability should be a plain class, not a MonoBehaviour');
     assert.doesNotMatch(deliveryMovement, /:\s*MonoBehaviour/, 'movement ability should not be scene-mounted');
     assert.match(deliveryMovement, /public void Move\(Transform target, Vector3 direction, float speed, float dt\)/, 'movement component should accept caller-supplied real-time dt');
-    assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(finalSpeed \* safeDt\);/, 'movement component should not force Time.deltaTime when caller supplies dt');
+    assert.doesNotMatch(deliveryMovement, /mDefaultSpeed|finalSpeed/, 'movement component should not own a second movement speed default');
+    assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(speed \* safeDt\);/, 'movement component should use the caller-supplied speed and dt');
     ['GMP_MovementComponent', 'GMP_TriggerComponent', 'GMP_InteractionComponent', 'GMP_InventoryComponent'].forEach((name) => {
       const file = path.join(scripts, 'Core', 'Components', name + '.cs');
       const text = fs.readFileSync(file, 'utf8');
@@ -1342,15 +1343,16 @@ try {
     if (fs.existsSync(uiManagerPath)) {
       const uiManager = fs.readFileSync(uiManagerPath, 'utf8');
       assert.doesNotMatch(uiManager, /DisplayNameForEntity/, 'Core UIManager should use a generic fallback label helper, not a Game display-name mapper');
+      assert.doesNotMatch(uiManager, /mTargetHintText|SetTargetHint/, 'UIManager should not duplicate HudController target hint ownership');
       assert.match(uiManager, /FallbackEntityLabel\(targetEntity\)/);
     }
     assert.doesNotMatch(hudController, /mScoreText = FindText\("Text_Coin"\)/);
     assert.match(hudController, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)/);
     const levelRuleEngine = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), 'utf8');
-    assert.match(levelRuleEngine, /using UnityEngine\.UI;/);
+    assert.doesNotMatch(levelRuleEngine, /using UnityEngine\.UI;/);
     assert.match(levelRuleEngine, /RefreshTargetHint\(\)/);
     assert.match(levelRuleEngine, /GMP_HudController\.instance\.SetTargetHint\(target, DisplayNameForEntity\(target\)\)/);
-    assert.match(levelRuleEngine, /SetTargetHintTextDirect\(target\)/);
+    assert.doesNotMatch(levelRuleEngine, /SetTargetHintTextDirect|mTargetHintText/, 'LevelRuleEngine should not write target hint text directly');
     assert.match(levelRuleEngine, /UpdateGuidanceVisuals\(target\)/);
     assert.match(levelRuleEngine, /public GameObject mTargetRing;/);
     assert.match(levelRuleEngine, /public GameObject mTrailLine;/);
@@ -1358,7 +1360,6 @@ try {
     assert.match(levelRuleEngine, /GameObject ring = mTargetRing;/);
     assert.doesNotMatch(levelRuleEngine, /GameObject\.Find/, 'guidance visuals should be scene-assigned, not found at runtime');
     assert.match(levelRuleEngine, /trail\.transform\.rotation = Quaternion\.LookRotation\(delta\)/);
-    assert.match(levelRuleEngine, /public Text mTargetHintText;/);
     assert.match(levelRuleEngine, /SetState\(step\.mSetEntity, step\.mSetState\)/);
     const phasePresetCodeStrict = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhasePreset.cs'), 'utf8');
     assert.match(phasePresetCodeStrict, /public GMP_EntityState mSetState = GMP_EntityState\.Hidden/);

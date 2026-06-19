@@ -38,6 +38,9 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
 - WebGL 产物必须保留 `__gameState`、可驱动 phase hook、runtime binding smoke 和 source guideText parity 证据。
 - 程序员 Unity 工程必须导出为 `Assets/Scripts/Core` / `Tool` / `Game` 三层；核心模块、工具层和本项目业务分离。
 - 状态和步骤语义使用 enum，Player/NPC/Entity 走基类 + 可选组件组合，Audio 走集中式多音源管理。
+- 程序员交付代码必须能给人类程序员接手：场景引用走 AIBridge/MCP + Inspector hydration，业务代码不靠 runtime `Find` / `AddComponent` / `new GameObject` 补场景；只保留真实调用链会用到的方法。
+- 同一个玩法状态只能有一个 owner。简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，Gold 从资源表派生，HUD 目标提示只由 HudController 写。
+- `programmer-delivery-maintainability-gate` strict 模式会阻断 runtime 查找/挂组件、`Vector3.Distance` 门槛、静态 `Init/Get/Return` 工作流、重复状态 owner、未调用方法和空壳实体类；`programmer-delivery-hardgate` 会把这些 summary 纳入交付阻断。
 - schema prompt、V4/V5 prompt、Codex code runner 和 legacy worker prompt 都必须携带这套程序架构硬规则。
 
 ### Harness Engine Pipeline（8 阶段）
