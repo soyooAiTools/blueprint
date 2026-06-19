@@ -1327,6 +1327,8 @@ ${whitelistBlock}
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
 - 不要直接写 \`GameObject.Find("__Pool_*")\`；实体引用统一来自 \`RegisterEntityBindings()/GameSceneCtrl\`
+- 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
+- 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
 - 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
 - AutoPlay fallback 只能在 \`Phase_*_OnAutoPlayArrive()\`，不要塞进 \`Phase_*_OnTap()\`
@@ -1483,7 +1485,8 @@ ${inlinePromptMd}
         + '4. Read ALL existing GameFlowManagerMain*.cs partial files FIRST, then apply targeted edits based on the feedback. Do NOT invent file names — use `ls` or `Glob` on the Manager/ directory to discover which partials actually exist.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
         + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.\n'
-        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.'
+        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.\n'
+        + '8. Keep programmer-delivery maintainability: one primary script per node, plain C# classes for abilities without Unity lifecycle, meaningful variable names, no unused methods, inline one-call one-line helpers, and only necessary fallbacks.'
       : null,
     workDir: clientDir,
   };

@@ -31,6 +31,14 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('mBindings') >= 0, label + ' should mention mBindings as the binding table');
   assert.ok(text.indexOf('逻辑与表现分离') >= 0, label + ' should require logic/visual separation');
   assert.ok(text.indexOf('注释只写关键') >= 0, label + ' should require sparse plain Chinese comments');
+  assert.ok(text.indexOf('程序员可交付反馈规则') >= 0, label + ' should carry consolidated programmer-delivery feedback rules');
+  assert.ok(text.indexOf('一节点一主脚本') >= 0, label + ' should require one primary script per node');
+  assert.ok(text.indexOf('无生命周期能力') >= 0, label + ' should keep lifecycle-free abilities as plain classes');
+  assert.ok(text.indexOf('只保留会被调用的方法') >= 0, label + ' should forbid dead unused methods');
+  assert.ok(text.indexOf('必要兜底') >= 0, label + ' should forbid excessive fallback code');
+  assert.ok(text.indexOf('Missing Mono Script') >= 0, label + ' should route missing script cleanup through scene/editor hydration');
+  assert.ok(text.indexOf('静态 Init/Get/Return') >= 0, label + ' should forbid static workflow methods in singleton managers');
+  assert.ok(text.indexOf('sqrMagnitude') >= 0, label + ' should require squared-distance threshold checks');
 }
 
 var schemaText = schemaPrompt.buildSchemaPromptV3({ blueprint: blueprint });
@@ -53,6 +61,8 @@ assert.ok(v5Text.indexOf('不要在 TODO 区') >= 0 && v5Text.indexOf('GameObjec
   'v5 prompt should forbid business TODO Find fallback');
 assert.ok(v4Text.indexOf('只有 V4 staging 绑定层才可兜底解析 `__Pool_*`') >= 0, 'v4 prompt should fence legacy pool lookup to staging binding');
 assert.ok(behaviorTemplateText.indexOf('本文件只给 Luna/WebGL staging 代码参考') >= 0, 'behavior templates should be marked staging-only');
+assert.ok(behaviorTemplateText.indexOf('程序员可交付反馈规则') >= 0, 'behavior templates should carry programmer-delivery feedback warnings');
+assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');

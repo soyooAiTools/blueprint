@@ -1,6 +1,7 @@
 # Luna 行为模板实现手册（事件驱动版）
 
 > 本文件只给 Luna/WebGL staging 代码参考。程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration，引用进入 `GMP_EntityBindingManager.mBindings` 或 `[SerializeField]` 字段；不要把这里的平行数组、运行时 `Find` 或一次性模板拆法照搬成最终交付结构。
+> 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；变量名要说明业务含义；只保留会被调用的方法；必要兜底才写；场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉，不要在业务代码里反复 Find/AddComponent/修复。
 
 > ⚠️ **最重要的规则**: Phase/Rule 推进必须由玩家操作触发，绝对禁止用 gameTimer/计时器 自动推进！
 > CUA 验证器会检测: 如果游戏在无玩家输入下自动跑完所有 Phase → **直接 FAIL**。
@@ -79,7 +80,7 @@ var ground = GameSceneCtrl.instance.Get("__Ground");
 ```
 
 > ⛔ **绝对禁止**: `GFM_Create.Obj()`, `GFM_Create.Ground()`, `GFM_Create.SetColor()`, `CreatePrimitive()`
-> 程序员交付版额外禁止业务代码里的 `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)`；这些引用必须由 MCP/Inspector 预先写好。
+> 程序员交付版额外禁止业务代码里的 `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)`；这些引用必须由 MCP/Inspector 预先写好。距离门槛判断用 `sqrMagnitude`，不要把 `Vector3.Distance` 写成正向示例。
 
 ## PlayerController 模板
 

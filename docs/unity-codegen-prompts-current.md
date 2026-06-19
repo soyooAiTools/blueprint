@@ -49,6 +49,18 @@
 - 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
 
+## DOCX 反馈汇总后的 Prompt 规则
+
+来源：`/nickTemp/代码规范与优化建议.docx`。整理后不逐条照搬截图，而是合并成这组生成约束：
+
+1. **场景和引用先交给 MCP/Editor**：Missing Mono Script、Rigidbody/Collider/Animator 等场景遗留或组件配置，由 AIBridge/MCP/Editor 修场景；业务代码不要再写一遍 Find/AddComponent/修复逻辑。
+2. **节点挂载要克制**：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 `MonoBehaviour`。Movement/Trigger/Interaction/Inventory 这类无生命周期能力默认用普通 C# 类。
+3. **代码要能交给人类程序员接手**：变量名说清业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的 helper 直接内联；不要为了“看起来分层”拆一堆函数、变量和空壳类。
+4. **单例和管理器少用静态工作流**：管理器从场景预挂实例启动，通过 serialized refs 拿依赖；单例类里不要再塞静态 `Init/Get/Return` 这类工作流方法。
+5. **兜底必须有现实入口**：必要兜底才写。理论上进不去的分支不要堆十几行查找、创建、修复代码；这会让交付代码膨胀且更难维护。
+6. **Unity 性能习惯写进正向示例**：距离门槛判断使用 `sqrMagnitude`，不要把 `Vector3.Distance(...) < range` 写成推荐样例。
+7. **注释服务理解，不服务篇幅**：只在关键、难懂、容易踩坑的位置写中文大白话注释；字段名、普通生命周期方法、自解释 helper 不补机械注释。
+
 ## 两层 Prompt 口径
 
 ### Luna/WebGL Staging 层
@@ -262,6 +274,9 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 - static-check 的 blocking message 不再提示模型 “use GameObject.Find() from pool”。
 - 不再把 `Vector3.Distance(...) < range` 写成距离门槛正向示例。
 - 不再把 Player 的移动/背包/交互等无生命周期能力生成成一堆 scene-mounted MonoBehaviour。
+- 不再为了分层生成只调用一次、只包一两行的 helper、空壳类、不会被调用的方法。
+- 不再把单例/管理器写成场景实例之外的一组静态 `Init/Get/Return` 工作流方法。
+- 不再为理论上进不去的分支堆大量查找、创建、修复式兜底代码。
 
 当前仍保留的稳定性保护：
 
@@ -281,6 +296,7 @@ test/unity-codegen-prompt-contract.test.cjs
 
 - schema prompt、V5、V4、Codex markdown、worker prompt 都包含 AIBridge/MCP。
 - prompt 中保留 Inspector hydration、`mBindings`、逻辑/表现分离、稀疏中文注释规则。
+- prompt 中保留 DOCX 反馈汇总后的可交付规则：一节点一主脚本、无生命周期能力用普通 C# 类、只保留会被调用的方法、必要兜底才写。
 - V5 prompt 展示 binding-based object access。
 - V4 prompt 明确 `__Pool_*` 只属于 staging 绑定层。
 - behavior templates 标记为 staging-only。
