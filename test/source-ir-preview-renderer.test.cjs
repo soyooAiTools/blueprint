@@ -122,6 +122,16 @@ function createFakeDom() {
     getElementById: function(id) {
       return elements[id] || null;
     },
+    querySelectorAll: function(selector) {
+      if (!/^\.[A-Za-z0-9_-]+$/.test(selector || '')) return [];
+      var className = selector.slice(1);
+      return Object.keys(elements).map(function(key) {
+        return elements[key];
+      }).filter(function(el, index, list) {
+        if (!el || list.indexOf(el) !== index) return false;
+        return String(el.className || '').split(/\s+/).indexOf(className) >= 0;
+      });
+    },
     addEventListener: function(name, fn) {
       documentListeners[name] = documentListeners[name] || [];
       documentListeners[name].push(fn);

@@ -412,8 +412,41 @@ node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   PROGRAMMER_DELIVERY_SUMMARY="$WORK/PROGRAMMER_DELIVERY_SUMMARY.json"
+  MCP_HYDRATION_REPORT="$WORK/MCP_HYDRATION_REPORT.json"
   DELIVERY_VALIDATION="$WORK/DELIVERY_VALIDATION.json"
+  AIBRIDGE_PACKAGE_ROOT="${AIBRIDGE_PACKAGE_ROOT:-/opt/AIBridge}"
+  if [ -d "$AIBRIDGE_PACKAGE_ROOT" ] && [ -f "$AIBRIDGE_PACKAGE_ROOT/package.json" ]; then
+    rm -rf "$WORK/Packages/AIBridge"
+    command cp -rf "$AIBRIDGE_PACKAGE_ROOT" "$WORK/Packages/AIBridge"
+    rm -rf "$WORK/Packages/AIBridge/.git"
+    chmod +x "$WORK/Packages/AIBridge/Tools~/CLI/linux-x64/AIBridgeCLI" 2>/dev/null || true
+    node - "$WORK/Packages/manifest.json" <<'NODE'
+const fs = require('fs');
+const manifestPath = process.argv[2];
+let data = { dependencies: {} };
+if (fs.existsSync(manifestPath)) {
+  data = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+}
+if (!data.dependencies || typeof data.dependencies !== 'object') {
+  data.dependencies = {};
+}
+data.dependencies['cn.lys.aibridge'] = 'file:Packages/AIBridge';
+fs.writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n');
+NODE
+    echo "[export] AIBridge package installed for programmer delivery ($AIBRIDGE_PACKAGE_ROOT)"
+  else
+    echo "[export] WARN: AIBridge package not found at $AIBRIDGE_PACKAGE_ROOT; hydration will require AIBRIDGE_CLI or use static fallback." >&2
+  fi
   node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID" > "$PROGRAMMER_DELIVERY_SUMMARY"
+  # programmer-delivery-cleaner may create Entities/*.cs, move scripts into
+  # category folders, and inject scene-mounted manager objects. Refresh .meta
+  # coverage before AIBridge/hardgate so Unity sees the final script GUIDs.
+  find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+  HYDRATE_REQUIRE_FLAG=""
+  if [ "${BLUEPRINT_REQUIRE_AIBRIDGE:-0}" = "1" ]; then
+    HYDRATE_REQUIRE_FLAG="--require-aibridge"
+  fi
+  node "$BP_ROOT/scripts/programmer-delivery-aibridge-hydrate.cjs" "$WORK" --out "$MCP_HYDRATION_REPORT" $HYDRATE_REQUIRE_FLAG
   node "$BP_ROOT/lib/programmer-delivery-hardgate.cjs" "$WORK" "$PROGRAMMER_DELIVERY_SUMMARY" --out "$DELIVERY_VALIDATION"
   node "$BP_ROOT/engine/playable-flow-manifest.cjs" record-export \
     --root "$WORK" \
@@ -421,10 +454,6 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
     --validation "$DELIVERY_VALIDATION" \
     --task "$TASK_ID" \
     --manifest "$WORK/playable-flow-manifest.json"
-  # programmer-delivery-cleaner may create Entities/*.cs, move scripts into
-  # category folders, and inject scene-mounted manager objects. Refresh .meta
-  # coverage after that step.
-  find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
   python3 - <<PY
 import json, re
 from datetime import datetime, timezone

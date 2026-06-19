@@ -77,6 +77,19 @@ assert(
   'programmer delivery export should write cleaner summary and run delivery hardgate before packaging'
 );
 assert(
+  src.includes('MCP_HYDRATION_REPORT.json') &&
+    src.includes('programmer-delivery-aibridge-hydrate.cjs') &&
+    src.indexOf('programmer-delivery-aibridge-hydrate.cjs') < src.indexOf('programmer-delivery-hardgate.cjs'),
+  'programmer delivery export should hydrate the scene through AIBridge before delivery hardgate'
+);
+assert(
+  src.includes('AIBRIDGE_PACKAGE_ROOT') &&
+    src.includes('Packages/AIBridge') &&
+    src.includes('cn.lys.aibridge') &&
+    src.indexOf('Packages/AIBridge') < src.indexOf('programmer-delivery-aibridge-hydrate.cjs'),
+  'programmer delivery export should install the project-local AIBridge package before hydration'
+);
+assert(
   src.includes('playable-flow-manifest.cjs') && src.includes('record-export') && src.includes('playable-flow-manifest.json'),
   'programmer delivery export should record delivery validation in playable-flow-manifest.json'
 );

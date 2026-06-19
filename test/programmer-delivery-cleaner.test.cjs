@@ -265,8 +265,8 @@ try {
     assert.ok(lineCount < 1000, name + ' should stay below 1000 lines');
   });
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs')));
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /EntityId = ""; \/\/ 蓝图实体 ID/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /绑定场景对象和蓝图标识/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /public string EntityId = "";/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /public virtual void Bind\(GameObject source, string entityId, string displayName\)/);
   // Wave C: 实体绑定块落到 Main 文件而非继承链 StateBase。
   assert.match(mainText, /领域模型缓存/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseGameFlowEntity/);
@@ -413,7 +413,8 @@ try {
     const coreModules = path.join(tmpRef, 'Assets', 'Scripts', 'Core', 'Modules');
     const gameEntities = path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Entities');
     assert.ok(fs.existsSync(path.join(coreBase, 'GMP_BaseGameFlowEntity.cs')));
-    assert.ok(fs.existsSync(path.join(gameEntities, 'GMP_BarrackEntity.cs')));
+    assert.ok(fs.existsSync(path.join(gameEntities, 'GMP_RestaurantEntity.cs')));
+    assert.ok(!fs.existsSync(path.join(gameEntities, 'GMP_BarrackEntity.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'Entities')), 'Entities should be sibling to Manager in reference layout');
     assert.ok(fs.existsSync(path.join(coreModules, 'GMP_MainManager.cs')));
     assert.ok(fs.existsSync(path.join(coreBase, 'MonoSingleton.cs')));
@@ -440,6 +441,9 @@ try {
     assert.match(refHandoff, /Assets\/Scripts\/Core\/Modules/);
     assert.match(refHandoff, /Assets\/Scripts\/Game\/Entities/);
     assert.match(refHandoff, /GMP_MainManager\.cs/);
+    assert.match(refHandoff, /二开推荐路径/);
+    assert.match(refHandoff, /Assets\/Scripts\/Game\/Level\/` 新增 `GMP_<FeatureName>Feature\.cs`/);
+    assert.match(refHandoff, /PROGRAMMER_MAINTAINABILITY_REPORT\.json/);
 
     assert.ok(fs.existsSync(path.join(coreModules, 'GMP_ReturnTimer.cs')));
     assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_EntityBinding.cs')));
@@ -827,6 +831,7 @@ try {
         name: 'v12',
         entities: [
           { name: '_player', visual: { position: '(-8, 0, 2)' } },
+          { name: 'SpaceShip', visual: { position: '(-10, 0, 4)' } },
           { name: '_gold', visual: { position: '(-4, 0, -2)' } },
           { name: '_ctaButton', visual: { position: '(6, 0, 3)' } }
         ]
@@ -866,9 +871,9 @@ try {
     assert.match(phaseControllerCode, /preset\.mGate\.IsReady/, 'PhaseController should use PhasePreset gate data');
     const entityBindingCode = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
     assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
-    assert.match(entityBindingCode, /private Vector3\[] mOriginalPositions/, 'EntityBindingManager should cache source scene positions');
-    assert.match(entityBindingCode, /void CacheOriginalPosition\(int index\)/, 'EntityBindingManager should cache original transforms during Init');
-    assert.match(entityBindingCode, /target\.transform\.position\.y > -100f/, 'Phase changes should preserve runtime transforms instead of resetting visible source entities');
+    assert.match(fs.readFileSync(path.join(gameLevel, 'GMP_EntityBinding.cs'), 'utf8'), /public Vector3 mOriginalPosition/, 'EntityBinding item should cache source scene position');
+    assert.match(entityBindingCode, /private void PrepareBinding\(GMP_EntityBinding binding\)/, 'EntityBindingManager should cache original transforms during Init');
+    assert.match(entityBindingCode, /pos\.y < -100f && binding != null/, 'Phase changes should preserve runtime transforms instead of resetting visible source entities');
     assert.match(entityBindingCode, /ship\.transform\.position = Vector3\.Lerp\(ship\.transform\.position, desired, Mathf\.Clamp01\(dt \* 1\.35f\)\)/, 'SpaceShip should follow the player using the source runtime offset');
     assert.match(entityBindingCode, /SetVisible\(target, false\)/, 'Hide should toggle renderers instead of moving entities off board');
     assert.doesNotMatch(entityBindingCode, /target\.transform\.position = new Vector3\(0f, -999f, 0f\)/, 'Hide must not destroy source positions');
@@ -877,6 +882,13 @@ try {
     assert.strictEqual(walkLocal(scripts).filter((file) => /\.Part\d*\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /(Runtime|Facade)\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /void\s+Spawn[A-Z][A-Za-z]+\s*\(/.test(fs.readFileSync(file, 'utf8'))).length, 0);
+    const generatedCsText = walkLocal(scripts)
+      .filter((file) => path.extname(file).toLowerCase() === '.cs')
+      .map((file) => fs.readFileSync(file, 'utf8'))
+      .join('\n');
+    assert.doesNotMatch(generatedCsText, /\/\/\s*方法说明：执行/, 'delivery scripts should not contain empty generated method comments');
+    assert.doesNotMatch(generatedCsText, /\/\/\s*(初始化当前模块|按帧推进当前模块|Unity 生命周期入口：|Unity 每帧更新入口：|Unity LateUpdate 入口：|更新玩家引导文案)/, 'delivery scripts should not contain obvious boilerplate comments');
+    assert.doesNotMatch(generatedCsText, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|\.AddComponent\s*(?:<|\()|new\s+GameObject\s*\(/, 'delivery scripts should not mention runtime lookup or object creation APIs');
     assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
     const phase1Asset = fs.readFileSync(path.join(phaseDir, 'Phase1.asset'), 'utf8');
     const phase2Asset = fs.readFileSync(path.join(phaseDir, 'Phase2.asset'), 'utf8');
@@ -891,6 +903,15 @@ try {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
     });
     assert.match(scene, /m_Name: "Text_Tip"/, 'HUD guide text placeholder should be scene-mounted');
+    assert.match(scene, /mCanvas: \{fileID: [1-9][0-9]*/, 'scene should bind HUD/UI Canvas references through serialized fields');
+    assert.match(scene, /mGuideText: \{fileID: [1-9][0-9]*/, 'scene should bind guide Text references through serialized fields');
+    assert.match(scene, /mToastText: \{fileID: [1-9][0-9]*/, 'scene should bind toast Text references through serialized fields');
+    assert.match(scene, /mTargetHintText: \{fileID: [1-9][0-9]*/, 'scene should bind target hint Text references through serialized fields');
+    assert.match(scene, /mPlayerObject: \{fileID: [1-9][0-9]*/, 'scene should bind Player object references through serialized fields');
+    assert.match(scene, /mPlayerTransform: \{fileID: [1-9][0-9]*/, 'scene should bind camera Player transform references through serialized fields');
+    assert.match(scene, /mBindings:\n\s+- mEntityName: "_player"\n\s+mSceneObject: \{fileID: [1-9][0-9]*\}\n\s+mLabelText: \{fileID: [1-9][0-9]*/, 'entity binding table should serialize scene object and label refs');
+    const unassignedAddressable = scene.match(/\b(?:mCanvas|mGuideText|mToastText|mTargetHintText|mPlayerObject|mPlayerTransform|mSceneObject|mLabelText): \{fileID: 0\}/);
+    assert.strictEqual(unassignedAddressable && unassignedAddressable[0], null, 'addressable delivery references must not be left unassigned');
     assert.doesNotMatch(scene, /m_Name: "Text_Score: 0"/, 'source-aligned HUD should not create a duplicate Score text');
     assert.doesNotMatch(scene, /m_Name: "Text_PhaseProgress"/, 'source-aligned HUD should not create overlapping phase progress text');
     assert.match(scene, /guid: 5f7201a12d95ffc409449d95f23cf332/, 'scene text placeholders should carry Unity UI Text components');
@@ -913,8 +934,10 @@ try {
     const deliveryCamera = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
     assert.doesNotMatch(deliveryCamera, /orthographic\s*=\s*true/, 'delivery camera must not override the scene-authored projection');
     assert.doesNotMatch(deliveryCamera, /new Vector3\(0,\s*12f,\s*-8f\)/, 'delivery camera must not override the scene-authored first-frame pose');
-    assert.match(deliveryCamera, /GameObject\.FindWithTag\("Player"\)/, 'delivery camera should use the Player tag lookup path');
-    assert.match(deliveryCamera, /GMP_SceneObjectRegistry\.Find\("Player"\)/, 'delivery camera should include the registry Player lookup path');
+    assert.match(deliveryCamera, /public Transform mPlayerTransform;/, 'delivery camera should expose an Inspector/MCP-assigned Player transform');
+    assert.match(deliveryCamera, /if \(mPlayerTransform != null\) return mPlayerTransform;/, 'delivery camera should prefer the assigned Player transform');
+    assert.match(deliveryCamera, /GMP_Player\.instance/, 'delivery camera may fall back to the scene-mounted Player script singleton');
+    assert.doesNotMatch(deliveryCamera, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|AddComponent|new\s+GameObject/, 'delivery camera must not use runtime scene lookup or component creation');
     assert.match(deliveryCamera, /Vector3 target = SourceFollowTarget\(player\.position\);/);
     assert.match(deliveryCamera, /Vector3 pos = SourceFollowPosition\(target\);/);
     assert.match(deliveryCamera, /return playerPosition \+ new Vector3\(4f, 0f, 2f\);/);
@@ -936,13 +959,15 @@ try {
     assert.match(deliveryPlayer, /base\.Awake\(\);/, 'project Player should register the Core PlayerBase singleton state');
     assert.match(deliveryPlayer, /Bind\(Go, PlayerPoolName, "Player"\);/, 'project Player should bind its source scene object to GMP_PlayerBase');
     assert.doesNotMatch(deliveryPlayer, /mPlayer\.transform\.position = new Vector3\(0f, 0\.5f, 0f\)/, 'Player runtime init must not overwrite the source scene position');
-    assert.match(deliveryPlayer, /GameObject\.FindWithTag\("Player"\)/, 'Player runtime init should bind the source tagged Player first');
-    assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player 找不到场景 Player/, 'Player runtime init should fail loudly when source Player is missing');
+    assert.match(deliveryPlayer, /public GameObject mPlayerObject;/, 'Player should expose an Inspector/MCP-assigned scene object');
+    assert.match(deliveryPlayer, /return mPlayerObject;/, 'Player runtime init should bind the assigned scene object');
+    assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player [^"]*Player/, 'Player runtime init should fail loudly when source Player is missing');
     assert.doesNotMatch(deliveryPlayer, /CreatePrimitive\(PrimitiveType\.Cylinder\)/, 'Player runtime init must not create primitive fallback players');
     assert.doesNotMatch(deliveryPlayer, /__Pool_(?:Cylinder|Capsule|Cube)/, 'Player runtime init must not scan old Luna primitive pools');
     assert.match(deliveryPlayer, /moveSpeed=6f/, 'Player fallback speed should match source HTML 6u/s');
-    assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should create required runtime components for YAML-mounted scene objects');
-    assert.match(deliveryPlayer, /mMovementComponent = \(GMP_MovementComponent\)gameObject\.AddComponent\(typeof\(GMP_MovementComponent\)\)/, 'Player movement component must be added at runtime when RequireComponent was not serialized');
+    assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should resolve required components from YAML-mounted scene objects');
+    assert.match(deliveryPlayer, /mMovementComponent = GetComponent<GMP_MovementComponent>\(\);/, 'Player movement component should be scene-mounted instead of added at runtime');
+    assert.doesNotMatch(deliveryPlayer, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|AddComponent|new\s+GameObject/, 'Player must not use runtime scene lookup or component creation');
     assert.match(deliveryPlayer, /mJoystick\.PollInput\(\);/, 'GMP Player path should also tick the joystick widget before reading movement axes');
     assert.match(deliveryPlayer, /Vector3 input = new Vector3\(-h, 0, -v\)/, 'Joystick axes should map to screen-space movement under the storyboard camera with real-time movement dt');
     assert.match(deliveryPlayer, /Vector3 move = input \* MoveSpeed \* moveDt/, 'Joystick movement should still use the real-time movement dt');
@@ -1248,12 +1273,13 @@ try {
     assert.doesNotMatch(phase1Asset, /  - _(gold|ice|scrap)/);
     assert.ok((summary.phaseSourceTraceLines || []).some((line) => line.includes('src.gate=resource_collected Coin=6 -> unity.gate=resource Coin=6')));
     const hudController = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_HudController.cs'), 'utf8');
-    assert.match(hudController, /mToastText = FindText\("Text_StepToast"\)/);
+    assert.match(hudController, /public Text mToastText;/);
     assert.match(hudController, /mToastText\.text = text == null \? "" : text/);
     assert.match(hudController, /mToastTimer = mToastText\.enabled \? 1f : 0f/);
     assert.match(hudController, /if \(mToastText != null && mToastTimer > 0f\)/);
     assert.match(hudController, /mToastText\.enabled = false/);
-    assert.match(hudController, /mTargetHintText = FindText\("Text_TargetHint"\)/);
+    assert.match(hudController, /public Text mTargetHintText;/);
+    assert.doesNotMatch(hudController, /FindText\(/, 'HUD text references should be assigned by scene/Inspector/MCP');
     assert.match(hudController, /public void SetTargetHint\(string targetEntity\)/);
     assert.match(hudController, /public void SetTargetHint\(string targetEntity, string displayName\)/);
     assert.match(hudController, /mTargetHintText\.text = "目标：" \+ label/);
@@ -1272,11 +1298,13 @@ try {
     assert.match(levelRuleEngine, /GMP_HudController\.instance\.SetTargetHint\(target, DisplayNameForEntity\(target\)\)/);
     assert.match(levelRuleEngine, /SetTargetHintTextDirect\(target\)/);
     assert.match(levelRuleEngine, /UpdateGuidanceVisuals\(target\)/);
-    assert.match(levelRuleEngine, /GameObject\.Find\("__TargetRing"\)/);
-    assert.match(levelRuleEngine, /GameObject\.Find\("__TrailLine"\)/);
-    assert.match(levelRuleEngine, /GameObject\.Find\("__LaserLine"\)/);
+    assert.match(levelRuleEngine, /public GameObject mTargetRing;/);
+    assert.match(levelRuleEngine, /public GameObject mTrailLine;/);
+    assert.match(levelRuleEngine, /public GameObject mLaserLine;/);
+    assert.match(levelRuleEngine, /GameObject ring = mTargetRing;/);
+    assert.doesNotMatch(levelRuleEngine, /GameObject\.Find/, 'guidance visuals should be scene-assigned, not found at runtime');
     assert.match(levelRuleEngine, /trail\.transform\.rotation = Quaternion\.LookRotation\(delta\)/);
-    assert.match(levelRuleEngine, /Text_TargetHint/);
+    assert.match(levelRuleEngine, /public Text mTargetHintText;/);
     assert.match(levelRuleEngine, /SetState\(step\.mSetEntity, step\.mSetState\)/);
     const phasePresetCodeStrict = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhasePreset.cs'), 'utf8');
     assert.match(phasePresetCodeStrict, /public GMP_EntityState mSetState = GMP_EntityState\.Hidden/);
@@ -1285,22 +1313,26 @@ try {
     const entityBinding = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBindingManager.cs'), 'utf8');
     assert.doesNotMatch(entityBinding, /"_gold"|" _ice"|" _scrap"|"_ice"|"_scrap"/, 'resource names Gold/Ice/Scrap must not become source-scene entities');
     assert.deepStrictEqual((summary.sourceResourcePhantomSceneObjectNamesRemoved || []).sort(), ['_gold', '_ice', '_scrap']);
-    assert.match(entityBinding, /target\.SetActive\((?:visible|IsVisibleValue\d*)\)/);
+    assert.match(entityBinding, /target\.SetActive\((?:visible|isVisible|IsVisibleValue\d*)\)/);
     assert.match(entityBinding, /!target\.activeInHierarchy/);
-    assert.match(entityBinding, /private string\[\] mEntityLabelNames = new string\[\] \{ "Text_Label_Player"/);
-    assert.match(entityBinding, /SetEntityLabelVisible\(entityName, true\)/);
-    assert.match(entityBinding, /SetEntityLabelVisible\(entityName, false\)/);
-    assert.match(entityBinding, /GameObject labelObject = GameObject\.Find\(mEntityLabelNames\[index\]\)/);
-    assert.match(entityBinding, /if \(labelText != null\) labelText\.enabled = (?:visible|IsVisibleValue\d*)/);
-    assert.match(entityBinding, /GMP_UI\.PositionTextOverEntity\(FindHudCanvas\(\), mEntityLabelNames\[index\], entityName, LabelHeightOffset\(entityName\)\)/);
+    assert.doesNotMatch(entityBinding, /\bmEntityLabelNames\b/);
+    assert.match(entityBinding, /SetEntityLabelVisible\(binding, true\)/);
+    assert.match(entityBinding, /SetEntityLabelVisible\(binding, false\)/);
+    const entityBindingItem = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBinding.cs'), 'utf8');
+    assert.match(entityBinding, /public List<GMP_EntityBinding> mBindings = new List<GMP_EntityBinding>\(\)/);
+    assert.match(entityBindingItem, /public Text mLabelText;/);
+    assert.match(entityBindingItem, /public float mDefaultScale = 0\.7f;/);
+    assert.match(entityBindingItem, /public float mLabelHeightOffset = 2\.2f;/);
+    assert.doesNotMatch(entityBinding, /Text labelText = BindingLabel\(index\)/);
+    assert.doesNotMatch(entityBinding, /GameObject labelObject = GameObject\.Find/, 'entity labels should be assigned by binding table, not found at runtime');
+    assert.match(entityBinding, /binding\.mLabelText\.enabled = (?:isVisible|IsVisibleValue\d*)/);
+    assert.match(entityBinding, /GMP_UI\.PositionTextOverEntity\(HudCanvas\(\), binding\.mLabelText, binding\.mSceneObject, LabelHeightOffset\(binding\)\)/);
     assert.match(entityBinding, /private void SyncVisibleEntityLabels\(\)/);
     assert.match(entityBinding, /SyncVisibleEntityLabels\(\)/);
     assert.doesNotMatch(entityBinding, /ArrangeWidePhaseEntitiesForCamera\(preset\)/);
     assert.doesNotMatch(entityBinding, /private bool ShouldArrangeWidePhase\(GMP_PhasePreset preset\)/);
     assert.doesNotMatch(entityBinding, /target\.transform\.position = new Vector3\(anchor\.x \+ x, target\.transform\.position\.y, anchor\.z \+ z\)/);
-    assert.match(entityBinding, /if \(entityName == "_player"\) return new Vector3\(-8f, 0f, -2f\);/, 'HTML source Player Z should be flipped into Unity left-handed coordinates');
-    assert.match(entityBinding, /if \(entityName == "_oxygenShop"\) return new Vector3\(-12f, 0f, 4f\);/, 'HTML source target Z should be flipped into Unity left-handed coordinates');
-    assert.match(entityBinding, /if \(entityName == "_ctaButton"\) return new Vector3\(4f, 0f, -8f\);/, 'HTML source CTA Z should be flipped into Unity left-handed coordinates');
+    assert.doesNotMatch(entityBinding, /\bmDefaultPositions\b/, 'EntityBindingManager should not keep hidden source-position arrays');
     const cameraController = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
     assert.match(cameraController, /return playerPosition \+ new Vector3\(4f, 0f, -2f\);/, 'HTML camera follow target Z offset should be flipped for Unity');
     assert.match(cameraController, /return target \+ new Vector3\(10f, 18f, -24f\);/, 'HTML camera follow position Z offset should be flipped for Unity');
@@ -1315,6 +1347,10 @@ try {
     assert.match(sceneText, /m_Name: __TargetRing/);
     assert.match(sceneText, /m_Name: __TrailLine/);
     assert.match(sceneText, /m_Name: __LaserLine/);
+    assert.match(sceneText, /mTargetRing: \{fileID: [1-9][0-9]*/, 'source-guidance scene should bind target-ring visuals through serialized fields');
+    assert.match(sceneText, /mTrailLine: \{fileID: [1-9][0-9]*/, 'source-guidance scene should bind trail visuals through serialized fields');
+    assert.match(sceneText, /mLaserLine: \{fileID: [1-9][0-9]*/, 'source-guidance scene should bind laser visuals through serialized fields');
+    assert.doesNotMatch(sceneText, /\b(?:mTargetRing|mTrailLine|mLaserLine): \{fileID: 0\}/, 'source-guidance visual references must not be left unassigned');
   } finally {
     fs.rmSync(tmpSourcePhases, { recursive: true, force: true });
   }
