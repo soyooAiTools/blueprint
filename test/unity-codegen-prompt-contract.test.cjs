@@ -39,6 +39,8 @@ var v4Text = promptV4.parseBlueprintToPromptV4(blueprint);
 var lunaCodexText = fs.readFileSync(path.join(__dirname, '../worker/luna-codex-code.md'), 'utf8');
 var behaviorTemplateText = fs.readFileSync(path.join(__dirname, '../worker/behavior-templates.md'), 'utf8');
 var workerCoderText = fs.readFileSync(path.join(__dirname, '../worker/worker-coder.js'), 'utf8');
+var codexCodeCoderText = fs.readFileSync(path.join(__dirname, '../worker/codex-code-coder.js'), 'utf8');
+var staticCheckText = fs.readFileSync(path.join(__dirname, '../engine/static-check.cjs'), 'utf8');
 
 assertDeliveryContract(schemaText, 'schema prompt contract');
 assertDeliveryContract(v5Text, 'v5 prompt');
@@ -54,7 +56,20 @@ assert.ok(behaviorTemplateText.indexOf('本文件只给 Luna/WebGL staging 代�
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');
+assert.strictEqual(v5Text.indexOf('Instantiate 溢出时可用'), -1, 'v5 prompt must not describe Instantiate as a reserve-pool fallback');
+assert.strictEqual(v5Text.indexOf('可以 Instantiate'), -1, 'v5 prompt must not suggest Instantiate as allowed');
+assert.strictEqual(v5Text.indexOf('正确代码模式参考（直接照抄'), -1, 'v5 prompt must not tell coders to copy placeholder entity names directly');
 assert.strictEqual(v4Text.indexOf('每个字段、每个方法、每个条件分支都必须写详细注释'), -1, 'v4 prompt must not require boilerplate comments everywhere');
 assert.strictEqual(lunaCodexText.indexOf('`GameObject.Find("名称")` 获取对象引用'), -1, 'luna codex prompt must not teach direct object Find as the default');
+assert.strictEqual(lunaCodexText.indexOf('guideText.text ='), -1, 'luna codex prompt must route guide text through SetGuideText');
+assert.strictEqual(workerCoderText.indexOf('MUST create visible game objects (GFM_Create.Obj, UI elements)'), -1, 'worker prompt must not require GFM_Create-created objects');
+assert.strictEqual(workerCoderText.indexOf('Create ALL Scene Objects from Blueprint'), -1, 'worker prompt must use bind/represent wording instead of runtime creation wording');
+assert.strictEqual(workerCoderText.indexOf('If a fix requires new visible objects, use GFM_Create.Obj'), -1, 'fix prompt must not recommend GFM_Create for new visible objects');
+assert.strictEqual(workerCoderText.indexOf('create initially with SetActive(false)'), -1, 'worker prompt must not suggest SetActive-based later-shot setup');
+assert.strictEqual(workerCoderText.indexOf('No GFM_Create.Obj() calls found'), -1, 'verification must not warn when GFM_Create is absent');
+assert.strictEqual(workerCoderText.indexOf('No binding refs or legacy GameObject.Find() calls'), -1, 'verification must not treat legacy Find as an acceptable positive signal');
+assert.strictEqual(workerCoderText.indexOf('FindObjectOfType(typeof($1))'), -1, 'worker post-fix must not rewrite FindObjectOfType into another scene scan');
+assert.strictEqual(codexCodeCoderText.indexOf('FindObjectOfType(typeof($1))'), -1, 'codex post-fix must not rewrite FindObjectOfType into another scene scan');
+assert.strictEqual(staticCheckText.indexOf('use GameObject.Find() from pool'), -1, 'static-check feedback must not ask the model to use GameObject.Find');
 
 console.log('unity codegen prompt contract tests passed');

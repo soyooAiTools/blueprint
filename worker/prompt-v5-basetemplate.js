@@ -482,11 +482,11 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('');
   }
 
-  // ========== 5b. 备用池对象（Pool Manifest） ==========
+  // ========== 5b. 未分配池对象（Pool Manifest） ==========
   var reservePool = computeReservePool(prefabMap);
   if (reservePool.length > 0) {
-    lines.push('# 备用池对象（Instantiate 溢出时可用）');
-    lines.push('如果同色同形状的已分配对象用完，可以 Instantiate 复制后使用以下备用对象：');
+    lines.push('# 未分配池对象（仅供 staging 绑定重分配）');
+    lines.push('如果同色同形状的已分配对象不够，不要复制对象；只能从以下未分配池对象里调整绑定，或合并/减少实体。');
     lines.push('');
     for (var rpi = 0; rpi < reservePool.length; rpi++) {
       lines.push('- `' + reservePool[rpi] + '`');
@@ -687,8 +687,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
 
   // ========== 8d. 正确代码模式参考（必须严格遵循）==========
-  lines.push('# 📋 正确代码模式参考（直接照抄，不要自创写法）');
-  lines.push('以下示例默认实体已经由 `RegisterEntityBindings()` 注册。只有骨架绑定层可以兜底解析 pool literal，业务 TODO 区不要重复写 `GameObject.Find("__Pool_*")`。');
+  lines.push('# 📋 正确代码模式参考（照抄结构，不要照抄实体名）');
+  lines.push('以下示例默认实体已经由 `RegisterEntityBindings()` 注册。`Player` / `Target` / `LaterObject` 只是占位名，实际代码必须使用本项目对象分配表里的实体名。只有骨架绑定层可以兜底解析 pool literal，业务 TODO 区不要重复写 `GameObject.Find("__Pool_*")`。');
   lines.push('');
   lines.push('## CheckEventRules 的正确写法');
   lines.push('```csharp');

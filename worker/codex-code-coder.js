@@ -1023,7 +1023,6 @@ function stripGenericMethodCallsForLuna(src) {
   next = next.replace(/\(\s*Font\s*\)\s*Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*Font\s*\)\s*,\s*[^)]*\)/g, 'Resources.Load<Font>("DefaultFont")');
   next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, 'default($1)');
   next = next.replace(/Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*,\s*[^)]*\)/g, 'default($1)');
-  next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
   next = next.replace(/((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '(($2)$1.GetComponent(typeof($2)))');
   next = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');
   next = next.replace(/\bCreateLocalCanvas\s*\(/g, 'GFM_UI.CreateCanvas(');
@@ -1542,9 +1541,9 @@ ${inlinePromptMd}
   const hasGameEnded = /GameEnded/.test(combinedSrc);
 
   if (hasSystems) {
-    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls`, taskId);
+    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls (should be 0)`, taskId);
   } else {
-    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
+    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls (should be 0), ${gfmCreateCalls} GFM_Create.Obj() calls (should be 0)`, taskId);
   }
 
   if (hasFeedback && opts.existingCode) {
@@ -1562,6 +1561,12 @@ ${inlinePromptMd}
 
   if (gfmCreateCalls > 0) {
     log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use existing bindings / GameSceneCtrl instead', taskId);
+  }
+  if (findCalls > 0) {
+    log('[codex-code] ⚠️ WARNING: AI used GameObject.Find() — should use existing bindings / GameSceneCtrl instead', taskId);
+  }
+  if (bindingCalls === 0) {
+    log('[codex-code] ⚠️ WARNING: No binding refs found — AI may not be using hydrated scene objects', taskId);
   }
   if (!hasGameEnded) {
     log('[codex-code] ⚠️ WARNING: No GameEnded() call', taskId);

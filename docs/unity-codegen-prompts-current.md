@@ -1,0 +1,369 @@
+# 当前 Unity 代码生成 Prompts 整理
+
+更新时间：2026-06-19  
+主仓版本：2026-06-19 Unity codegen prompt hydration/prompt-contract 优化
+
+本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
+
+1. **Luna/WebGL staging 生成层**：为了 storyboard2html -> WebGL 稳定，仍允许使用骨架绑定、`GameSceneCtrl` 和受控对象池 literal。
+2. **程序员 Unity 交付层**：最终交付给人类程序员的 Unity 工程，必须走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`mBindings` 绑定表和稀疏中文注释。
+
+红线：不要为了清理程序员交付代码，破坏 storyboard2html source HTML 与 WebGL/Unity guideText、phase、视觉语义的一致性。
+
+## Prompt 源文件总览
+
+| 文件 | 入口/用途 | 当前作用 |
+|---|---|---|
+| `engine/stages/build-schema-prompt-v3.cjs` | `buildSchemaPromptV3(ctx)` | Source HTML / HTML slices -> schema prompt，带 Unity 程序架构契约 |
+| `worker/prompt-v5-basetemplate.js` | `parseBlueprintToPromptV5(blueprint, opts)` | 当前主力 V5 Luna base-template 代码生成 prompt |
+| `worker/prompt-v4.js` | `parseBlueprintToPromptV4(blueprint, opts)` | V4 legacy 兼容 prompt，仍可用于旧事件驱动路径 |
+| `worker/luna-codex-code.md` | Codex markdown 指令 | Codex code runner 在 Luna partial 骨架里补逻辑时使用 |
+| `worker/worker-coder.js` | `GENERATE_PROMPT` / `FIX_PROMPT` / V4/V5 system prompt | legacy worker/Claude 路径和 V5 system prompt |
+| `worker/codex-code-coder.js` | incremental fix user prompt / append system prompt | Codex code runner 的增量修复约束 |
+| `worker/behavior-templates.md` | 行为模板参考 | Luna staging 行为模板，明确不作为最终程序员交付结构 |
+| `test/unity-codegen-prompt-contract.test.cjs` | 回归测试 | 防止 prompt 退回旧的 Find-heavy / GFM_Create-heavy / 注释-heavy 口径 |
+
+## 统一架构契约
+
+所有当前 Unity codegen prompt 都应携带这组规则：
+
+- 最终 `Assets/Scripts` 只允许 `Core` / `Tool` / `Game` 三个顶层目录。
+- `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类。
+- `Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可复用能力。
+- `Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。
+- 核心管理层只能有一个主管理器，负责集中初始化模块后启动关卡。
+- 状态和步骤类型必须用 enum，不用 0/1/2 魔法数字或裸字符串表达跨层状态。
+- Player/NPC/Entity 走“基类 + 可选组件”组合，不把一次性业务字段散落在核心类型里。
+- Tool 层沉淀跨项目稳定工具，不硬编码项目实体、资源和 phase 文案。
+- 音频必须集中式多音源管理，业务只调用 Audio module API。
+- 新增业务优先写进 `Game/Level`、`Game/Entities`、`Game/Player`。
+- 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration。
+- 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
+- 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
+- `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
+- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，禁止回退到 `mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组。
+- 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
+- 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点。
+- 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点。
+
+## 两层 Prompt 口径
+
+### Luna/WebGL Staging 层
+
+这层服务自动构建和 CUA/WebGL 稳定性，当前仍依赖模板场景里的预制对象池和骨架绑定。
+
+允许：
+
+- 使用骨架已有字段。
+- 使用 `RegisterEntityBindings()` 注册实体。
+- 使用 `GameSceneCtrl.instance.Get("entityName")` 获取已注册对象。
+- 在 staging 绑定表里保留 `__Pool_{Shape}_{Color}_{NN}` literal。
+- 用 `transform.position = new Vector3(x,y,z)` 显示对象。
+- 用 `transform.position = new Vector3(0,-999,0)` 隐藏对象。
+- 使用数组满足 Luna 限制，但必须标明这是 staging，不是程序员交付结构。
+
+不鼓励：
+
+- 在业务 TODO 区重复写 `GameObject.Find("__Pool_*")`。
+- 自己拼接 pool 名。
+- 使用 `GFM_Create.Obj()` / `CreatePrimitive()` 生成可见对象。
+- 使用 `SetActive()` 隐藏/显示对象。
+- 把 phase-specific 逻辑塞回 `GameFlowManagerMain.cs` 主文件。
+
+### 程序员交付层
+
+这层是最终给人类程序员维护的 Unity 工程。
+
+必须：
+
+- 通过 AIBridge/MCP 读取真实场景信息并做 hydration。
+- 把对象引用写进 Inspector/scene YAML。
+- Manager、HUD、Camera、Audio、Entity 依赖用 `[SerializeField]` 或 `mBindings` 表达。
+- 根节点负责逻辑，表现资源挂子节点。
+- 保留少量清晰脚本和清楚职责边界。
+- 注释少而关键，中文大白话。
+
+禁止：
+
+- 业务脚本 runtime `GameObject.Find` / `FindObjectOfType`。
+- 业务脚本 runtime `.AddComponent(...)` / `new GameObject(...)` 补结构。
+- 为每个单独场景物体生成空壳实体类。
+- 用隐藏并行数组作为主要可维护结构。
+- 机械要求每个字段、每个方法都有详细注释。
+
+## V5 Base Template Prompt
+
+源文件：`worker/prompt-v5-basetemplate.js`
+
+这是当前主力路径。它的 prompt 主要包括：
+
+1. 任务说明：在 `GameFlowManagerMain` partial 系列文件里实现 Luna playable。
+2. 程序架构硬规则：Core / Tool / Game、AIBridge/MCP hydration、`mBindings`、逻辑/表现分离、稀疏中文注释。
+3. 代码结构要求：主文件保持轻量，职责放到对应 partial。
+4. 基础样例工程模式：场景已有预制对象，不创建对象。
+5. 对象引用规则：优先使用骨架绑定字段 / `GameSceneCtrl.instance.Get("entityName")`。
+6. 对象分配表：蓝图实体 -> `__Pool_*` 场景对象，用于 staging 绑定。
+7. 未分配池对象：只允许 staging 绑定重分配，不允许复制对象补池。
+8. Luna 限制：不用 `SetActive`、不用 `CreatePrimitive`、不用 LINQ/协程/泛型集合等。
+9. 双模式架构：交互模式 + AutoPlay 模式。
+10. Phase gate：必须由真实实体位移或交互结果推进，不能靠 timer。
+11. 正确代码模式参考：示例已改成 `GameSceneCtrl.instance.Get(...)`，照抄结构，不照抄 Player/Target 等占位实体名。
+
+关键当前规则：
+
+```text
+当前代码是 Luna/WebGL staging 层：对象池映射只用于稳定构建。
+程序员交付版会通过 AIBridge/MCP 把引用写进 Inspector/scene，业务代码不能依赖运行时查找。
+```
+
+```text
+优先使用骨架中已经绑定好的实体字段 / GameSceneCtrl.instance.Get("entityName")；
+如果代码里有 RegisterEntityBindings()，不要再写 GameObject.Find("__Pool_*")。
+```
+
+```text
+说明注释只写在关键且不容易看懂的位置。
+不要给字段名和普通 lifecycle 方法堆机械注释。
+```
+
+## V4 Legacy Prompt
+
+源文件：`worker/prompt-v4.js`
+
+V4 是旧事件驱动路径，当前仍保留兼容。它已经补上新版程序员交付规则，但明确标记旧写法只属于 Luna/WebGL staging。
+
+当前重点：
+
+- V4 legacy 兼容层可以在 Start 的 staging 绑定代码里解析对象池。
+- 如果已有绑定表或 `GameSceneCtrl`，优先使用绑定表，不在业务逻辑里重复 Find。
+- V4 staging 可用 `eGo[]`、`eActive[]`、`eState[]`、`eTimer[]`、`eHP[]`。
+- 程序员交付版必须收口到 `GMP_EntityBindingManager.mBindings`。
+- 注释只写关键、难懂、容易踩坑的地方。
+
+关键当前规则：
+
+```text
+V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
+旧数组/对象池写法不得泄漏成程序员交付版的业务结构。
+```
+
+## Schema Prompt V3
+
+源文件：`engine/stages/build-schema-prompt-v3.cjs`
+
+这个 prompt 不直接让模型写 C#，而是让模型根据 source HTML / HTML phase slices / specs / entities 输出 JSON schema。它也携带同一套 Unity 程序架构契约，保证下游生成 GameSchema/Unity 时不会忘记最终交付规则。
+
+包含内容：
+
+- HTML -> Unity GFM 翻译速查。
+- 程序架构契约。
+- Assembly Plan。
+- HTML 参考切片。
+- 分镜 specs。
+- 实体列表。
+- JSON-only 输出要求。
+
+当前作用：把 Core / Tool / Game、AIBridge/MCP hydration、`mBindings`、逻辑/表现分离、稀疏中文注释这些规则提前注入 schema 阶段。
+
+## Codex Code Runner Prompt
+
+源文件：
+
+- `worker/luna-codex-code.md`
+- `worker/codex-code-coder.js`
+
+`luna-codex-code.md` 是 Codex code runner 看到的 markdown 指令，主要用于在 Luna partial 骨架里补逻辑。
+
+当前重点：
+
+- 当前 partial 骨架是 Luna/WebGL staging 层。
+- 优先使用骨架已绑定字段 / `GameSceneCtrl.instance.Get("name")`。
+- 不在业务 TODO 区重复写 `GameObject.Find("__Pool_*")`。
+- GameSceneCtrl 可用 `.Get()` / `.Show()` / `.Hide()` / `.IsNear()`。
+- 不改骨架 phase id / CUA hook / `UpdateGameState()`。
+- 引导文案统一走 `SetGuideText("...")`，不直接写 `guideText.text = ...`。
+
+`codex-code-coder.js` 的增量修复 prompt 重点是：
+
+- 用 Edit，不用整文件重写。
+- 只改 whitelist 里的 partial 文件。
+- 先读所有 `GameFlowManagerMain*.cs` partial。
+- 不直接加 `GameObject.Find("__Pool_*")`。
+- 使用已有绑定字段、`GFM_ResourceIds` 和 `SetGuideText`。
+- 后处理不再把 `FindObjectOfType<T>()` 自动改写成另一种查场景写法；这类代码应被 prompt/static-check 拦住。
+
+## Worker Coder System Prompts
+
+源文件：`worker/worker-coder.js`
+
+这里有 legacy worker / Claude 路径和 V5 system prompt。当前已经从 “Find + Move” 改成 “绑定引用 + Move”。
+
+当前 V5 approach：
+
+```text
+1. Use existing bound fields / RegisterEntityBindings() / GameSceneCtrl.instance.Get("Name") to get object references
+2. transform.position = new Vector3(x,y,z) to show objects
+3. transform.position = new Vector3(0,-999,0) to hide objects
+4. Colors are pre-baked into pool names (__Pool_Cube_Red_01) — no SetColor() needed
+5. Write game logic (interactions, collisions, flow control)
+```
+
+同时保留 legacy path 说明：
+
+- legacy 生成路径可能仍先输出 `GameFlowManagerMain.cs` staging 文件。
+- 最终程序员交付由 cleaner 拆成 Core / Tool / Game。
+- V5 使用 pre-bound pool objects。
+- 程序员交付用 AIBridge/MCP Inspector hydration。
+
+## Behavior Templates
+
+源文件：`worker/behavior-templates.md`
+
+当前已在文件顶部明确：
+
+```text
+本文件只给 Luna/WebGL staging 代码参考。
+程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration。
+引用进入 GMP_EntityBindingManager.mBindings 或 [SerializeField] 字段。
+不要把这里的平行数组、运行时 Find 或一次性模板拆法照搬成最终交付结构。
+```
+
+这份模板仍有 staging 示例，比如：
+
+- `eGo[]` / `eActive[]` / `eState[]` 等数组。
+- `UpdateBuildable`、`UpdateShooter`、`UpdateEnemy` 模板。
+- 玩家操作触发 phase/rule。
+
+但它现在明确要求：
+
+- 获取对象优先用骨架绑定字段或 `GameSceneCtrl.instance.Get("entityName")`。
+- 只有 staging 绑定表可以出现 `__Pool_*` literal。
+- 程序员交付版额外禁止业务代码里的 `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)`。
+
+## 当前 Prompt 的主要变化点
+
+相比旧版，当前 prompt 已经改掉这些倾向：
+
+- 不再把 `GameObject.Find("__Pool_*")` 当业务代码默认写法。
+- 不再要求“每个字段声明都必须有详细中文注释”。
+- 不再要求“每个方法都必须有详细中文注释”。
+- 不再把 V4 平行数组结构当最终程序员交付结构。
+- 不再说“scene file 不会被修改，所有引用必须在代码里解析”。
+- 不再用 `Find` 计数判断 V5 输出是否正常；binding refs 是正向信号，`Find` / `GFM_Create.Obj` 都记为 should be 0。
+- 不再在修复 prompt 里建议“缺可见对象就用 `GFM_Create.Obj()` 补”。
+- 不再把 `FindObjectOfType<T>()` 自动后处理成 `(T)FindObjectOfType(typeof(T))`。
+- 不再把备用池描述成可以用 `Instantiate` 扩容；未分配池只给 staging 绑定重分配使用。
+- static-check 的 blocking message 不再提示模型 “use GameObject.Find() from pool”。
+
+当前仍保留的稳定性保护：
+
+- Luna staging 仍保留受控对象池 literal，避免破坏 WebGL 稳定链路。
+- source HTML / storyboard2html / guideText parity 仍是事实源红线。
+- cleaner / hardgate / maintainability gate 继续负责最终交付收口。
+
+## 回归测试
+
+新增测试：
+
+```text
+test/unity-codegen-prompt-contract.test.cjs
+```
+
+它检查：
+
+- schema prompt、V5、V4、Codex markdown、worker prompt 都包含 AIBridge/MCP。
+- prompt 中保留 Inspector hydration、`mBindings`、逻辑/表现分离、稀疏中文注释规则。
+- V5 prompt 展示 binding-based object access。
+- V4 prompt 明确 `__Pool_*` 只属于 staging 绑定层。
+- behavior templates 标记为 staging-only。
+- 不恢复旧的字段/方法机械注释要求。
+- 不把 `GameObject.Find("名称")` 作为 Codex 默认对象获取方式。
+- 不恢复 `GFM_Create.Obj()` 正向创建/修复示例。
+- 不恢复 `Instantiate` 备用池扩容文案。
+- 不恢复“没有 GFM_Create 就警告”的旧校验。
+- 不恢复 `FindObjectOfType` 后处理成另一种 scene scan 的逻辑。
+- 不恢复 static-check 里让模型改用 `GameObject.Find()` 的反馈。
+
+## 生成完整版 Prompt 的方法
+
+V5 prompt 示例：
+
+```bash
+cd /opt/blueprint-editor
+node - <<'NODE'
+const promptV5 = require('./worker/prompt-v5-basetemplate.js');
+const blueprint = {
+  projectName: 'PromptPreview',
+  entities: [
+    { name: 'Player', template: 'PlayerController', visual: { position: '(0,0,0)' } },
+    { name: 'Crate', template: 'Static', visual: { position: '(1,0,0)' } }
+  ],
+  specs: [
+    {
+      phaseId: 'collectCrate',
+      phaseName: '收集箱子',
+      playerInstruction: '拖动角色靠近箱子',
+      requiredInteractions: ['move_to:Crate'],
+      entitiesRequired: [{ entity: 'Crate' }]
+    }
+  ]
+};
+console.log(promptV5.parseBlueprintToPromptV5(blueprint));
+NODE
+```
+
+V4 prompt 示例：
+
+```bash
+cd /opt/blueprint-editor
+node - <<'NODE'
+const promptV4 = require('./worker/prompt-v4.js');
+const blueprint = {
+  entities: [
+    { name: 'Player', template: 'PlayerController', visual: { position: '(0,0,0)' } },
+    { name: 'Crate', template: 'Static', visual: { position: '(1,0,0)' } }
+  ],
+  specs: [
+    {
+      phaseId: 'collectCrate',
+      phaseName: '收集箱子',
+      playerInstruction: '拖动角色靠近箱子',
+      requiredInteractions: ['move_to:Crate'],
+      entitiesRequired: [{ entity: 'Crate' }]
+    }
+  ]
+};
+console.log(promptV4.parseBlueprintToPromptV4(blueprint));
+NODE
+```
+
+Schema prompt 示例：
+
+```bash
+cd /opt/blueprint-editor
+node - <<'NODE'
+const p = require('./engine/stages/build-schema-prompt-v3.cjs');
+console.log(p.buildSchemaPromptV3({
+  blueprint: {
+    specs: [{ phaseId: 'phase1', requiredInteractions: ['move_to:Crate'] }],
+    entities: [{ name: 'Crate', template: 'Static' }],
+    htmlPhaseSlices: { phase1: 'function phase1(){ setTip("拖动角色靠近箱子"); }' }
+  }
+}));
+NODE
+```
+
+## 人类程序员接手时看什么
+
+程序员不需要读完整 Luna staging prompt。交付包应主要看：
+
+- `Assets/Scripts/Core`
+- `Assets/Scripts/Tool`
+- `Assets/Scripts/Game`
+- `PROGRAMMER_HANDOFF.md`
+- `CODE_RELATION_GRAPH.md`
+- `MCP_HYDRATION_REPORT.json`
+- `PROGRAMMER_MAINTAINABILITY_REPORT.json`
+- `DELIVERY_VALIDATION.json`
+
+如果程序员发现交付工程里还大量出现业务层 `GameObject.Find`、runtime `.AddComponent(...)`、空壳实体类、并行数组主导业务状态，说明 prompt / cleaner / hydration gate 至少有一个环节回归。

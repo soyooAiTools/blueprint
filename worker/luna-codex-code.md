@@ -43,7 +43,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 
 - `Camera mainCam` — 已缓存的相机引用，**绝对不要直接用 Camera.main**，用 `mainCam`
 - `Canvas uiCanvas` — 已创建的 Canvas，**不要再调用 GFM_UI.CreateCanvas()**
-- `Text guideText` — 引导文字，直接设 `guideText.text = "..."` 更新内容
+- `Text guideText` — 引导文字，优先调用 `SetGuideText("...")` 更新内容
 - `Text scoreText` — 分数文字，直接设 `scoreText.text = "..."` 更新内容
 - 需要更多 UI 文字可以用: `GFM_UI.CreateText(uiCanvas, "text", pos, fontSize)`
 - 需要按钮可以用: `GFM_UI.CreateButton(uiCanvas, "text", pos, size, onClick)`
@@ -96,7 +96,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - CTA: `Luna.Unity.Playable.InstallFullGame()`
 - 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds
 - ⚠️ `phaseTimer` 仅用于 8 秒最短停留守卫（防止玩家秒过），**绝对不要用 timer 触发 Phase 推进**
-- 更新引导文字: `guideText.text = "点击采集";` 用骨架的 guideText
+- 更新引导文字: `SetGuideText("点击采集");`，不要绕过统一 guideText helper
 - 更新分数文字: `scoreText.text = "Score: " + score;` 用骨架的 scoreText
 - 创建更多文字: `GFM_UI.CreateText(uiCanvas, "text", new Vector2(x, y), fontSize)`
 - 创建按钮: `GFM_UI.CreateButton(uiCanvas, "Play", new Vector2(0, -100), new Vector2(200, 60), OnClick)`

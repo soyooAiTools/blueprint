@@ -131,7 +131,7 @@ function nearestPreviousSwitchIsCurrentPhase(lines, caseLineIndex) {
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
   { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*(?:(?:说明：)?ok|正常))/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
-  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
+  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use RegisterEntityBindings()/GameSceneCtrl or pre-bound pool refs' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
   { id: 'create-canvas', pattern: null, blocking: true,
@@ -204,7 +204,7 @@ var RULES = [
   { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, blocking: true, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
   { id: 'invoke-call', pattern: /\bInvoke\s*\(\s*"/g, message: 'Invoke("method") forbidden in Luna — use Update() + timer' },
   { id: 'invoke-repeating', pattern: /\bInvokeRepeating\s*\(/g, message: 'InvokeRepeating() forbidden in Luna — use Update() + timer' },
-  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, blocking: true, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
+  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, blocking: true, message: 'Instantiate() forbidden in Luna — use pre-bound pool objects or adjust the binding table' },
   { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, blocking: true, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
   { id: 'resources-load', pattern: /Resources\.Load/g, message: 'Resources.Load() not supported in Luna — use pool objects' },
   // --- v3: Rendering & anti-solid-color rules ---
