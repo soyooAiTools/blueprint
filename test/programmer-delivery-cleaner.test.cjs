@@ -612,6 +612,8 @@ try {
     assert.doesNotMatch(audioText, /new GameObject/);
     assert.doesNotMatch(audioText, /\bInstance\b/);
     assert.match(audioText, /mInstance/);
+    assert.match(audioText, /public void Init\(\)/);
+    assert.doesNotMatch(audioText, /public static GMP_Audio Init/, 'Audio should initialize from the scene-mounted instance, not a static creator');
     assert.match(audioText, /using System\.Collections\.Generic;/);
     assert.match(audioText, /public AudioClip\[\] mBgmList/);
     assert.match(audioText, /public AudioClip\[\] mSfxList/);
@@ -695,6 +697,23 @@ try {
         ''
       ].join('\n');
     }
+    function missingMonoBehaviourBlock(id, goId) {
+      return [
+        '--- !u!114 &' + id,
+        'MonoBehaviour:',
+        '  m_ObjectHideFlags: 0',
+        '  m_CorrespondingSourceObject: {fileID: 0}',
+        '  m_PrefabInstance: {fileID: 0}',
+        '  m_PrefabAsset: {fileID: 0}',
+        '  m_GameObject: {fileID: ' + goId + '}',
+        '  m_Enabled: 1',
+        '  m_EditorHideFlags: 0',
+        '  m_Script: {fileID: 0}',
+        '  m_Name: ',
+        '  m_EditorClassIdentifier: ',
+        ''
+      ].join('\n');
+    }
     function legacyCameraSpaceCanvasBlock(id, goId) {
       return [
         '--- !u!223 &' + id,
@@ -739,8 +758,9 @@ try {
       '  m_ObjectHideFlags: 0',
       minimalSceneObject(100, 101, 'Main Camera', { x: 0, y: 8, z: -12 }).replace('  - component: {fileID: 101}', '  - component: {fileID: 101}\n  - component: {fileID: 102}'),
       legacyMonoBehaviourBlock(102, 100, templateAdditionalCameraGuid),
-      minimalSceneObject(200, 201, '_player', { x: 0, y: -9999, z: 0 }).replace('  - component: {fileID: 201}', '  - component: {fileID: 201}\n  - component: {fileID: 202}'),
+      minimalSceneObject(200, 201, '_player', { x: 0, y: -9999, z: 0 }).replace('  - component: {fileID: 201}', '  - component: {fileID: 201}\n  - component: {fileID: 202}\n  - component: {fileID: 203}'),
       legacyMonoBehaviourBlock(202, 200, legacyActivatorGuid),
+      missingMonoBehaviourBlock(203, 200),
       minimalSceneObject(300, 301, '_gold', { x: 0, y: -9999, z: 0 }),
       minimalSceneObject(400, 401, '_ctaButton', { x: 0, y: -9999, z: 0 }),
       minimalSceneObject(500, 501, 'Canvas', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 501}', '  - component: {fileID: 501}\n  - component: {fileID: 502}\n  - component: {fileID: 503}'),
@@ -869,6 +889,14 @@ try {
     assert.match(phaseGateCode, /GMP_EconomyManager\.instance\.GetCollectedResource\(mTarget\)/, 'resource gates should read cumulative collected resources');
     const phaseControllerCode = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
     assert.match(phaseControllerCode, /preset\.mGate\.IsReady/, 'PhaseController should use PhasePreset gate data');
+    const mainManagerCode = fs.readFileSync(path.join(coreModules, 'GMP_MainManager.cs'), 'utf8');
+    assert.match(mainManagerCode, /\[SerializeField\] private GMP_Pool mPool;/, 'MainManager should receive Pool through a serialized scene reference');
+    assert.match(mainManagerCode, /\[SerializeField\] private GMP_Audio mAudio;/, 'MainManager should receive Audio through a serialized scene reference');
+    assert.doesNotMatch(mainManagerCode, /GMP_(?:Audio|Pool|GameSceneCtrl)\.Init\(/, 'MainManager should not call static module creators');
+    const poolCode = fs.readFileSync(path.join(coreModules, 'GMP_Pool.cs'), 'utf8');
+    assert.match(poolCode, /public static GMP_Pool instance \{ get \{ return mInstance; \} \}/, 'Pool may expose the scene-mounted instance');
+    assert.match(poolCode, /public void Init\(\)/, 'Pool should initialize from the scene-mounted instance');
+    assert.doesNotMatch(poolCode, /public static (?:GMP_Pool Init|GameObject Get|void Return)/, 'Pool should not expose singleton static workflow methods');
     const entityBindingCode = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
     assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
     assert.match(fs.readFileSync(path.join(gameLevel, 'GMP_EntityBinding.cs'), 'utf8'), /public Vector3 mOriginalPosition/, 'EntityBinding item should cache source scene position');
@@ -909,8 +937,10 @@ try {
     assert.match(scene, /mTargetHintText: \{fileID: [1-9][0-9]*/, 'scene should bind target hint Text references through serialized fields');
     assert.match(scene, /mPlayerObject: \{fileID: [1-9][0-9]*/, 'scene should bind Player object references through serialized fields');
     assert.match(scene, /mPlayerTransform: \{fileID: [1-9][0-9]*/, 'scene should bind camera Player transform references through serialized fields');
+    assert.match(scene, /mPool: \{fileID: [1-9][0-9]*/, 'scene should bind MainManager Pool module references through serialized fields');
+    assert.match(scene, /mAudio: \{fileID: [1-9][0-9]*/, 'scene should bind MainManager Audio module references through serialized fields');
     assert.match(scene, /mBindings:\n\s+- mEntityName: "_player"\n\s+mSceneObject: \{fileID: [1-9][0-9]*\}\n\s+mLabelText: \{fileID: [1-9][0-9]*/, 'entity binding table should serialize scene object and label refs');
-    const unassignedAddressable = scene.match(/\b(?:mCanvas|mGuideText|mToastText|mTargetHintText|mPlayerObject|mPlayerTransform|mSceneObject|mLabelText): \{fileID: 0\}/);
+    const unassignedAddressable = scene.match(/\b(?:mCanvas|mGuideText|mToastText|mTargetHintText|mPlayerObject|mPlayerTransform|mSceneObject|mLabelText|mPool|mAudio): \{fileID: 0\}/);
     assert.strictEqual(unassignedAddressable && unassignedAddressable[0], null, 'addressable delivery references must not be left unassigned');
     assert.doesNotMatch(scene, /m_Name: "Text_Score: 0"/, 'source-aligned HUD should not create a duplicate Score text');
     assert.doesNotMatch(scene, /m_Name: "Text_PhaseProgress"/, 'source-aligned HUD should not create overlapping phase progress text');
@@ -927,6 +957,9 @@ try {
     assert.match(scene, new RegExp(newEventSystemGuid), 'EventSystem should resolve to the Unity 2022.3 package GUID');
     assert.match(scene, new RegExp(nonWhitelistedPackageGuid), 'package GUID repair must stay whitelist-only and preserve unrelated package MonoBehaviours');
     assert.strictEqual(summary.knownPackageSceneScriptRefsRemapped, 2);
+    assert.strictEqual(summary.missingSceneMonoBehavioursRemoved, 1, 'missing Mono Script components should be removed from delivery scenes');
+    assert.doesNotMatch(scene, /fileID:\s*203\b/, 'missing Mono Script component refs should be stripped from GameObject component lists');
+    assert.doesNotMatch(scene, /--- !u!114 &203\b/, 'missing Mono Script YAML blocks should be removed');
     assert.strictEqual((scene.match(/guid:/g) || []).length >= 8, true, 'scene should contain script refs plus phase asset refs');
     assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'Phase1 camera should use the source HTML player-follow framing');
     assert.match(scene, /m_LocalEulerAnglesHint: \{x: 34\.7, y: 202\.6, z: 0\}/, 'Phase1 camera should use the source-like oblique angle');
@@ -960,21 +993,42 @@ try {
     assert.match(deliveryPlayer, /Bind\(Go, PlayerPoolName, "Player"\);/, 'project Player should bind its source scene object to GMP_PlayerBase');
     assert.doesNotMatch(deliveryPlayer, /mPlayer\.transform\.position = new Vector3\(0f, 0\.5f, 0f\)/, 'Player runtime init must not overwrite the source scene position');
     assert.match(deliveryPlayer, /public GameObject mPlayerObject;/, 'Player should expose an Inspector/MCP-assigned scene object');
-    assert.match(deliveryPlayer, /return mPlayerObject;/, 'Player runtime init should bind the assigned scene object');
+    assert.match(deliveryPlayer, /mPlayer = mPlayerObject;/, 'Player runtime init should bind the assigned scene object');
     assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player [^"]*Player/, 'Player runtime init should fail loudly when source Player is missing');
     assert.doesNotMatch(deliveryPlayer, /CreatePrimitive\(PrimitiveType\.Cylinder\)/, 'Player runtime init must not create primitive fallback players');
     assert.doesNotMatch(deliveryPlayer, /__Pool_(?:Cylinder|Capsule|Cube)/, 'Player runtime init must not scan old Luna primitive pools');
     assert.match(deliveryPlayer, /moveSpeed=6f/, 'Player fallback speed should match source HTML 6u/s');
-    assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should resolve required components from YAML-mounted scene objects');
-    assert.match(deliveryPlayer, /mMovementComponent = GetComponent<GMP_MovementComponent>\(\);/, 'Player movement component should be scene-mounted instead of added at runtime');
+    assert.match(deliveryPlayer, /private readonly GMP_MovementComponent mMovementComponent = new GMP_MovementComponent\(\);/, 'Player should keep movement as a plain C# ability object');
+    assert.match(deliveryPlayer, /private readonly GMP_InventoryComponent mInventoryComponent = new GMP_InventoryComponent\(\);/, 'Player should keep inventory as a plain C# ability object');
+    assert.doesNotMatch(deliveryPlayer, /EnsureRuntimeComponents|RequireComponent\(typeof\(GMP_(?:Movement|Trigger|Interaction|Inventory)Component\)\)/, 'Player should not generate runtime component hydration helpers');
+    assert.doesNotMatch(deliveryPlayer, /GetComponent<GMP_(?:Movement|Trigger|Interaction|Inventory)Component>\(\)/, 'Player should not resolve plain ability objects from scene components');
+    assert.doesNotMatch(deliveryPlayer, /GMP_(?:Trigger|Interaction)Component\s+m(?:Trigger|Interaction)Component/, 'unused Player ability objects should not be fields');
+    assert.doesNotMatch(deliveryPlayer, /\bFindScenePlayerObject\s*\(/, 'Player should not keep old runtime lookup helper calls or methods');
+    assert.doesNotMatch(deliveryPlayer, /\bStabilizePlayerPhysics\s*\(/, 'Player should not keep old physics fallback helper calls or methods');
+    assert.doesNotMatch(deliveryPlayer, /\bFormObject\s*\(/, 'Player should not keep the old single-use FormObject helper');
+    assert.doesNotMatch(deliveryPlayer, /\bRigidbody\b/, 'Player should not mention Rigidbody physics fallback setup');
     assert.doesNotMatch(deliveryPlayer, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|AddComponent|new\s+GameObject/, 'Player must not use runtime scene lookup or component creation');
     assert.match(deliveryPlayer, /mJoystick\.PollInput\(\);/, 'GMP Player path should also tick the joystick widget before reading movement axes');
     assert.match(deliveryPlayer, /Vector3 input = new Vector3\(-h, 0, -v\)/, 'Joystick axes should map to screen-space movement under the storyboard camera with real-time movement dt');
-    assert.match(deliveryPlayer, /Vector3 move = input \* MoveSpeed \* moveDt/, 'Joystick movement should still use the real-time movement dt');
+    assert.match(deliveryPlayer, /mMovementComponent\.Move\(go\.transform, input, MoveSpeed, moveDt\)/, 'Joystick movement should pass the real-time movement dt into the ability object');
+    assert.doesNotMatch(deliveryPlayer, /Vector3 move = input \* MoveSpeed \* moveDt/, 'Player should not duplicate movement math once the ability object owns it');
+    assert.match(deliveryPlayer, /delta\.sqrMagnitude < range \* range/, 'Player distance gates should avoid Vector3.Distance sqrt work');
+    assert.doesNotMatch(deliveryPlayer, /Vector3\.Distance/, 'Player distance gates should use sqrMagnitude');
     assert.doesNotMatch(deliveryPlayer, /new Vector3\(h, 0, -v\)/, 'Joystick horizontal axis must not use the pre-storyboard camera mapping');
     const deliveryMovement = fs.readFileSync(path.join(scripts, 'Core', 'Components', 'GMP_MovementComponent.cs'), 'utf8');
+    assert.match(deliveryMovement, /public class GMP_MovementComponent\s*\{/, 'movement ability should be a plain class, not a MonoBehaviour');
+    assert.doesNotMatch(deliveryMovement, /:\s*MonoBehaviour/, 'movement ability should not be scene-mounted');
     assert.match(deliveryMovement, /public void Move\(Transform target, Vector3 direction, float speed, float dt\)/, 'movement component should accept caller-supplied real-time dt');
     assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(finalSpeed \* safeDt\);/, 'movement component should not force Time.deltaTime when caller supplies dt');
+    ['GMP_MovementComponent', 'GMP_TriggerComponent', 'GMP_InteractionComponent', 'GMP_InventoryComponent'].forEach((name) => {
+      const file = path.join(scripts, 'Core', 'Components', name + '.cs');
+      const text = fs.readFileSync(file, 'utf8');
+      const meta = fs.readFileSync(file + '.meta', 'utf8');
+      const guid = /guid:\s*([0-9a-f]{32})/.exec(meta)[1];
+      assert.match(text, new RegExp('public class ' + name + '\\s*\\{'), name + ' should be a plain class');
+      assert.doesNotMatch(text, /:\s*MonoBehaviour/, name + ' should not inherit MonoBehaviour without lifecycle use');
+      assert.doesNotMatch(scene, new RegExp(guid), name + ' should not be mounted into Game.unity');
+    });
     assert.strictEqual(summary.playerTaggedForCameraFollow, true);
     assert.strictEqual(summary.deliveryCameraControllerFollowRepaired, true);
     assert.strictEqual(summary.initialPhaseCameraFramed, true);

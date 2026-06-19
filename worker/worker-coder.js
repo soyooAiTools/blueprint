@@ -485,8 +485,8 @@ var GENERATE_PROMPT = [
   '            break;',
   '        case 1: // Wait for player to reach target (player uses joystick to move)',
   '            if (_player != null && _currentTarget != null) {',
-  '                float dist = Vector3.Distance(_player.transform.position, _currentTarget.transform.position);',
-  '                if (dist < 2f) { _shotState = 2; _shotTimer = 0; }',
+  '                float distSq = (_player.transform.position - _currentTarget.transform.position).sqrMagnitude;',
+  '                if (distSq < 2f * 2f) { _shotState = 2; _shotTimer = 0; }',
   '            }',
   '            break;',
   '        case 2: // Build animation / progress',
@@ -1471,7 +1471,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- Hide with position y=-999, NOT SetActive(false)\n'
     + '- Game end: Luna.Unity.LifeCycle.GameEnded(); then ShowCTA()\n'
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
-    + '- Collision detection: Vector3.Distance(a.position, b.position) < radius\n'
+    + '- Collision detection: (a.position - b.position).sqrMagnitude < radius * radius; do not use Vector3.Distance for threshold checks\n'
     + '- Do NOT define class EventPool (conflicts with template)\n'
     + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n'
     + '- Do NOT use generic methods: GetComponent<T>(), Resources.GetBuiltinResource<T>(), FindObjectOfType<T>()\n'

@@ -587,7 +587,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
   lines.push('- 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds');
   lines.push('- UI 文字: guide 用 `SetGuideText("xxx")`；score 用已存在的 `scoreText` 字段，避免新 Find');
-  lines.push('- 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`');
+  lines.push('- 碰撞检测: `(a.position - b.position).sqrMagnitude < radius * radius`，不要用 `Vector3.Distance` 做距离门槛判断');
   lines.push('- 不要用 transform.parent / SetParent / FindObjectOfType');
   lines.push('- 不要定义 class EventPool（和模板冲突）');
   lines.push('- 最后一个步骤必须有 GameEnded() + CTA 按钮');
@@ -707,7 +707,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');
   lines.push('  if (currentPhaseName == "phase_1") {');
   lines.push('    var target = GameSceneCtrl.instance.Get("Target");');
-  lines.push('    if (target != null && Vector3.Distance(playerPos, target.transform.position) < 1.5f) {');
+  lines.push('    if (target != null && (playerPos - target.transform.position).sqrMagnitude < 1.5f * 1.5f) {');
   lines.push('      AddCompletedPhase("phase_xxx_2"); // 用蓝图中 Rule 的真实 ID');
   lines.push('      currentPhaseName = "phase_2";');
   lines.push('      ShowGuide("点击建造按钮");');

@@ -1,7 +1,7 @@
 # 当前 Unity 代码生成 Prompts 整理
 
 更新时间：2026-06-19  
-主仓版本：2026-06-19 Unity codegen prompt hydration/prompt-contract 优化
+主仓版本：2026-06-19 Unity codegen prompt hydration / programmer-delivery readability 优化
 
 本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
 
@@ -34,6 +34,7 @@
 - 核心管理层只能有一个主管理器，负责集中初始化模块后启动关卡。
 - 状态和步骤类型必须用 enum，不用 0/1/2 魔法数字或裸字符串表达跨层状态。
 - Player/NPC/Entity 走“基类 + 可选组件”组合，不把一次性业务字段散落在核心类型里。
+- Movement、Trigger、Interaction、Inventory 这类没有 Unity 生命周期的能力默认是普通 C# 类，不因为名字叫 Component 就挂到同一个场景节点上。
 - Tool 层沉淀跨项目稳定工具，不硬编码项目实体、资源和 phase 文案。
 - 音频必须集中式多音源管理，业务只调用 Audio module API。
 - 新增业务优先写进 `Game/Level`、`Game/Entities`、`Game/Player`。
@@ -45,6 +46,8 @@
 - 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
 - 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点。
 - 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点。
+- 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
+- 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
 
 ## 两层 Prompt 口径
 
@@ -82,6 +85,8 @@
 - 根节点负责逻辑，表现资源挂子节点。
 - 保留少量清晰脚本和清楚职责边界。
 - 注释少而关键，中文大白话。
+- 清理场景里的 Missing Mono Script；最终场景不应该带丢脚本的组件引用。
+- 单例/管理器从场景预挂实例初始化，避免在单例类里继续塞静态 `Init/Get/Return` 工作流方法。
 
 禁止：
 
@@ -90,6 +95,7 @@
 - 为每个单独场景物体生成空壳实体类。
 - 用隐藏并行数组作为主要可维护结构。
 - 机械要求每个字段、每个方法都有详细注释。
+- 把没有生命周期的能力类拆成一堆 MonoBehaviour 再全部挂到 Player 一个节点上。
 
 ## V5 Base Template Prompt
 
@@ -254,6 +260,8 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 - 不再把 `FindObjectOfType<T>()` 自动后处理成 `(T)FindObjectOfType(typeof(T))`。
 - 不再把备用池描述成可以用 `Instantiate` 扩容；未分配池只给 staging 绑定重分配使用。
 - static-check 的 blocking message 不再提示模型 “use GameObject.Find() from pool”。
+- 不再把 `Vector3.Distance(...) < range` 写成距离门槛正向示例。
+- 不再把 Player 的移动/背包/交互等无生命周期能力生成成一堆 scene-mounted MonoBehaviour。
 
 当前仍保留的稳定性保护：
 
@@ -283,6 +291,7 @@ test/unity-codegen-prompt-contract.test.cjs
 - 不恢复“没有 GFM_Create 就警告”的旧校验。
 - 不恢复 `FindObjectOfType` 后处理成另一种 scene scan 的逻辑。
 - 不恢复 static-check 里让模型改用 `GameObject.Find()` 的反馈。
+- 不恢复 `Vector3.Distance(...) < range` 的正向距离门槛示例。
 
 ## 生成完整版 Prompt 的方法
 
@@ -366,4 +375,4 @@ NODE
 - `PROGRAMMER_MAINTAINABILITY_REPORT.json`
 - `DELIVERY_VALIDATION.json`
 
-如果程序员发现交付工程里还大量出现业务层 `GameObject.Find`、runtime `.AddComponent(...)`、空壳实体类、并行数组主导业务状态，说明 prompt / cleaner / hydration gate 至少有一个环节回归。
+如果程序员发现交付工程里还大量出现业务层 `GameObject.Find`、runtime `.AddComponent(...)`、Missing Mono Script、空壳实体类、并行数组主导业务状态，或 Player 一个节点挂了一排无生命周期脚本，说明 prompt / cleaner / hydration gate 至少有一个环节回归。
