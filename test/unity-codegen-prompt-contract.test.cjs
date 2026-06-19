@@ -31,6 +31,8 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('mBindings') >= 0, label + ' should mention mBindings as the binding table');
   assert.ok(text.indexOf('逻辑与表现分离') >= 0, label + ' should require logic/visual separation');
   assert.ok(text.indexOf('注释只写关键') >= 0, label + ' should require sparse plain Chinese comments');
+  assert.ok(text.indexOf('复杂脚本参数说明') >= 0, label + ' should explain parameters for complex scripts');
+  assert.ok(text.indexOf('有意义的空行分块') >= 0, label + ' should require meaningful blank-line grouping');
   assert.ok(text.indexOf('程序员可交付反馈规则') >= 0, label + ' should carry consolidated programmer-delivery feedback rules');
   assert.ok(text.indexOf('一节点一主脚本') >= 0, label + ' should require one primary script per node');
   assert.ok(text.indexOf('无生命周期能力') >= 0, label + ' should keep lifecycle-free abilities as plain classes');
@@ -62,7 +64,11 @@ assert.ok(v5Text.indexOf('不要在 TODO 区') >= 0 && v5Text.indexOf('GameObjec
 assert.ok(v4Text.indexOf('只有 V4 staging 绑定层才可兜底解析 `__Pool_*`') >= 0, 'v4 prompt should fence legacy pool lookup to staging binding');
 assert.ok(behaviorTemplateText.indexOf('本文件只给 Luna/WebGL staging 代码参考') >= 0, 'behavior templates should be marked staging-only');
 assert.ok(behaviorTemplateText.indexOf('程序员可交付反馈规则') >= 0, 'behavior templates should carry programmer-delivery feedback warnings');
+assert.ok(behaviorTemplateText.indexOf('复杂脚本参数说明') >= 0, 'behavior templates should carry complex-script parameter guidance');
+assert.ok(behaviorTemplateText.indexOf('有意义的空行分块') >= 0, 'behavior templates should carry meaningful blank-line grouping guidance');
 assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
+assert.ok(codexCodeCoderText.indexOf('复杂脚本参数说明') >= 0, 'codex fix prompt should carry complex-script parameter guidance');
+assert.ok(codexCodeCoderText.indexOf('有意义的空行分块') >= 0, 'codex fix prompt should carry meaningful blank-line grouping guidance');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');

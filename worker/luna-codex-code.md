@@ -30,7 +30,9 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 18. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
 19. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。
 20. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。
-21. 当前 partial 骨架是 Luna/WebGL staging 层；为了 WebGL 稳定可以使用骨架绑定和对象池映射，但这些写法不得泄漏成程序员交付版的业务依赖。
+21. 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用。
+22. 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段。
+23. 当前 partial 骨架是 Luna/WebGL staging 层；为了 WebGL 稳定可以使用骨架绑定和对象池映射，但这些写法不得泄漏成程序员交付版的业务依赖。
 
 ## 核心规则：基础样例工程模式
 
@@ -240,6 +242,8 @@ curl -s -X POST http://localhost:3080/build \
 
 - 当前编码阶段优先修改 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs` partial 文件；不要创建随意命名的新业务文件。最终交付必须由后处理清洗为 `Core` / `Tool` / `Game`。
 - 代码必须完整，不要省略任何部分
+- 复杂脚本参数说明要贴近代码；多参数 helper、系统级入口、跨 phase 状态函数要写清参数用途、单位、边界和副作用
+- 有意义的空行分块；用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底，不要乱插空行或把不同职责挤成一段
 - 阅读 blueprint.json 了解蓝图需求
 - GFM_*.cs 工具类已拆分为独立文件（GFM_Audio/Pool/Event/Utils/Joystick/Luna/UI/Create/Grid/Pathfinding/Billboard），DO NOT Read 它们（~48KB），API 已在 prompt 内联
 - 阅读 prompt.md 了解对象分配表和详细需求

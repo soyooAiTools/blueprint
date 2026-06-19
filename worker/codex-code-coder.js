@@ -1328,6 +1328,8 @@ ${whitelistBlock}
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
 - 不要直接写 \`GameObject.Find("__Pool_*")\`；实体引用统一来自 \`RegisterEntityBindings()/GameSceneCtrl\`
 - 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
+- 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用
+- 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段
 - 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
 - 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
@@ -1408,6 +1410,8 @@ ${inlineSkeletonSystems}
 4. 全部填充完成后运行 bash build-test.sh 验证编译
 5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
 
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
+
 两个文件是 partial class，共享所有字段。`
         : `## 任务：生成 Luna 试玩广告代码
 
@@ -1431,6 +1435,8 @@ ${inlineSkeletonMain}
 3. 全部填充完成后运行 bash build-test.sh 验证编译
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
+
 代码必须完整（1300-1600 行），不要省略任何部分。`)
       : `## 任务：生成 Luna 试玩广告代码
 
@@ -1446,6 +1452,8 @@ ${inlinePromptMd}
 2. 用 Write 工具写入 Assets/Program/Script/Manager/GameFlowManagerMain.cs（注意：先 Read 一下文件）
 3. 运行 bash build-test.sh 验证编译
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
+
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
 
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
@@ -1486,7 +1494,8 @@ ${inlinePromptMd}
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
         + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.\n'
         + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.\n'
-        + '8. Keep programmer-delivery maintainability: one primary script per node, plain C# classes for abilities without Unity lifecycle, meaningful variable names, no unused methods, inline one-call one-line helpers, and only necessary fallbacks.'
+        + '8. Keep programmer-delivery maintainability: one primary script per node, plain C# classes for abilities without Unity lifecycle, meaningful variable names, no unused methods, inline one-call one-line helpers, and only necessary fallbacks.\n'
+        + '9. Keep readability: explain parameters for complex scripts or multi-param helpers near the declaration/call site, and use blank lines only to separate meaningful blocks such as fields, initialization, input, state progression, UI, validation, and fallback code.'
       : null,
     workDir: clientDir,
   };

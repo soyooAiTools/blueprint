@@ -213,7 +213,9 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('18. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
   lines.push('19. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
   lines.push('20. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');
-  lines.push('21. Luna staging 代码可以为了 WebGL 稳定使用骨架绑定和对象池映射；这些写法不得泄漏成程序员交付版的业务依赖。');
+  lines.push('21. 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用。');
+  lines.push('22. 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段。');
+  lines.push('23. Luna staging 代码可以为了 WebGL 稳定使用骨架绑定和对象池映射；这些写法不得泄漏成程序员交付版的业务依赖。');
   lines.push('');
 }
 
@@ -323,10 +325,12 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('2. **每个 ≥3 行的复杂条件分支建议有注释**，说明为什么进入该条件，而不是只写代码结果。');
   lines.push('   `if`/`else if`/`switch case` 块体 ≥ 3 行时由 `delivery-comment-coverage-condition` 校验。');
   lines.push('   单行 guard (`if (x == null) return;`) 不强制注释,避免噪声。');
-  lines.push('3. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。只有复用或能明显降低阅读难度时才拆私有方法；不要为一行代码拆函数。');
-  lines.push('4. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
-  lines.push('5. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
-  lines.push('6. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
+  lines.push('3. **复杂脚本参数说明要贴近代码**。当方法参数超过 3 个、参数含单位/边界，或函数横跨 phase/资源/实体状态时，在函数前或调用附近说明每个关键参数的用途、单位、边界和副作用。');
+  lines.push('4. **有意义的空行分块**。字段、初始化、输入处理、状态推进、UI 更新、验证/兜底之间用空行隔开；同一连续动作内部不要乱插空行，不同职责也不要挤成一个大段。');
+  lines.push('5. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。只有复用或能明显降低阅读难度时才拆私有方法；不要为一行代码拆函数。');
+  lines.push('6. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
+  lines.push('7. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
+  lines.push('8. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
