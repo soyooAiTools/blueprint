@@ -41,6 +41,15 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('Missing Mono Script') >= 0, label + ' should route missing script cleanup through scene/editor hydration');
   assert.ok(text.indexOf('静态 Init/Get/Return') >= 0, label + ' should forbid static workflow methods in singleton managers');
   assert.ok(text.indexOf('sqrMagnitude') >= 0, label + ' should require squared-distance threshold checks');
+  assert.ok(text.indexOf('MoveSpeed 归 MovementComponent') >= 0, label + ' should keep tunable data on the owning component');
+  assert.ok(text.indexOf('Init/Configure/Setup 未被调用就删除') >= 0, label + ' should remove unused setup entrypoints');
+  assert.ok(text.indexOf('Awake/Start') >= 0, label + ' should avoid parallel Init when Mono lifecycle owns setup');
+  assert.ok(text.indexOf('固定 Player 引用') >= 0, label + ' should require fixed player references');
+  assert.ok(text.indexOf('Debug.LogError') >= 0, label + ' should fail missing references loudly without fallback complexity');
+  assert.ok(text.indexOf('连续试玩流程') >= 0, label + ' should define phase as one continuous playable flow');
+  assert.ok(text.indexOf('重置全场') >= 0, label + ' should forbid phase-as-level-reset behavior');
+  assert.ok(text.indexOf('AIBridge 预水合') >= 0, label + ' should require editor-side hydration before runtime');
+  assert.ok(text.indexOf('临时脚本') >= 0, label + ' should remove one-off temporary generation scripts from delivery');
 }
 
 var schemaText = schemaPrompt.buildSchemaPromptV3({ blueprint: blueprint });
@@ -66,9 +75,17 @@ assert.ok(behaviorTemplateText.indexOf('本文件只给 Luna/WebGL staging 代�
 assert.ok(behaviorTemplateText.indexOf('程序员可交付反馈规则') >= 0, 'behavior templates should carry programmer-delivery feedback warnings');
 assert.ok(behaviorTemplateText.indexOf('复杂脚本参数说明') >= 0, 'behavior templates should carry complex-script parameter guidance');
 assert.ok(behaviorTemplateText.indexOf('有意义的空行分块') >= 0, 'behavior templates should carry meaningful blank-line grouping guidance');
+assert.ok(behaviorTemplateText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 'behavior templates should keep tunable data on components');
+assert.ok(behaviorTemplateText.indexOf('固定 Player 引用') >= 0, 'behavior templates should require fixed player references');
+assert.ok(behaviorTemplateText.indexOf('连续试玩流程') >= 0, 'behavior templates should define phase as continuous flow');
+assert.ok(behaviorTemplateText.indexOf('AIBridge 预水合') >= 0, 'behavior templates should require editor-side hydration cleanup');
 assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
 assert.ok(codexCodeCoderText.indexOf('复杂脚本参数说明') >= 0, 'codex fix prompt should carry complex-script parameter guidance');
 assert.ok(codexCodeCoderText.indexOf('有意义的空行分块') >= 0, 'codex fix prompt should carry meaningful blank-line grouping guidance');
+assert.ok(codexCodeCoderText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 'codex fix prompt should keep tunable data on components');
+assert.ok(codexCodeCoderText.indexOf('固定 Player 引用') >= 0, 'codex fix prompt should require fixed player references');
+assert.ok(codexCodeCoderText.indexOf('连续试玩流程') >= 0, 'codex fix prompt should define phase as continuous flow');
+assert.ok(codexCodeCoderText.indexOf('AIBridge 预水合') >= 0, 'codex fix prompt should require editor-side hydration cleanup');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');

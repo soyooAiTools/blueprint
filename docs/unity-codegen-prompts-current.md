@@ -1,14 +1,14 @@
 # 当前 Unity 代码生成 Prompts 整理
 
-更新时间：2026-06-19  
-主仓版本：2026-06-19 Unity codegen prompt hydration / programmer-delivery readability 优化
+更新时间：2026-06-20
+主仓版本：2026-06-20 Unity codegen prompt hydration / programmer-delivery maintainability 优化
 
 本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
 
 1. **Luna/WebGL staging 生成层**：为了 storyboard2html -> WebGL 稳定，仍允许使用骨架绑定、`GameSceneCtrl` 和受控对象池 literal。
 2. **程序员 Unity 交付层**：最终交付给人类程序员的 Unity 工程，必须走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`mBindings` 绑定表和稀疏中文注释。
 
-红线：不要为了清理程序员交付代码，破坏 storyboard2html source HTML 与 WebGL/Unity guideText、phase、视觉语义的一致性。
+最高红线：storyboard2html 生成的 HTML 与最终 WebGL 的一致性是系统终极红线，千万不能碰。不要为了清理程序员交付代码，通过 WebGL 侧临时兜底、HTML 侧假状态或报告文字绕过 `source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 的 phase、guideText、targetSequence、entity/resource/gate 语义一致性。
 
 ## Prompt 源文件总览
 
@@ -43,6 +43,8 @@
 - 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
 - `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，禁止回退到 `mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组。
+- 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
+- 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；禁止静态 `Init/Get/Return` 工作流。
 - 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
 - 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点。
 - 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点。
@@ -50,6 +52,9 @@
 - 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段。
 - 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
+- Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`mBindings` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
+- AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本等一次性脚本；确实跨项目复用的能力下沉为正式 Tool。
 
 ## DOCX 反馈汇总后的 Prompt 规则
 
@@ -64,6 +69,17 @@
 7. **注释服务理解，不服务篇幅**：只在关键、难懂、容易踩坑的位置写中文大白话注释；字段名、普通生命周期方法、自解释 helper 不补机械注释。
 8. **复杂脚本先解释参数和关键功能**：面对多参数 helper、系统级入口、跨 phase 状态函数，在声明或调用附近标明参数用途、单位、边界和副作用；复杂分支说明为什么存在，而不是只复述代码做了什么。
 9. **空行用于分块，不用于装饰**：字段、初始化、输入处理、状态推进、UI 更新、验证/兜底之间用空行隔开；同一连续动作内部不乱插空行，不同职责也不要挤成一段。
+
+## 2026-06-20 新反馈补充后的 Prompt 规则
+
+来源：`/nickTemp/newadvice.docx`。这轮反馈不是新增特殊项目逻辑，而是把程序员可维护性收紧成跨项目规则：
+
+1. **属性必须归属到能力组件**：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory。Player/Manager 只编排流程和依赖，不复制每个实体的调参字段。
+2. **入口函数不能双轨**：`Init/Configure/Setup` 未被调用就删除；如果逻辑依赖 `Awake/Start`，不要再保留一条并行 `Init` 路径。
+3. **兜底不能增加复杂度**：Player、HUD、Camera、关键实体使用固定引用、serialized refs、`mBindings` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
+4. **phase 不是关卡重启**：Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立 level；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
+5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
+6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
 
 ## 两层 Prompt 口径
 

@@ -36,10 +36,14 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
 2.0 交付规则：
 
 - WebGL 产物必须保留 `__gameState`、可驱动 phase hook、runtime binding smoke 和 source guideText parity 证据。
+- storyboard2html 生成的 HTML 与最终 WebGL 的一致性是系统终极红线，不能通过 WebGL 侧临时兜底、HTML 假状态或报告文字绕过；`source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 必须保持 phase、guideText、targetSequence、entity/resource/gate 语义一致。
 - 程序员 Unity 工程必须导出为 `Assets/Scripts/Core` / `Tool` / `Game` 三层；核心模块、工具层和本项目业务分离。
 - 状态和步骤语义使用 enum，Player/NPC/Entity 走基类 + 可选组件组合，Audio 走集中式多音源管理。
 - 程序员交付代码必须能给人类程序员接手：场景引用走 AIBridge/MCP + Inspector hydration，业务代码不靠 runtime `Find` / `AddComponent` / `new GameObject` 补场景；只保留真实调用链会用到的方法。
 - 同一个玩法状态只能有一个 owner。简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，Gold 从资源表派生，HUD 目标提示只由 HudController 写。
+- 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只做编排，不复制每个实体的调参字段。
+- 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；固定 Player/HUD/Camera/关键实体引用缺失时只短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；AIBridge 预水合后要删除 primitive builder、source spec helper 等临时脚本，或下沉为正式 Tool。
 - `programmer-delivery-maintainability-gate` strict 模式会阻断 runtime 查找/挂组件、`Vector3.Distance` 门槛、静态 `Init/Get/Return` 工作流、重复状态 owner、未调用方法和空壳实体类；`programmer-delivery-hardgate` 会把这些 summary 纳入交付阻断。
 - schema prompt、V4/V5 prompt、Codex code runner 和 legacy worker prompt 都必须携带这套程序架构硬规则。
 
