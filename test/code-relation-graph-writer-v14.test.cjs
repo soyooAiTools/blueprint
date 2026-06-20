@@ -31,18 +31,18 @@ try {
   fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_ChefEntity.cs'), 'public class GMP_ChefEntity {}\n');
   fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Player', 'GMP_Player.cs'), 'public class GMP_Player {}\n');
   fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Tool', 'GMP_CameraTool.cs'), 'public class GMP_CameraTool {}\n');
-  fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Phases', 'Phase1.asset'), [
+  fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Phases', 'Flow01_ServeDonut.asset'), [
     '--- !u!114 &11400000',
     'MonoBehaviour:',
-    '  m_Name: Phase1',
-    '  mPhaseId: serve',
+    '  m_Name: Flow01_ServeDonut',
+    '  mPhaseId: flow01_serve_donut',
     ''
   ].join('\n'));
-  fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Phases', 'Phase2.asset'), [
+  fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Phases', 'Flow02_UnlockSeafood.asset'), [
     '--- !u!114 &11400000',
     'MonoBehaviour:',
-    '  m_Name: Phase2',
-    '  mPhaseId: unlock',
+    '  m_Name: Flow02_UnlockSeafood',
+    '  mPhaseId: flow02_unlock_seafood',
     ''
   ].join('\n'));
 
@@ -61,7 +61,7 @@ try {
     assert.match(text, /Core\/Modules\/GMP_MainManager\.cs/);
     assert.match(text, /GMP_PhaseController/);
     assert.match(text, /GMP_LevelRuleEngine/);
-    assert.match(text, /serve|unlock/);
+    assert.match(text, /flow01_serve_donut|flow02_unlock_seafood/);
   });
   assert.match(md, /Core\/Common/);
 } finally {

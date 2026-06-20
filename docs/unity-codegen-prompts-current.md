@@ -53,7 +53,7 @@
 - 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
 - Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
-- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
 - AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本、通用 object binding 表和运行时场景生成/修复代码；确实跨项目复用的能力下沉为正式 Tool。
 - `GMP_SceneEntityRefs` 显式字段保留为 Inspector 中的人类可见数据入口；删除的是运行时生成/查找/修复绑定的代码、通用 object binding 表和隐藏 runtime registry。导出必须先写 `SCENE_BAKE_PLAN.json`，再由 AIBridge/Editor bake 写 `SCENE_BAKE_REPORT.json`，最终用 `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明临时 primitive spec、primitive builder/source spec helper、通用绑定表没有留在交付包。
 
@@ -78,7 +78,7 @@
 1. **属性必须归属到能力组件**：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory。Player/Manager 只编排流程和依赖，不复制每个实体的调参字段。
 2. **入口函数不能双轨**：`Init/Configure/Setup` 未被调用就删除；如果逻辑依赖 `Awake/Start`，不要再保留一条并行 `Init` 路径。
 3. **兜底不能增加复杂度**：Player、HUD、Camera、关键实体使用固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
-4. **phase 不是关卡重启**：Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立 level；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
+4. **phase 不是关卡重启**：Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立 level；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
 5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本、通用 object binding 表只允许作为 Editor 侧过渡；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
 6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
 7. **显式引用是数据入口，不是运行时补救入口**：`GMP_SceneEntityRefs` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。

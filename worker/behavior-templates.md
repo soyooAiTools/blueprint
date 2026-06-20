@@ -1,7 +1,7 @@
 # Luna 行为模板实现手册（事件驱动版）
 
 > 本文件只给 Luna/WebGL staging 代码参考。程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration，引用进入 `GMP_SceneEntityRefs` 或 `[SerializeField]` 字段；不要把这里的平行数组、运行时 `Find`、`GameSceneCtrl` / `SceneObjectRegistry` 隐藏运行时对象表、通用 object binding 表或一次性模板拆法照搬成最终交付结构。
-> 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；MoveSpeed 归 MovementComponent/移动能力、交互半径归 Trigger/Interaction、背包容量归 Inventory；变量名要说明业务含义；只保留会被调用的方法；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 `Debug.LogError`，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不重置全场；AIBridge 预水合后删除 primitive builder、source spec helper、通用 object binding 表和运行时场景生成/修复代码；场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉。
+> 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；MoveSpeed 归 MovementComponent/移动能力、交互半径归 Trigger/Interaction，背包容量归 Inventory；变量名要说明业务含义；只保留会被调用的方法；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 `Debug.LogError`，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不重置全场；流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，不要只叫 `Phase1.asset` / `phase1`；AIBridge 预水合后删除 primitive builder、source spec helper、通用 object binding 表和运行时场景生成/修复代码；场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉。
 > 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等不同职责。
 
 > ⚠️ **最重要的规则**: Phase/Rule 推进必须由玩家操作触发，绝对禁止用 gameTimer/计时器 自动推进！

@@ -76,7 +76,7 @@ const UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT = [
   '- 场景问题优先由 AIBridge/MCP/Editor 处理：Missing Mono Script、Rigidbody、Collider、Animator 等配置不要在业务代码里反复 Find/AddComponent/修复。',
   '- 单例/管理器用场景预挂实例和 serialized refs；单例类里不要再塞静态 Init/Get/Return 这类工作流方法。',
   '- 性能和兜底：距离门槛用 `sqrMagnitude`；必要兜底只保留真实可进入且有价值的分支。Player、HUD、相机和关键实体必须走固定 Player 引用、`[SerializeField]`、`GMP_SceneEntityRefs` 或固定 addressable path，缺引用只允许短路 `Debug.LogError`，不能堆运行时扫描、创建、修组件的 fallback。',
-  '- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。',
+  '- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。',
   '- AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool。',
   '- 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。',
   '- 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。',

@@ -917,9 +917,16 @@ try {
     assert.doesNotMatch(generatedCsText, /\/\/\s*方法说明：执行/, 'delivery scripts should not contain empty generated method comments');
     assert.doesNotMatch(generatedCsText, /\/\/\s*(初始化当前模块|按帧推进当前模块|Unity 生命周期入口：|Unity 每帧更新入口：|Unity LateUpdate 入口：|更新玩家引导文案)/, 'delivery scripts should not contain obvious boilerplate comments');
     assert.doesNotMatch(generatedCsText, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|\.AddComponent\s*(?:<|\()|new\s+GameObject\s*\(/, 'delivery scripts should not mention runtime lookup or object creation APIs');
-    assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
-    const phase1Asset = fs.readFileSync(path.join(phaseDir, 'Phase1.asset'), 'utf8');
-    const phase2Asset = fs.readFileSync(path.join(phaseDir, 'Phase2.asset'), 'utf8');
+    const semanticPhaseAssets = fs.readdirSync(phaseDir).filter((name) => /^Flow\d+_[A-Za-z0-9]+\.asset$/.test(name)).sort();
+    assert.strictEqual(semanticPhaseAssets.length, 2);
+    assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 0);
+    assert.match(semanticPhaseAssets[0], /^Flow01_/);
+    assert.match(semanticPhaseAssets[1], /^Flow02_/);
+    const phase1Asset = fs.readFileSync(path.join(phaseDir, semanticPhaseAssets[0]), 'utf8');
+    const phase2Asset = fs.readFileSync(path.join(phaseDir, semanticPhaseAssets[1]), 'utf8');
+    assert.match(phase1Asset, /m_Name: Flow01_/, 'first flow asset should expose a semantic Unity asset name');
+    assert.match(phase1Asset, /mPhaseId: "flow01_/, 'first flow asset should use a semantic mPhaseId');
+    assert.doesNotMatch(phase1Asset, /mPhaseId: phase1\b/, 'delivery mPhaseId must not be a bare numbered phase id');
     assert.match(phase1Asset, /mTargetEntity: "_gold"/, 'phase1 target should follow the original gate entity');
     assert.match(phase1Asset, /  - _gold/, 'gate entity should be visible/interactable in the phase asset');
     assert.match(phase1Asset, /mKind: 3/, 'phase1 gate should be data-driven enum value');
@@ -962,8 +969,8 @@ try {
     assert.doesNotMatch(scene, /fileID:\s*203\b/, 'missing Mono Script component refs should be stripped from GameObject component lists');
     assert.doesNotMatch(scene, /--- !u!114 &203\b/, 'missing Mono Script YAML blocks should be removed');
     assert.strictEqual((scene.match(/guid:/g) || []).length >= 8, true, 'scene should contain script refs plus phase asset refs');
-    assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'Phase1 camera should use the source HTML player-follow framing');
-    assert.match(scene, /m_LocalEulerAnglesHint: \{x: 34\.7, y: 202\.6, z: 0\}/, 'Phase1 camera should use the source-like oblique angle');
+    assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'initial flow camera should use the source HTML player-follow framing');
+    assert.match(scene, /m_LocalEulerAnglesHint: \{x: 34\.7, y: 202\.6, z: 0\}/, 'initial flow camera should use the source-like oblique angle');
     assert.match(scene, /m_Name: _player[\s\S]*m_TagString: Player/, 'Player entity should be tagged for camera follow lookup');
     const deliveryCamera = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
     assert.doesNotMatch(deliveryCamera, /orthographic\s*=\s*true/, 'delivery camera must not override the scene-authored projection');
@@ -1318,7 +1325,12 @@ try {
       },
       validatorOpts: { maxLines: 10000 }
     });
-    const phase1Asset = fs.readFileSync(path.join(scripts, 'Game', 'Phases', 'Phase1.asset'), 'utf8');
+    const sourcePhaseDir = path.join(scripts, 'Game', 'Phases');
+    const sourcePhaseAssets = fs.readdirSync(sourcePhaseDir).filter((name) => /^Flow\d+_[A-Za-z0-9]+\.asset$/.test(name)).sort();
+    assert.match(sourcePhaseAssets[0], /^Flow01_.*OxygenShop.*Coin.*\.asset$/);
+    assert.strictEqual(fs.readdirSync(sourcePhaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 0);
+    const phase1Asset = fs.readFileSync(path.join(sourcePhaseDir, sourcePhaseAssets[0]), 'utf8');
+    assert.match(phase1Asset, /mPhaseId: "flow01_.*oxygen.*shop.*coin/);
     assert.match(phase1Asset, /mGuideText: "先到氧气购买台"/);
     assert.match(phase1Asset, /mTargetEntity: "_oxygenShop"/);
     assert.match(phase1Asset, /mGainResource: "Coin"/);

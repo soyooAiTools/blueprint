@@ -43,7 +43,7 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
 - 同一个玩法状态只能有一个 owner。简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，Gold 从资源表派生，HUD 目标提示只由 HudController 写。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只做编排，不复制每个实体的调参字段。
 - 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；固定 Player/HUD/Camera/关键实体引用缺失时只短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
-- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；AIBridge 预水合后要删除 primitive builder、source spec helper 等临时脚本，或下沉为正式 Tool。
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；AIBridge 预水合后要删除 primitive builder、source spec helper 等临时脚本，或下沉为正式 Tool。
 - `GMP_SceneEntityRefs`/serialized refs 保留为 Inspector 数据入口，由 AIBridge/Editor 预填；程序员交付版不保留通用 object binding 表、`GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口；`SCENE_BAKE_PLAN.json` / `SCENE_BAKE_REPORT.json` / `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明场景、mesh、显式引用和临时脚本清理已经在交付前完成。
 - `programmer-delivery-maintainability-gate` strict 模式会阻断 runtime 查找/挂组件、`Vector3.Distance` 门槛、静态 `Init/Get/Return` 工作流、重复状态 owner、未调用方法和空壳实体类；`programmer-delivery-hardgate` 会把这些 summary 和 temporary-code audit 纳入交付阻断。
 - schema prompt、V4/V5 prompt、Codex code runner 和 legacy worker prompt 都必须携带这套程序架构硬规则。

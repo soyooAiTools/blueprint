@@ -176,6 +176,21 @@ assert.strictEqual(layoutFail.passed, false);
 assert.ok(layoutFail.errors.some(function(error) { return error.indexOf('Core/Tool/Game') >= 0; }));
 assert.ok(layoutFail.errors.some(function(error) { return error.indexOf('project-specific entity label mapping') >= 0; }));
 
+var phaseNameFailRoot = makeRoot();
+fs.mkdirSync(path.join(phaseNameFailRoot, 'Assets', 'Scripts', 'Game', 'Phases'), { recursive: true });
+fs.writeFileSync(path.join(phaseNameFailRoot, 'Assets', 'Scripts', 'Game', 'Phases', 'Phase1.asset'), [
+  '%YAML 1.1',
+  '--- !u!114 &11400000',
+  'MonoBehaviour:',
+  '  m_Name: Phase1',
+  '  mPhaseId: phase1',
+  ''
+].join('\n'));
+var phaseNameFail = hardgate.validateProgrammerDelivery(phaseNameFailRoot, summary);
+assert.strictEqual(phaseNameFail.passed, false);
+assert.ok(phaseNameFail.errors.some(function(error) { return error.indexOf('bare numbered Phase asset naming') >= 0; }));
+assert.ok(phaseNameFail.errors.some(function(error) { return error.indexOf('bare numbered mPhaseId') >= 0; }));
+
 var audioFailRoot = makeRoot();
 fs.writeFileSync(path.join(audioFailRoot, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_AudioCaller.cs'), [
   'using UnityEngine;',

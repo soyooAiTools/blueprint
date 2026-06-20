@@ -1335,7 +1335,7 @@ ${whitelistBlock}
 - 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
 - Player、HUD、相机和关键实体必须走固定 Player 引用、serialized field、\`GMP_SceneEntityRefs\` 或固定 addressable path；缺引用只允许短路 Debug.LogError，不要写运行时扫描、创建、修组件的 fallback
 - \`GMP_SceneEntityRefs\`/serialized refs 是程序员交付的人类可见实体引用入口；不要生成通用 object binding 表，也不要保留 \`GameSceneCtrl\` / \`SceneObjectRegistry\` 这类隐藏运行时对象表作为第二入口
-- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，禁止只叫 \`Phase1.asset\` / \`phase1\`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验
 - AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
 - 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
@@ -1417,7 +1417,7 @@ ${inlineSkeletonSystems}
 5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
 
 两个文件是 partial class，共享所有字段。`
         : `## 任务：生成 Luna 试玩广告代码
@@ -1443,7 +1443,7 @@ ${inlineSkeletonMain}
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
 
 代码必须完整（1300-1600 行），不要省略任何部分。`)
       : `## 任务：生成 Luna 试玩广告代码
@@ -1462,7 +1462,7 @@ ${inlinePromptMd}
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
 
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }

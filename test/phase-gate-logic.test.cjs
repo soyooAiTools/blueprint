@@ -61,19 +61,23 @@ try {
   assert.match(phaseGate, /case GMP_PhaseGateKind\.Entity/);
   assert.match(phaseGate, /case GMP_PhaseGateKind\.EntityCount/);
   assert.match(phaseGate, /GMP_EconomyManager\.instance\.GetCollectedResource\(mTarget\)/);
-  assert.match(phaseGate, /GMP_EntityBindingManager\.instance\.GetState\(mTarget\)/);
+  assert.match(phaseGate, /GMP_SceneEntityRefs\.instance\.GetState\(mTarget\)/);
 
   const phaseController = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
   assert.match(phaseController, /bool IsDwellReady = mPhaseTimer >= required \|\| mPhaseRealTimer >= required/);
   assert.match(phaseController, /GMP_LevelRuleEngine\.instance\.IsPhaseComplete\(preset, mPhaseTimer, mPhaseRealTimer\)/);
   assert.doesNotMatch(phaseController, /GMP_EventRuleEngine\.instance\.IsPhaseComplete/);
 
-  const entityBinding = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
-  assert.match(entityBinding, /public int GetActiveCount\(string entityName\)/);
+  const sceneEntityRefs = fs.readFileSync(path.join(gameLevel, 'GMP_SceneEntityRefs.cs'), 'utf8');
+  assert.match(sceneEntityRefs, /public int GetActiveCount\(string entityName\)/);
 
-  const phase1 = fs.readFileSync(path.join(phaseDir, 'Phase1.asset'), 'utf8');
-  const phase2 = fs.readFileSync(path.join(phaseDir, 'Phase2.asset'), 'utf8');
-  const phase3 = fs.readFileSync(path.join(phaseDir, 'Phase3.asset'), 'utf8');
+  const semanticPhaseAssets = fs.readdirSync(phaseDir).filter((name) => /^Flow\d+_[A-Za-z0-9]+\.asset$/.test(name)).sort();
+  assert.strictEqual(semanticPhaseAssets.length, 3);
+  assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 0);
+  const phase1 = fs.readFileSync(path.join(phaseDir, semanticPhaseAssets[0]), 'utf8');
+  const phase2 = fs.readFileSync(path.join(phaseDir, semanticPhaseAssets[1]), 'utf8');
+  const phase3 = fs.readFileSync(path.join(phaseDir, semanticPhaseAssets[2]), 'utf8');
+  assert.match(phase1, /mPhaseId: "flow01_.*gold/);
   assert.match(phase1, /mTargetEntity: "_gold"/);
   assert.match(phase1, /mKind: 3/);
   assert.match(phase1, /mTarget: "_gold"/);

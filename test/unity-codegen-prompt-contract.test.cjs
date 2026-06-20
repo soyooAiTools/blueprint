@@ -50,6 +50,8 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('固定 Player 引用') >= 0, label + ' should require fixed player references');
   assert.ok(text.indexOf('Debug.LogError') >= 0, label + ' should fail missing references loudly without fallback complexity');
   assert.ok(text.indexOf('连续试玩流程') >= 0, label + ' should define phase as one continuous playable flow');
+  assert.ok(text.indexOf('Flow01_<业务语义>') >= 0, label + ' should require semantic flow asset naming');
+  assert.ok(text.indexOf('flow01_<业务语义>') >= 0, label + ' should require semantic flow preset ids');
   assert.ok(text.indexOf('重置全场') >= 0, label + ' should forbid phase-as-level-reset behavior');
   assert.ok(text.indexOf('AIBridge 预水合') >= 0, label + ' should require editor-side hydration before runtime');
   assert.ok(text.indexOf('临时脚本') >= 0, label + ' should remove one-off temporary generation scripts from delivery');
