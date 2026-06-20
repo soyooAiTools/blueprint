@@ -35,6 +35,15 @@ try {
   }, null, 2) + '\n');
   writeFile(path.join(root, 'Assets', 'Scripts', 'Tool', 'GMP_PrimitiveSpec.cs'), 'public class GMP_PrimitiveSpec {}\n');
   writeFile(path.join(root, 'Assets', 'Scripts', 'Tool', 'GMP_PrimitiveBuilder.cs'), 'public static class GMP_PrimitiveBuilder {}\n');
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs'), [
+    'public class GMP_SceneEntityRefs',
+    '{',
+    '  void BuildRuntimeLookup()',
+    '  {',
+    '    AddSceneEntity("_gold", mGold);',
+    '  }',
+    '}',
+  ].join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Phases', 'Phase_p1.asset'), '%YAML 1.1\n');
   writeFile(path.join(root, 'Assets', 'Scenes', 'Game.unity'), [
     '%YAML 1.1',
@@ -45,8 +54,14 @@ try {
     'MonoBehaviour:',
     '  mGeometryType: "CylinderGeometry"',
     '  mArgs: []',
+    '  mGold:',
+    '    mSceneObject: {fileID: 200}',
+    '    mLabelText: {fileID: 201}',
+    '    mInitialState: 1',
+    '    mDefaultScale: {x: 1, y: 1, z: 1}',
+    '    mLabelHeightOffset: 1.5',
     '  mBindings:',
-    '  - mEntityName: "_gold"',
+    '  - mEntityName: _gold',
     ''
   ].join('\n'));
 
@@ -54,6 +69,10 @@ try {
   assert.strictEqual(plan.kind, sceneBakePlan.KIND);
   assert.strictEqual(plan.sourceOfTruth.phaseCount, 1);
   assert.strictEqual(plan.scene.entityBindingCount, 1);
+  assert.strictEqual(plan.scene.sceneEntityRefFieldCount, 1);
+  assert.strictEqual(plan.scene.sceneEntityRefCount, 1);
+  assert.deepStrictEqual(plan.scene.sceneEntityRefFields, ['mGold']);
+  assert.deepStrictEqual(plan.scene.sceneEntityRefIds, ['_gold']);
   assert.strictEqual(plan.scene.fallbackPrimitiveObjectNames.length, 1);
   assert.ok(plan.actions.some(function(action) { return action.id === 'bake-primitive-spec-components'; }));
   assert.ok(plan.actions.some(function(action) { return action.id === 'preserve-storyboard-webgl-parity'; }));
@@ -87,7 +106,7 @@ try {
     'MeshFilter:',
     '  m_Mesh: {fileID: 4300000, guid: 11111111111111111111111111111111, type: 2}',
     '  mBindings:',
-    '  - mEntityName: "_gold"',
+    '  - mEntityName: _gold',
     ''
   ].join('\n'));
   sceneBakePlan.writeSceneBakePlan(root);

@@ -87,7 +87,7 @@ function makeRoot() {
   scriptGuids.push({ name: 'GMP_HudController', guid: writeScript('Assets/Scripts/Core/Modules/GMP_HudController.cs', 'using UnityEngine;\npublic class GMP_HudController : MonoBehaviour {}\n') });
   scriptGuids.push({ name: 'GMP_EventModule', guid: writeScript('Assets/Scripts/Core/Modules/GMP_EventModule.cs', 'using UnityEngine;\npublic class GMP_EventModule : MonoBehaviour {}\n') });
   scriptGuids.push({ name: 'GMP_CameraController', guid: writeScript('Assets/Scripts/Tool/GMP_CameraController.cs', 'using UnityEngine;\npublic class GMP_CameraController : MonoBehaviour {}\n') });
-  scriptGuids.push({ name: 'GMP_EntityBindingManager', guid: writeScript('Assets/Scripts/Game/Level/GMP_EntityBindingManager.cs', 'using UnityEngine;\npublic class GMP_EntityBindingManager : MonoBehaviour {}\n') });
+  scriptGuids.push({ name: 'GMP_SceneEntityRefs', guid: writeScript('Assets/Scripts/Game/Level/GMP_SceneEntityRefs.cs', 'using UnityEngine;\npublic class GMP_SceneEntityRefs : MonoBehaviour {}\n') });
   scriptGuids.push({ name: 'GMP_LevelRuleEngine', guid: writeScript('Assets/Scripts/Game/Level/GMP_LevelRuleEngine.cs', 'using UnityEngine;\npublic class GMP_LevelRuleEngine : MonoBehaviour {}\n') });
   scriptGuids.push({ name: 'GMP_Player', guid: writeScript('Assets/Scripts/Game/Player/GMP_Player.cs', 'public class GMP_Player : GMP_PlayerBase {}\n') });
   scriptGuids.push({ name: 'GMP_AutoPlayDriver', guid: writeScript('Assets/Scripts/Game/AutoPlay/GMP_AutoPlayDriver.cs', 'using UnityEngine;\npublic class GMP_AutoPlayDriver : MonoBehaviour {}\n') });
@@ -124,6 +124,29 @@ var summary = {
 var passingRoot = makeRoot();
 var passing = hardgate.validateProgrammerDelivery(passingRoot, summary);
 assert.strictEqual(passing.passed, true);
+
+var legacyRefsRoot = makeRoot();
+var newRefsRel = 'Assets/Scripts/Game/Level/GMP_SceneEntityRefs.cs';
+var oldRefsRel = 'Assets/Scripts/Game/Level/GMP_EntityBindingManager.cs';
+var newRefsGuid = crypto.createHash('sha1').update(newRefsRel).digest('hex').slice(0, 32);
+var oldRefsGuid = crypto.createHash('sha1').update(oldRefsRel).digest('hex').slice(0, 32);
+fs.rmSync(path.join(legacyRefsRoot, newRefsRel), { force: true });
+fs.rmSync(path.join(legacyRefsRoot, newRefsRel + '.meta'), { force: true });
+fs.writeFileSync(path.join(legacyRefsRoot, oldRefsRel), 'using UnityEngine;\npublic class GMP_EntityBindingManager : MonoBehaviour {}\n');
+fs.writeFileSync(path.join(legacyRefsRoot, oldRefsRel + '.meta'), [
+  'fileFormatVersion: 2',
+  'guid: ' + oldRefsGuid,
+  'MonoImporter:',
+  '  externalObjects: {}',
+  ''
+].join('\n'));
+var legacyRefsScene = path.join(legacyRefsRoot, 'Assets', 'Scenes', 'Game.unity');
+fs.writeFileSync(legacyRefsScene, fs.readFileSync(legacyRefsScene, 'utf8')
+  .replace(/GMP_SceneEntityRefs/g, 'GMP_EntityBindingManager')
+  .replace(new RegExp(newRefsGuid, 'g'), oldRefsGuid));
+hydration.writeHydrationReport(legacyRefsRoot, path.join(legacyRefsRoot, 'MCP_HYDRATION_REPORT.json'));
+var legacyRefsPassing = hardgate.validateProgrammerDelivery(legacyRefsRoot, summary);
+assert.strictEqual(legacyRefsPassing.passed, false);
 
 var failingRoot = makeRoot();
 fs.mkdirSync(path.join(failingRoot, 'Assets', 'Program'), { recursive: true });

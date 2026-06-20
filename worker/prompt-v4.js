@@ -89,16 +89,16 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
   lines.push('10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。');
   lines.push('11. 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案。');
-  lines.push('12. `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，表达实体名、场景对象、标签、初始状态、默认缩放、标签高度和运行时状态；禁止退回隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。');
+  lines.push('12. `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，由 AIBridge/Editor 预先写入场景对象、标签、初始状态、默认缩放和标签高度；禁止生成通用 object binding 表、隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。');
   lines.push('13. 程序员可交付反馈规则：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 MonoBehaviour，Movement/Trigger/Interaction/Inventory 等无生命周期能力默认用普通 C# 类。');
   lines.push('14. 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。');
   lines.push('15. 代码要让人类程序员能直接接手：变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；不要为了“看起来分层”拆一堆函数和变量。');
   lines.push('16. 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流。');
   lines.push('17. 场景问题优先由 AIBridge/MCP/Editor 处理：Missing Mono Script、Rigidbody、Collider、Animator 等配置不要在业务代码里反复 Find/AddComponent/修复。');
   lines.push('18. 单例/管理器用场景预挂实例和 serialized refs；单例类里不要再塞静态 Init/Get/Return 这类工作流方法。');
-  lines.push('19. 性能和兜底：距离门槛用 `sqrMagnitude`；必要兜底只保留真实可进入且有价值的分支。Player、HUD、相机和关键实体必须走固定 Player 引用、`[SerializeField]`、`mBindings` 或固定 addressable path，缺引用只允许短路 `Debug.LogError`，不能堆运行时扫描、创建、修组件的 fallback。');
+  lines.push('19. 性能和兜底：距离门槛用 `sqrMagnitude`；必要兜底只保留真实可进入且有价值的分支。Player、HUD、相机和关键实体必须走固定 Player 引用、`[SerializeField]`、`GMP_SceneEntityRefs` 或固定 addressable path，缺引用只允许短路 `Debug.LogError`，不能堆运行时扫描、创建、修组件的 fallback。');
   lines.push('20. Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。');
-  lines.push('21. AIBridge 预水合后要清掉一次性临时脚本：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool。');
+  lines.push('21. AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool。');
   lines.push('22. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
   lines.push('23. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
   lines.push('24. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');
@@ -414,7 +414,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('   - 任何多行 if 条件或含 && / || 的条件链，都必须在前一行写注释解释该条件的业务意图');
   lines.push('   - 复杂脚本参数说明要贴近代码；多参数 helper、系统级入口、跨 phase 状态函数要写清参数用途、单位、边界和副作用');
   lines.push('   - 有意义的空行分块；用空行分隔字段、初始化、输入、状态推进、UI、验证/兜底，不要乱插空行或把不同职责挤成一段');
-  lines.push('2. V4 staging 可用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]；程序员交付版必须收口到 `GMP_EntityBindingManager.mBindings`，不要把隐藏并行数组当最终结构。');
+  lines.push('2. V4 staging 可用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]；程序员交付版必须收口到 `GMP_SceneEntityRefs`/serialized refs，不要把隐藏并行数组或通用 object binding 表当最终结构。');
   lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
   lines.push('4. Update() / HandlePlayerInteractions() / OnAutoPlayArrive() 必须保持轻量；只有复用或明显提升阅读性时才拆小方法，不要为一行代码拆函数。');
   lines.push('5. 注释只写关键、难懂、容易踩坑的地方，用中文大白话解释原因；不要给每个字段、方法、条件分支都补机械注释。');

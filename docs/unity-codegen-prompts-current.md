@@ -6,7 +6,7 @@
 本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
 
 1. **Luna/WebGL staging 生成层**：为了 storyboard2html -> WebGL 稳定，仍允许使用骨架绑定、`GameSceneCtrl` 和受控对象池 literal。
-2. **程序员 Unity 交付层**：最终交付给人类程序员的 Unity 工程，必须走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`mBindings` 绑定表和稀疏中文注释。
+2. **程序员 Unity 交付层**：最终交付给人类程序员的 Unity 工程，必须走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`GMP_SceneEntityRefs`/serialized refs 和稀疏中文注释。
 
 最高红线：storyboard2html 生成的 HTML 与最终 WebGL 的一致性是系统终极红线，千万不能碰。不要为了清理程序员交付代码，通过 WebGL 侧临时兜底、HTML 侧假状态或报告文字绕过 `source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 的 phase、guideText、targetSequence、entity/resource/gate 语义一致性。
 
@@ -42,7 +42,7 @@
 - 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
 - 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
-- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，禁止回退到 `mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
+- `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，禁止回退到通用 object binding 表、`mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
 - 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；禁止静态 `Init/Get/Return` 工作流。
 - 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
@@ -52,10 +52,10 @@
 - 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段。
 - 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
-- Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`mBindings` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
+- Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
-- AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本等一次性脚本；确实跨项目复用的能力下沉为正式 Tool。
-- `mBindings` 保留为 Inspector 中的人类可见数据入口；删除的是运行时生成/查找/修复绑定的代码和隐藏 runtime registry。导出必须先写 `SCENE_BAKE_PLAN.json`，再由 AIBridge/Editor bake 写 `SCENE_BAKE_REPORT.json`，最终用 `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明临时 primitive spec、primitive builder/source spec helper 没有留在交付包。
+- AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本、通用 object binding 表和运行时场景生成/修复代码；确实跨项目复用的能力下沉为正式 Tool。
+- `GMP_SceneEntityRefs` 显式字段保留为 Inspector 中的人类可见数据入口；删除的是运行时生成/查找/修复绑定的代码、通用 object binding 表和隐藏 runtime registry。导出必须先写 `SCENE_BAKE_PLAN.json`，再由 AIBridge/Editor bake 写 `SCENE_BAKE_REPORT.json`，最终用 `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明临时 primitive spec、primitive builder/source spec helper、通用绑定表没有留在交付包。
 
 ## DOCX 反馈汇总后的 Prompt 规则
 
@@ -77,12 +77,12 @@
 
 1. **属性必须归属到能力组件**：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory。Player/Manager 只编排流程和依赖，不复制每个实体的调参字段。
 2. **入口函数不能双轨**：`Init/Configure/Setup` 未被调用就删除；如果逻辑依赖 `Awake/Start`，不要再保留一条并行 `Init` 路径。
-3. **兜底不能增加复杂度**：Player、HUD、Camera、关键实体使用固定引用、serialized refs、`mBindings` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
+3. **兜底不能增加复杂度**：Player、HUD、Camera、关键实体使用固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
 4. **phase 不是关卡重启**：Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立 level；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
-5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
+5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本、通用 object binding 表只允许作为 Editor 侧过渡；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
 6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
-7. **绑定表是数据入口，不是运行时补救入口**：`GMP_EntityBindingManager.mBindings` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。
-8. **不要保留隐藏运行时对象表**：程序员交付版不要把 `GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `mBindings` 或 serialized refs。
+7. **显式引用是数据入口，不是运行时补救入口**：`GMP_SceneEntityRefs` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。
+8. **不要保留隐藏运行时对象表**：程序员交付版不要把旧通用绑定表、`GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `GMP_SceneEntityRefs` 或 serialized refs。
 
 ## 两层 Prompt 口径
 
@@ -116,7 +116,7 @@
 
 - 通过 AIBridge/MCP 读取真实场景信息并做 hydration。
 - 把对象引用写进 Inspector/scene YAML。
-- Manager、HUD、Camera、Audio、Entity 依赖用 `[SerializeField]` 或 `mBindings` 表达。
+- Manager、HUD、Camera、Audio、Entity 依赖用 `[SerializeField]`、`GMP_SceneEntityRefs` 或同类 serialized refs 表达。
 - 根节点负责逻辑，表现资源挂子节点。
 - 保留少量清晰脚本和清楚职责边界。
 - 注释少而关键，中文大白话。
@@ -139,7 +139,7 @@
 这是当前主力路径。它的 prompt 主要包括：
 
 1. 任务说明：在 `GameFlowManagerMain` partial 系列文件里实现 Luna playable。
-2. 程序架构硬规则：Core / Tool / Game、AIBridge/MCP hydration、`mBindings`、逻辑/表现分离、稀疏中文注释。
+2. 程序架构硬规则：Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释。
 3. 代码结构要求：主文件保持轻量，职责放到对应 partial。
 4. 基础样例工程模式：场景已有预制对象，不创建对象。
 5. 对象引用规则：优先使用骨架绑定字段 / `GameSceneCtrl.instance.Get("entityName")`。
@@ -178,7 +178,7 @@ V4 是旧事件驱动路径，当前仍保留兼容。它已经补上新版程�
 - V4 legacy 兼容层可以在 Start 的 staging 绑定代码里解析对象池。
 - 如果已有绑定表或 `GameSceneCtrl`，优先使用绑定表，不在业务逻辑里重复 Find。
 - V4 staging 可用 `eGo[]`、`eActive[]`、`eState[]`、`eTimer[]`、`eHP[]`。
-- 程序员交付版必须收口到 `GMP_EntityBindingManager.mBindings`。
+- 程序员交付版必须收口到 `GMP_SceneEntityRefs` 或同类显式 serialized refs。
 - 注释只写关键、难懂、容易踩坑的地方。
 
 关键当前规则：
@@ -204,7 +204,7 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 - 实体列表。
 - JSON-only 输出要求。
 
-当前作用：把 Core / Tool / Game、AIBridge/MCP hydration、`mBindings`、逻辑/表现分离、稀疏中文注释这些规则提前注入 schema 阶段。
+当前作用：把 Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释这些规则提前注入 schema 阶段。
 
 ## Codex Code Runner Prompt
 
@@ -265,7 +265,7 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 ```text
 本文件只给 Luna/WebGL staging 代码参考。
 程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration。
-引用进入 GMP_EntityBindingManager.mBindings 或 [SerializeField] 字段。
+引用进入 GMP_SceneEntityRefs 或 [SerializeField] 字段。
 不要把这里的平行数组、运行时 Find 或一次性模板拆法照搬成最终交付结构。
 ```
 
@@ -320,7 +320,7 @@ test/unity-codegen-prompt-contract.test.cjs
 它检查：
 
 - schema prompt、V5、V4、Codex markdown、worker prompt 都包含 AIBridge/MCP。
-- prompt 中保留 Inspector hydration、`mBindings`、逻辑/表现分离、稀疏中文注释规则。
+- prompt 中保留 Inspector hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释规则。
 - prompt 中保留 DOCX 反馈汇总后的可交付规则：一节点一主脚本、无生命周期能力用普通 C# 类、只保留会被调用的方法、必要兜底才写。
 - V5 prompt 展示 binding-based object access。
 - V4 prompt 明确 `__Pool_*` 只属于 staging 绑定层。

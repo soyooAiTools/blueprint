@@ -1326,17 +1326,17 @@ ${whitelistBlock}
 - 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
-- 不要直接写 \`GameObject.Find("__Pool_*")\`；实体引用统一来自 \`RegisterEntityBindings()/GameSceneCtrl\`
+- 不要直接写 \`GameObject.Find("__Pool_*")\`；Luna/WebGL staging 可用骨架绑定层，程序员 Unity 交付必须由 AIBridge 写入 \`GMP_SceneEntityRefs\`/serialized refs
 - 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
 - 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段
 - 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流
 - 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用
 - 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段
 - 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
-- Player、HUD、相机和关键实体必须走固定 Player 引用、serialized field、mBindings 或固定 addressable path；缺引用只允许短路 Debug.LogError，不要写运行时扫描、创建、修组件的 fallback
-- \`GMP_EntityBindingManager.mBindings\` 是唯一实体绑定表；不要保留 \`GameSceneCtrl\` / \`SceneObjectRegistry\` 这类隐藏运行时对象表作为第二入口
+- Player、HUD、相机和关键实体必须走固定 Player 引用、serialized field、\`GMP_SceneEntityRefs\` 或固定 addressable path；缺引用只允许短路 Debug.LogError，不要写运行时扫描、创建、修组件的 fallback
+- \`GMP_SceneEntityRefs\`/serialized refs 是程序员交付的人类可见实体引用入口；不要生成通用 object binding 表，也不要保留 \`GameSceneCtrl\` / \`SceneObjectRegistry\` 这类隐藏运行时对象表作为第二入口
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验
-- AIBridge 预水合后要清掉一次性临时脚本：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool
+- AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
 - 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
 - AutoPlay fallback 只能在 \`Phase_*_OnAutoPlayArrive()\`，不要塞进 \`Phase_*_OnTap()\`

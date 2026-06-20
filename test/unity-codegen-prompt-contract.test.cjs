@@ -28,7 +28,9 @@ var blueprint = {
 function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('AIBridge/MCP') >= 0, label + ' should mention AIBridge/MCP hydration');
   assert.ok(text.indexOf('Inspector') >= 0, label + ' should mention Inspector hydration');
-  assert.ok(text.indexOf('mBindings') >= 0, label + ' should mention mBindings as the binding table');
+  assert.ok(text.indexOf('GMP_SceneEntityRefs') >= 0, label + ' should mention GMP_SceneEntityRefs as the explicit scene refs entry');
+  assert.ok(text.indexOf('serialized refs') >= 0, label + ' should mention serialized refs');
+  assert.ok(text.indexOf('通用 object binding 表') >= 0, label + ' should forbid generic object binding tables in programmer delivery');
   assert.ok(text.indexOf('隐藏运行时对象表') >= 0, label + ' should forbid hidden runtime object registries in programmer delivery');
   assert.ok(text.indexOf('逻辑与表现分离') >= 0, label + ' should require logic/visual separation');
   assert.ok(text.indexOf('注释只写关键') >= 0, label + ' should require sparse plain Chinese comments');
@@ -51,6 +53,8 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('重置全场') >= 0, label + ' should forbid phase-as-level-reset behavior');
   assert.ok(text.indexOf('AIBridge 预水合') >= 0, label + ' should require editor-side hydration before runtime');
   assert.ok(text.indexOf('临时脚本') >= 0, label + ' should remove one-off temporary generation scripts from delivery');
+  assert.strictEqual(text.indexOf('GMP_EntityBindingManager'), -1, label + ' must not restore the legacy binding manager as the positive entry');
+  assert.strictEqual(text.indexOf('mBindings'), -1, label + ' must not restore mBindings as the positive entry');
 }
 
 var schemaText = schemaPrompt.buildSchemaPromptV3({ blueprint: blueprint });
@@ -84,6 +88,8 @@ assert.ok(behaviorTemplateText.indexOf('固定 Player 引用') >= 0, 'behavior t
 assert.ok(behaviorTemplateText.indexOf('连续试玩流程') >= 0, 'behavior templates should define phase as continuous flow');
 assert.ok(behaviorTemplateText.indexOf('AIBridge 预水合') >= 0, 'behavior templates should require editor-side hydration cleanup');
 assert.ok(behaviorTemplateText.indexOf('隐藏运行时对象表') >= 0, 'behavior templates should forbid hidden runtime object registries in programmer delivery');
+assert.ok(behaviorTemplateText.indexOf('GMP_SceneEntityRefs') >= 0, 'behavior templates should point final delivery to explicit scene refs');
+assert.ok(behaviorTemplateText.indexOf('通用 object binding 表') >= 0, 'behavior templates should forbid generic object binding tables');
 assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
 assert.ok(codexCodeCoderText.indexOf('复杂脚本参数说明') >= 0, 'codex fix prompt should carry complex-script parameter guidance');
 assert.ok(codexCodeCoderText.indexOf('有意义的空行分块') >= 0, 'codex fix prompt should carry meaningful blank-line grouping guidance');
@@ -92,6 +98,8 @@ assert.ok(codexCodeCoderText.indexOf('固定 Player 引用') >= 0, 'codex fix pr
 assert.ok(codexCodeCoderText.indexOf('连续试玩流程') >= 0, 'codex fix prompt should define phase as continuous flow');
 assert.ok(codexCodeCoderText.indexOf('AIBridge 预水合') >= 0, 'codex fix prompt should require editor-side hydration cleanup');
 assert.ok(codexCodeCoderText.indexOf('隐藏运行时对象表') >= 0, 'codex fix prompt should forbid hidden runtime object registries in programmer delivery');
+assert.ok(codexCodeCoderText.indexOf('GMP_SceneEntityRefs') >= 0, 'codex fix prompt should point final delivery to explicit scene refs');
+assert.ok(codexCodeCoderText.indexOf('通用 object binding 表') >= 0, 'codex fix prompt should forbid generic object binding tables');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');

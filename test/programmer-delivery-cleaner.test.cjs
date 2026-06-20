@@ -445,7 +445,8 @@ try {
     assert.match(refHandoff, /PROGRAMMER_MAINTAINABILITY_REPORT\.json/);
 
     assert.ok(fs.existsSync(path.join(coreModules, 'GMP_ReturnTimer.cs')));
-    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_EntityBinding.cs')));
+    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRef.cs')));
+    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs')));
     const multiClassFiles = [];
     (function walk(dir) {
       fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
@@ -863,7 +864,8 @@ try {
     [
       [coreModules, 'GMP_MainManager'],
       [coreModules, 'GMP_PhaseController'],
-      [gameLevel, 'GMP_EntityBindingManager'],
+      [gameLevel, 'GMP_SceneEntityRef'],
+      [gameLevel, 'GMP_SceneEntityRefs'],
       [gameAutoPlay, 'GMP_AutoPlayDriver'],
       [coreModules, 'GMP_HudController'],
       [coreModules, 'GMP_EventModule'],
@@ -896,14 +898,13 @@ try {
     assert.match(poolCode, /public static GMP_Pool instance \{ get \{ return mInstance; \} \}/, 'Pool may expose the scene-mounted instance');
     assert.match(poolCode, /public void Init\(\)/, 'Pool should initialize from the scene-mounted instance');
     assert.doesNotMatch(poolCode, /public static (?:GMP_Pool Init|GameObject Get|void Return)/, 'Pool should not expose singleton static workflow methods');
-    const entityBindingCode = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
-    assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
-    assert.match(fs.readFileSync(path.join(gameLevel, 'GMP_EntityBinding.cs'), 'utf8'), /public Vector3 mOriginalPosition/, 'EntityBinding item should cache source scene position');
-    assert.match(entityBindingCode, /private void PrepareBinding\(GMP_EntityBinding binding\)/, 'EntityBindingManager should cache original transforms during Init');
-    assert.match(entityBindingCode, /pos\.y < -100f && binding != null/, 'Phase changes should preserve runtime transforms instead of resetting visible source entities');
-    assert.match(entityBindingCode, /ship\.transform\.position = Vector3\.Lerp\(ship\.transform\.position, desired, Mathf\.Clamp01\(dt \* 1\.35f\)\)/, 'SpaceShip should follow the player using the source runtime offset');
-    assert.match(entityBindingCode, /SetVisible\(target, false\)/, 'Hide should toggle renderers instead of moving entities off board');
-    assert.doesNotMatch(entityBindingCode, /target\.transform\.position = new Vector3\(0f, -999f, 0f\)/, 'Hide must not destroy source positions');
+    const sceneEntityRefsCode = fs.readFileSync(path.join(gameLevel, 'GMP_SceneEntityRefs.cs'), 'utf8');
+    assert.match(sceneEntityRefsCode, /int GetActiveCount\(string entityName\)/, 'SceneEntityRefs should expose active-count gate helper');
+    assert.match(fs.readFileSync(path.join(gameLevel, 'GMP_SceneEntityRef.cs'), 'utf8'), /public Vector3 mOriginalPosition/, 'SceneEntityRef item should cache source scene position');
+    assert.match(sceneEntityRefsCode, /private void PrepareEntity\(string entityName, GMP_SceneEntityRef entity\)/, 'SceneEntityRefs should cache original transforms during Init');
+    assert.match(sceneEntityRefsCode, /pos\.y < -100f\) pos = entity\.mOriginalPosition/, 'Phase changes should preserve runtime transforms instead of resetting visible source entities');
+    assert.match(sceneEntityRefsCode, /SetVisible\(target, false\)/, 'Hide should toggle renderers instead of moving entities off board');
+    assert.doesNotMatch(sceneEntityRefsCode, /target\.transform\.position = new Vector3\(0f, -999f, 0f\)/, 'Hide must not destroy source positions');
     assert.ok(!fs.existsSync(path.join(scripts, 'MainManager.cs')), 'root MainManager god class should be removed');
     assert.ok(!fs.existsSync(path.join(gameLevel, 'GMP_EventRuleEngine.cs')), 'specific rules should be named LevelRuleEngine');
     assert.strictEqual(walkLocal(scripts).filter((file) => /\.Part\d*\.cs$/.test(file)).length, 0);
@@ -926,7 +927,7 @@ try {
     assert.match(phase1Asset, /mThreshold: 2/, 'entity gates should use built-state threshold');
     assert.match(phase2Asset, /mTarget: "_ctaButton"/, 'last phase should use EndGame gate target');
     const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
-    ['GMP_MainManager', 'GMP_PhaseController', 'GMP_EntityBindingManager', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
+    ['GMP_MainManager', 'GMP_PhaseController', 'GMP_SceneEntityRefs', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
     });
     assert.match(scene, /m_Name: "Text_Tip"/, 'HUD guide text placeholder should be scene-mounted');
@@ -934,12 +935,13 @@ try {
     assert.match(scene, /mGuideText: \{fileID: [1-9][0-9]*/, 'scene should bind guide Text references through serialized fields');
     assert.match(scene, /mToastText: \{fileID: [1-9][0-9]*/, 'scene should bind toast Text references through serialized fields');
     assert.match(scene, /mTargetHintText: \{fileID: [1-9][0-9]*/, 'scene should bind target hint Text references through serialized fields');
-    assert.match(scene, /mPlayerObject: \{fileID: [1-9][0-9]*/, 'scene should bind Player object references through serialized fields');
+    assert.match(scene, /mPlayer: \{fileID: [1-9][0-9]*/, 'scene should bind Player object references through serialized fields');
     assert.match(scene, /mPlayerTransform: \{fileID: [1-9][0-9]*/, 'scene should bind camera Player transform references through serialized fields');
     assert.match(scene, /mPool: \{fileID: [1-9][0-9]*/, 'scene should bind MainManager Pool module references through serialized fields');
     assert.match(scene, /mAudio: \{fileID: [1-9][0-9]*/, 'scene should bind MainManager Audio module references through serialized fields');
-    assert.match(scene, /mBindings:\n\s+- mEntityName: "_player"\n\s+mSceneObject: \{fileID: [1-9][0-9]*\}\n\s+mLabelText: \{fileID: [1-9][0-9]*/, 'entity binding table should serialize scene object and label refs');
-    const unassignedAddressable = scene.match(/\b(?:mCanvas|mGuideText|mToastText|mTargetHintText|mPlayerObject|mPlayerTransform|mSceneObject|mLabelText|mPool|mAudio): \{fileID: 0\}/);
+    assert.match(scene, /mPlayer:\n\s+mSceneObject: \{fileID: [1-9][0-9]*\}\n\s+mLabelText: \{fileID: [1-9][0-9]*/, 'scene entity refs should serialize scene object and label refs');
+    assert.doesNotMatch(scene, /\bmBindings:/, 'scene should not serialize a generic entity binding table');
+    const unassignedAddressable = scene.match(/\b(?:mCanvas|mGuideText|mToastText|mTargetHintText|mPlayer|mPlayerTransform|mSceneObject|mLabelText|mPool|mAudio): \{fileID: 0\}/);
     assert.strictEqual(unassignedAddressable && unassignedAddressable[0], null, 'addressable delivery references must not be left unassigned');
     assert.doesNotMatch(scene, /m_Name: "Text_Score: 0"/, 'source-aligned HUD should not create a duplicate Score text');
     assert.doesNotMatch(scene, /m_Name: "Text_PhaseProgress"/, 'source-aligned HUD should not create overlapping phase progress text');
@@ -1365,29 +1367,29 @@ try {
     assert.match(phasePresetCodeStrict, /public GMP_EntityState mSetState = GMP_EntityState\.Hidden/);
     const phaseController = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhaseController.cs'), 'utf8');
     assert.match(phaseController, /GMP_CameraController\.instance\.FramePhaseEntities\(preset\)/);
-    const entityBinding = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBindingManager.cs'), 'utf8');
-    assert.doesNotMatch(entityBinding, /"_gold"|" _ice"|" _scrap"|"_ice"|"_scrap"/, 'resource names Gold/Ice/Scrap must not become source-scene entities');
+    const sceneEntityRefs = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_SceneEntityRefs.cs'), 'utf8');
+    assert.doesNotMatch(sceneEntityRefs, /"_gold"|" _ice"|" _scrap"|"_ice"|"_scrap"/, 'resource names Gold/Ice/Scrap must not become source-scene entities');
     assert.deepStrictEqual((summary.sourceResourcePhantomSceneObjectNamesRemoved || []).sort(), ['_gold', '_ice', '_scrap']);
-    assert.match(entityBinding, /target\.SetActive\((?:visible|isVisible|IsVisibleValue\d*)\)/);
-    assert.match(entityBinding, /!target\.activeInHierarchy/);
-    assert.doesNotMatch(entityBinding, /\bmEntityLabelNames\b/);
-    assert.match(entityBinding, /SetEntityLabelVisible\(binding, true\)/);
-    assert.match(entityBinding, /SetEntityLabelVisible\(binding, false\)/);
-    const entityBindingItem = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBinding.cs'), 'utf8');
-    assert.match(entityBinding, /public List<GMP_EntityBinding> mBindings = new List<GMP_EntityBinding>\(\)/);
-    assert.match(entityBindingItem, /public Text mLabelText;/);
-    assert.match(entityBindingItem, /public float mDefaultScale = 0\.7f;/);
-    assert.match(entityBindingItem, /public float mLabelHeightOffset = 2\.2f;/);
-    assert.doesNotMatch(entityBinding, /Text labelText = BindingLabel\(index\)/);
-    assert.doesNotMatch(entityBinding, /GameObject labelObject = GameObject\.Find/, 'entity labels should be assigned by binding table, not found at runtime');
-    assert.match(entityBinding, /binding\.mLabelText\.enabled = (?:isVisible|IsVisibleValue\d*)/);
-    assert.match(entityBinding, /GMP_UI\.PositionTextOverEntity\(HudCanvas\(\), binding\.mLabelText, binding\.mSceneObject, LabelHeightOffset\(binding\)\)/);
-    assert.match(entityBinding, /private void SyncVisibleEntityLabels\(\)/);
-    assert.match(entityBinding, /SyncVisibleEntityLabels\(\)/);
-    assert.doesNotMatch(entityBinding, /ArrangeWidePhaseEntitiesForCamera\(preset\)/);
-    assert.doesNotMatch(entityBinding, /private bool ShouldArrangeWidePhase\(GMP_PhasePreset preset\)/);
-    assert.doesNotMatch(entityBinding, /target\.transform\.position = new Vector3\(anchor\.x \+ x, target\.transform\.position\.y, anchor\.z \+ z\)/);
-    assert.doesNotMatch(entityBinding, /\bmDefaultPositions\b/, 'EntityBindingManager should not keep hidden source-position arrays');
+    assert.match(sceneEntityRefs, /target\.SetActive\((?:visible|isVisible|IsVisibleValue\d*)\)/);
+    assert.match(sceneEntityRefs, /!target\.activeInHierarchy/);
+    assert.doesNotMatch(sceneEntityRefs, /\bmEntityLabelNames\b/);
+    assert.match(sceneEntityRefs, /SetEntityLabelVisible\(entity, true\)/);
+    assert.match(sceneEntityRefs, /SetEntityLabelVisible\(entity, false\)/);
+    const sceneEntityRefItem = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_SceneEntityRef.cs'), 'utf8');
+    assert.doesNotMatch(sceneEntityRefs, /\bmBindings\b/);
+    assert.match(sceneEntityRefItem, /public Text mLabelText;/);
+    assert.match(sceneEntityRefItem, /public float mDefaultScale = 0\.7f;/);
+    assert.match(sceneEntityRefItem, /public float mLabelHeightOffset = 2\.2f;/);
+    assert.doesNotMatch(sceneEntityRefs, /Text labelText = BindingLabel\(index\)/);
+    assert.doesNotMatch(sceneEntityRefs, /GameObject labelObject = GameObject\.Find/, 'entity labels should be assigned by explicit scene refs, not found at runtime');
+    assert.match(sceneEntityRefs, /entity\.mLabelText\.enabled = (?:isVisible|IsVisibleValue\d*)/);
+    assert.match(sceneEntityRefs, /GMP_UI\.PositionTextOverEntity\(HudCanvas\(\), entity\.mLabelText, entity\.mSceneObject, LabelHeightOffset\(entity\)\)/);
+    assert.match(sceneEntityRefs, /private void SyncVisibleEntityLabels\(\)/);
+    assert.match(sceneEntityRefs, /SyncVisibleEntityLabels\(\)/);
+    assert.doesNotMatch(sceneEntityRefs, /ArrangeWidePhaseEntitiesForCamera\(preset\)/);
+    assert.doesNotMatch(sceneEntityRefs, /private bool ShouldArrangeWidePhase\(GMP_PhasePreset preset\)/);
+    assert.doesNotMatch(sceneEntityRefs, /target\.transform\.position = new Vector3\(anchor\.x \+ x, target\.transform\.position\.y, anchor\.z \+ z\)/);
+    assert.doesNotMatch(sceneEntityRefs, /\bmDefaultPositions\b/, 'SceneEntityRefs should not keep hidden source-position arrays');
     const cameraController = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
     assert.match(cameraController, /return playerPosition \+ new Vector3\(4f, 0f, -2f\);/, 'HTML camera follow target Z offset should be flipped for Unity');
     assert.match(cameraController, /return target \+ new Vector3\(10f, 18f, -24f\);/, 'HTML camera follow position Z offset should be flipped for Unity');

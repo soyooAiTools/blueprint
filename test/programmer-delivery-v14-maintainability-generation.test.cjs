@@ -56,7 +56,7 @@ function cleanup(root) {
   }
 })();
 
-(function testEntityBindingManagerUsesDataTables() {
+(function testSceneEntityRefsUsesExplicitFields() {
   var root = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-v14-binding-'));
   try {
     var scriptsDir = path.join(root, 'Assets', 'Scripts');
@@ -77,16 +77,21 @@ function cleanup(root) {
       project: { id: 'binding-fixture', name: '绑定 fixture' }
     });
 
-    var bindingFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_EntityBindingManager.cs');
-    assert.ok(fs.existsSync(bindingFile), 'entity binding manager should be generated');
-    var bindingCode = fs.readFileSync(bindingFile, 'utf8');
-    assert.match(bindingCode, /public List<GMP_EntityBinding> mBindings = new List<GMP_EntityBinding>\(\)/);
-    assert.match(bindingCode, /public string mPlayerEntityName = "_player"/);
-    assert.match(bindingCode, /private GMP_EntityBinding BindingFor\(string entityName\)/);
-    assert.doesNotMatch(bindingCode, /\bmEntityNames\b/);
-    assert.doesNotMatch(bindingCode, /\bmDefaultPositions\b/);
-    assert.doesNotMatch(bindingCode, /\bmDefaultScales\b/);
-    assert.doesNotMatch(bindingCode, /\bif\s*\(\s*entityName\s*==\s*"_/);
+    var refItemFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRef.cs');
+    var refsFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs');
+    assert.ok(fs.existsSync(refItemFile), 'scene entity ref item should be generated');
+    assert.ok(fs.existsSync(refsFile), 'scene entity refs should be generated');
+
+    var refsCode = fs.readFileSync(refsFile, 'utf8');
+    assert.match(refsCode, /public GMP_SceneEntityRef mPlayer = new GMP_SceneEntityRef\(\)/);
+    assert.match(refsCode, /public GMP_SceneEntityRef mChef = new GMP_SceneEntityRef\(\)/);
+    assert.match(refsCode, /AddSceneEntity\("_chef", mChef\)/);
+    assert.match(refsCode, /private GMP_SceneEntityRef EntityFor\(string entityName\)/);
+    assert.doesNotMatch(refsCode, /\bmBindings\b/);
+    assert.doesNotMatch(refsCode, /\bmEntityNames\b/);
+    assert.doesNotMatch(refsCode, /\bmDefaultPositions\b/);
+    assert.doesNotMatch(refsCode, /\bmDefaultScales\b/);
+    assert.doesNotMatch(refsCode, /GMP_EntityBindingManager/);
   } finally {
     cleanup(root);
   }
