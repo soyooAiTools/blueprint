@@ -163,11 +163,57 @@ function makeDeliverableRoot() {
   writeFile(path.join(root, 'source-ir-preview.html'), '<!doctype html><title>Chef feature simulation</title>\n');
 
   var main = [
+    'using UnityEngine;',
+    '',
     'public class GMP_MainManager : MonoSingleton<GMP_MainManager>',
     '{',
-    '    public void InitCoreModules() {}',
+    '    public GMP_PhaseController mPhaseController;',
+    '    public GMP_UIManager mUIManager;',
+    '    public GMP_HudController mHudController;',
+    '    public GMP_EventModule mEventModule;',
+    '    public GMP_Audio mAudio;',
+    '    public GMP_Player mPlayer;',
+    '    public GMP_RestaurantEntity mChef;',
+    '    public GMP_LevelRuleEngine mRules;',
+    '    public GMP_EntityBindingManager mBindingManager;',
+    '    public GMP_AutoPlayDriver mAutoPlayDriver;',
+    '    public GMP_CameraController mCameraController = new GMP_CameraController();',
+    '    public AudioClip mPreviewClip;',
+    '',
+    '    public void InitCoreModules()',
+    '    {',
+    '        if (mChef != null)',
+    '        {',
+    '            mChef.Bind(null, "_chef", "Chef");',
+    '            mChef.ResetProgress();',
+    '            mChef.MoveToPosition(Vector3.zero, 0.25f);',
+    '            mChef.MarkCompleted();',
+    '        }',
+    '        if (mRules != null && mChef != null) mRules.TryServe(mChef);',
+    '        if (mPhaseController != null) mPhaseController.StartFlow();',
+    '        if (mUIManager != null) mUIManager.SyncSceneEntityLabels();',
+    '        if (mHudController != null) mHudController.SetGuideText(1, 1, "Serve shrimp");',
+    '        if (mEventModule != null) mEventModule.Publish("serve", "_chef");',
+    '        if (mAudio != null)',
+    '        {',
+    '            mAudio.PlayBGM(mPreviewClip);',
+    '            mAudio.PlaySFX(mPreviewClip);',
+    '            mAudio.StopLoop("bgm");',
+    '        }',
+    '        if (mBindingManager != null)',
+    '        {',
+    '            mBindingManager.SetState("_chef", GMP_EntityState.Active);',
+    '            mBindingManager.GetState("_chef");',
+    '        }',
+    '        if (mCameraController != null) mCameraController.FrameCurrentPhase();',
+    '    }',
     '    public void Start() { InitCoreModules(); }',
-    '    public void Update() {}',
+    '    public void Update()',
+    '    {',
+    '        if (mPhaseController != null) mPhaseController.Tick(Time.deltaTime);',
+    '        if (mPlayer != null) mPlayer.TickInput(Time.deltaTime);',
+    '        if (mAutoPlayDriver != null) mAutoPlayDriver.Tick(Time.deltaTime);',
+    '    }',
     '}',
     ''
   ].join('\n');
@@ -374,6 +420,7 @@ function addProgrammerFeature(root) {
     [
       '    public int ServedCount = 0;',
       '    public int BonusCoins = 0;',
+      '    public GMP_ChefComboBonusFeature mComboBonusFeature;',
       '',
       '    public void AddBonusCoins(int amount)',
       '    {',
@@ -381,6 +428,13 @@ function addProgrammerFeature(root) {
       '        BonusCoins += amount;',
       '    }',
       ''
+    ].join('\n') + '\n'
+  );
+  levelRule = levelRule.replace(
+    '        ServedCount += 1;\n',
+    [
+      '        ServedCount += 1;',
+      '        if (mComboBonusFeature != null) mComboBonusFeature.TryGrant(chef, this);'
     ].join('\n') + '\n'
   );
   fs.writeFileSync(levelRuleFile, levelRule);

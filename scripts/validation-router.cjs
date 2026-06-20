@@ -155,6 +155,14 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:validation-router', ['node', 'test/validation-router.test.cjs'], 'Validate risk-based validation routing rules.'));
   }
 
+  if (/^(lib\/programmer-delivery-|scripts\/programmer-delivery-aibridge-hydrate\.cjs|scripts\/export-unity-project\.sh|worker\/code-reviewer\.js|worker\/codex-code-coder\.js|engine\/stages\/review\.cjs|lib\/csharp-comment-localizer\.cjs)/.test(file)) {
+    addTag(plan, 'programmer-delivery');
+    addCommand(plan, command('unit:programmer-delivery-scene-bake-plan-and-temp-audit', ['node', 'test/programmer-delivery-scene-bake-plan-and-temp-audit.test.cjs'], 'Validate scene bake plan and temporary-code audit contracts.'));
+    addCommand(plan, command('unit:programmer-delivery-aibridge-hydrate', ['node', 'test/programmer-delivery-aibridge-hydrate.test.cjs'], 'Validate AIBridge hydration and Editor bake command flow.'));
+    addCommand(plan, command('unit:programmer-delivery-hardgate', ['node', 'test/programmer-delivery-hardgate.test.cjs'], 'Validate programmer delivery hardgate and report wiring.'));
+    addCommand(plan, command('unit:unity-codegen-prompt-contract', ['node', 'test/unity-codegen-prompt-contract.test.cjs'], 'Validate prompt/review contract does not restore legacy Find/CreatePrimitive guidance.'));
+  }
+
   if (/^(adapters\/skeleton-generator\.cjs|adapters\/assembly-plan-pipeline\.cjs|adapters\/source-ir\/proof-bundle\.cjs|adapters\/source-ir\/blueprint-project\.js)/.test(file)) {
     addTag(plan, 'runtime-phase-gate');
     addTag(plan, 'proof-contract');

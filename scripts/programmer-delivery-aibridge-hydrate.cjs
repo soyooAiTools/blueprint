@@ -89,17 +89,199 @@ function buildReadinessProbeCommand(timeoutMs) {
   return makeCommand('editor get_state probe', ['editor', 'get_state', '--timeout', String(timeoutMs || DEFAULT_PROBE_TIMEOUT_MS)]);
 }
 
-function buildCommands(scenePath) {
+function bakeScriptPath(root) {
+  return path.join(root, '.aibridge', 'code', 'blueprint_scene_bake.csx');
+}
+
+function bakeScriptRelPath() {
+  return path.join('.aibridge', 'code', 'blueprint_scene_bake.csx').split(path.sep).join('/');
+}
+
+function buildSceneBakeCode() {
+  return [
+    'using System;',
+    'using System.Collections.Generic;',
+    'using System.IO;',
+    'using System.Reflection;',
+    'using System.Text;',
+    'using UnityEditor;',
+    'using UnityEditor.SceneManagement;',
+    'using UnityEngine;',
+    'using UnityEngine.SceneManagement;',
+    '',
+    'string ProjectRoot()',
+    '{',
+    '    return Directory.GetParent(Application.dataPath).FullName;',
+    '}',
+    '',
+    'string JsonEscape(string value)',
+    '{',
+    '    if (value == null) return "";',
+    '    return value.Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"").Replace("\\n", "\\\\n").Replace("\\r", "\\\\r");',
+    '}',
+    '',
+    'string Sanitize(string value)',
+    '{',
+    '    if (string.IsNullOrEmpty(value)) return "Mesh";',
+    '    var builder = new StringBuilder();',
+    '    for (int i = 0; i < value.Length; i++)',
+    '    {',
+    '        char ch = value[i];',
+    '        builder.Append(char.IsLetterOrDigit(ch) || ch == \'_\' || ch == \'-\' ? ch : \'_\');',
+    '    }',
+    '    return builder.Length == 0 ? "Mesh" : builder.ToString();',
+    '}',
+    '',
+    'void EnsureFolder(string folder)',
+    '{',
+    '    if (string.IsNullOrEmpty(folder) || folder == "Assets" || AssetDatabase.IsValidFolder(folder)) return;',
+    '    string parent = Path.GetDirectoryName(folder).Replace("\\\\", "/");',
+    '    EnsureFolder(parent);',
+    '    AssetDatabase.CreateFolder(string.IsNullOrEmpty(parent) ? "Assets" : parent, Path.GetFileName(folder));',
+    '}',
+    '',
+    'var errors = new List<string>();',
+    'var bakedAssetPaths = new List<string>();',
+    'int primitiveSpecComponentsFound = 0;',
+    'int primitiveSpecComponentsRemoved = 0;',
+    'int generatedMeshAssetCount = 0;',
+    'int tempScriptsDeleted = 0;',
+    '',
+    'try',
+    '{',
+    '    var scene = SceneManager.GetActiveScene();',
+    '    EnsureFolder("Assets/GeneratedMeshes");',
+    '',
+    '    var specs = new List<MonoBehaviour>();',
+    '    foreach (var root in scene.GetRootGameObjects())',
+    '    {',
+    '        var behaviours = root.GetComponentsInChildren<MonoBehaviour>(true);',
+    '        for (int i = 0; i < behaviours.Length; i++)',
+    '        {',
+    '            var behaviour = behaviours[i];',
+    '            if (behaviour == null) continue;',
+    '            if (behaviour.GetType().Name == "GMP_PrimitiveSpec") specs.Add(behaviour);',
+    '        }',
+    '    }',
+    '',
+    '    primitiveSpecComponentsFound = specs.Count;',
+    '    for (int i = 0; i < specs.Count; i++)',
+    '    {',
+    '        var spec = specs[i];',
+    '        if (spec == null) continue;',
+    '        var go = spec.gameObject;',
+    '        var filter = go.GetComponent<MeshFilter>();',
+    '        var rebuild = spec.GetType().GetMethod("Rebuild", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);',
+    '        if (rebuild != null) rebuild.Invoke(spec, null);',
+    '        if (filter == null || filter.sharedMesh == null)',
+    '        {',
+    '            errors.Add("Primitive spec has no mesh after rebuild: " + go.name);',
+    '            continue;',
+    '        }',
+    '',
+    '        string assetPath = "Assets/GeneratedMeshes/" + i.ToString("0000") + "_" + Sanitize(go.name) + ".asset";',
+    '        var meshCopy = UnityEngine.Object.Instantiate(filter.sharedMesh);',
+    '        meshCopy.name = Path.GetFileNameWithoutExtension(assetPath);',
+    '        var existing = AssetDatabase.LoadAssetAtPath<Mesh>(assetPath);',
+    '        if (existing != null)',
+    '        {',
+    '            EditorUtility.CopySerialized(meshCopy, existing);',
+    '            filter.sharedMesh = existing;',
+    '            UnityEngine.Object.DestroyImmediate(meshCopy);',
+    '        }',
+    '        else',
+    '        {',
+    '            AssetDatabase.CreateAsset(meshCopy, assetPath);',
+    '            filter.sharedMesh = meshCopy;',
+    '            generatedMeshAssetCount++;',
+    '        }',
+    '        bakedAssetPaths.Add(assetPath);',
+    '        UnityEngine.Object.DestroyImmediate(spec, true);',
+    '        primitiveSpecComponentsRemoved++;',
+    '        EditorUtility.SetDirty(go);',
+    '    }',
+    '',
+    '    string[] tempScripts = new string[]',
+    '    {',
+    '        "Assets/Scripts/Tool/GMP_PrimitiveSpec.cs",',
+    '        "Assets/Scripts/Tool/GMP_PrimitiveBuilder.cs"',
+    '    };',
+    '    for (int i = 0; i < tempScripts.Length; i++)',
+    '    {',
+    '        if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(tempScripts[i]) != null && AssetDatabase.DeleteAsset(tempScripts[i])) tempScriptsDeleted++;',
+    '    }',
+    '',
+    '    AssetDatabase.SaveAssets();',
+    '    EditorSceneManager.MarkSceneDirty(scene);',
+    '    EditorSceneManager.SaveScene(scene);',
+    '    AssetDatabase.Refresh();',
+    '}',
+    'catch (Exception ex)',
+    '{',
+    '    errors.Add(ex.GetType().Name + ": " + ex.Message);',
+    '}',
+    '',
+    'var json = new StringBuilder();',
+    'json.AppendLine("{");',
+    'json.AppendLine("  \\"kind\\": \\"blueprint.programmerDeliverySceneBakeReport\\",");',
+    'json.AppendLine("  \\"schemaVersion\\": 1,");',
+    'json.AppendLine("  \\"generatedAt\\": \\"" + DateTime.UtcNow.ToString("o") + "\\",");',
+    'json.AppendLine("  \\"activeScene\\": \\"" + JsonEscape(SceneManager.GetActiveScene().path) + "\\",");',
+    'json.AppendLine("  \\"primitiveSpecComponentsFound\\": " + primitiveSpecComponentsFound + ",");',
+    'json.AppendLine("  \\"primitiveSpecComponentsRemoved\\": " + primitiveSpecComponentsRemoved + ",");',
+    'json.AppendLine("  \\"generatedMeshAssetCount\\": " + generatedMeshAssetCount + ",");',
+    'json.AppendLine("  \\"tempScriptsDeleted\\": " + tempScriptsDeleted + ",");',
+    'json.AppendLine("  \\"bakedAssetPaths\\": [");',
+    'for (int i = 0; i < bakedAssetPaths.Count; i++)',
+    '{',
+    '    json.Append("    \\"").Append(JsonEscape(bakedAssetPaths[i])).Append("\\"");',
+    '    json.AppendLine(i + 1 < bakedAssetPaths.Count ? "," : "");',
+    '}',
+    'json.AppendLine("  ],");',
+    'json.AppendLine("  \\"errors\\": [");',
+    'for (int i = 0; i < errors.Count; i++)',
+    '{',
+    '    json.Append("    \\"").Append(JsonEscape(errors[i])).Append("\\"");',
+    '    json.AppendLine(i + 1 < errors.Count ? "," : "");',
+    '}',
+    'json.AppendLine("  ],");',
+    'json.AppendLine("  \\"passed\\": " + (errors.Count == 0 ? "true" : "false"));',
+    'json.AppendLine("}");',
+    '',
+    'File.WriteAllText(Path.Combine(ProjectRoot(), "SCENE_BAKE_REPORT.json"), json.ToString());',
+    'return new Dictionary<string, object>',
+    '{',
+    '    { "primitiveSpecComponentsFound", primitiveSpecComponentsFound },',
+    '    { "primitiveSpecComponentsRemoved", primitiveSpecComponentsRemoved },',
+    '    { "generatedMeshAssetCount", generatedMeshAssetCount },',
+    '    { "tempScriptsDeleted", tempScriptsDeleted },',
+    '    { "errorCount", errors.Count }',
+    '};',
+    ''
+  ].join('\n');
+}
+
+function ensureSceneBakeScript(root) {
+  var file = bakeScriptPath(root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, buildSceneBakeCode() + '\n');
+  return file;
+}
+
+function buildCommands(root, scenePath, timeoutMs) {
+  ensureSceneBakeScript(root);
   var commands = [
     makeCommand('scene load', ['scene', 'load', '--scenePath', scenePath, '--mode', 'single']),
+    makeCommand('compile unity before scene bake', ['compile', 'unity', '--timeout', String(timeoutMs || DEFAULT_TIMEOUT_MS)]),
+    makeCommand('code execute blueprint scene bake', ['code', 'execute', '--file', bakeScriptRelPath(), '--timeout', String(timeoutMs || DEFAULT_TIMEOUT_MS)]),
+    makeCommand('scene save after scene bake', ['scene', 'save']),
+    makeCommand('compile unity after scene bake', ['compile', 'unity', '--timeout', String(timeoutMs || DEFAULT_TIMEOUT_MS)]),
     makeCommand('scene get_active', ['scene', 'get_active']),
     makeCommand('scene get_hierarchy', ['scene', 'get_hierarchy', '--depth', '8', '--includeInactive', 'true'])
   ];
   hydration.REQUIRED_SCENE_SCRIPTS.forEach(function(item) {
     commands.push(makeCommand('inspector get_components ' + item.objectName, ['inspector', 'get_components', '--path', item.objectName]));
   });
-  commands.push(makeCommand('scene save', ['scene', 'save']));
-  commands.push(makeCommand('compile unity', ['compile', 'unity', '--timeout', String(DEFAULT_TIMEOUT_MS)]));
   commands.push(makeCommand('get_logs Error', ['get_logs', '--logType', 'Error', '--count', '50']));
   return commands;
 }
@@ -155,7 +337,19 @@ function mergeCliEvidence(report, cli, commandResults, options) {
   }
   report.summary.aibridgeRan = !!cli;
   report.summary.aibridgeFailedCommandCount = report.aibridge.failedCommandCount;
+  report.summary.sceneBakeRan = commandResults.some(function(item) {
+    return item.label === 'code execute blueprint scene bake' && item.passed;
+  });
   return report;
+}
+
+function readJsonIfExists(file) {
+  try {
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    return null;
+  }
 }
 
 function runHydration(options) {
@@ -166,10 +360,7 @@ function runHydration(options) {
     var probe = runCliCommand(cli, options.root, buildReadinessProbeCommand(probeTimeout), probeTimeout + 2000);
     commandResults.push(probe);
     if (probe.passed) {
-      buildCommands(options.scenePath).forEach(function(command) {
-        if (command.label === 'compile unity') {
-          command.args[command.args.length - 1] = String(options.timeoutMs);
-        }
+      buildCommands(options.root, options.scenePath, options.timeoutMs).forEach(function(command) {
         commandResults.push(runCliCommand(cli, options.root, command, options.timeoutMs));
       });
     }
@@ -178,6 +369,16 @@ function runHydration(options) {
   var report = hydration.validateHydration(options.root, {
     mode: cli ? 'aibridge-cli' : 'static-unity-yaml'
   });
+  var sceneBakeReport = readJsonIfExists(path.join(options.root, 'SCENE_BAKE_REPORT.json'));
+  if (sceneBakeReport) {
+    report.sceneBake = sceneBakeReport;
+    if (sceneBakeReport.passed === false) {
+      report.errors.push('SCENE_BAKE_REPORT.json says scene bake failed');
+      report.passed = false;
+    }
+  } else if (cli && commandResults.some(function(item) { return item.label === 'code execute blueprint scene bake' && item.passed; })) {
+    report.warnings.push('AIBridge scene bake command passed but SCENE_BAKE_REPORT.json was not written');
+  }
   report = mergeCliEvidence(report, cli, commandResults, options);
   fs.writeFileSync(options.outPath, JSON.stringify(report, null, 2) + '\n');
 

@@ -83,6 +83,12 @@ assert(
   'programmer delivery export should hydrate the scene through AIBridge before delivery hardgate'
 );
 assert(
+  src.includes('SCENE_BAKE_PLAN.json') &&
+    src.includes('programmer-delivery-scene-bake-plan.cjs') &&
+    src.indexOf('programmer-delivery-scene-bake-plan.cjs') < src.indexOf('programmer-delivery-aibridge-hydrate.cjs'),
+  'programmer delivery export should write an explicit scene bake plan before AIBridge hydration'
+);
+assert(
   src.includes('AIBRIDGE_PACKAGE_ROOT') &&
     src.includes('Packages/AIBridge') &&
     src.includes('cn.lys.aibridge') &&

@@ -184,7 +184,7 @@ class EventPool — already blocked by static-check, do not re-flag)
 - GFM_Create.InitMaterialFromScene() — NO LONGER needed; colors are pre-baked at build time
 - GFM_Create.SetColor() — NO LONGER needed; pool objects already have baked colors (e.g., __Pool_Cube_Red_01 is already red)
 - GFM_Create.ResetPool() — NO LONGER needed in current skeleton
-- GFM_Create.Obj() — Do NOT create new objects; use GameObject.Find() to locate pre-existing pool objects
+- GFM_Create.Obj() — Do NOT create new objects; use pre-bound skeleton fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get("EntityName")
 - GFM_Create.Ground() — Ground is pre-created in skeleton
 
 ### 13. Architecture (V5 phase-driven)

@@ -2363,12 +2363,11 @@ module.exports = {
     if (!ctx.csCode) throw new Error('No code to review');
     var lines = ctx.csCode.split('\n');
     var lineCount = lines.length;
-    var findCalls = (ctx.csCode.match(/GameObject\.Find/g) || []).length;
-    var gfmCalls = (ctx.csCode.match(/GFM_Create\.Obj/g) || []).length;
+    var bindingSignals = (ctx.csCode.match(/RegisterEntityBindings|GameSceneCtrl|mBindings|SetGuideText|Phase_|StartPhase|UpdatePhase|currentPhase|phaseTimer|CheckEventRules|GMP_EntityBindingManager/g) || []).length;
     var todoLines = lines.filter(function(l) { return /\/\/ TODO(?!_\w+(?:START|END))/i.test(l); }).length;
     var todoRatio = todoLines / lineCount;
     if (lineCount < 100) throw new Error('Stub code: only ' + lineCount + ' lines');
-    if (findCalls === 0 && gfmCalls === 0) throw new Error('No GameObject.Find or GFM_Create calls — likely stub');
+    if (bindingSignals === 0) throw new Error('No phase/entity binding signals found — likely stub');
     if (todoRatio > 0.2) throw new Error('Too many unfilled TODOs: ' + Math.round(todoRatio * 100) + '%');
   },
   execute: function(ctx) {

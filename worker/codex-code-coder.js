@@ -1334,6 +1334,7 @@ ${whitelistBlock}
 - 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段
 - 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
 - Player、HUD、相机和关键实体必须走固定 Player 引用、serialized field、mBindings 或固定 addressable path；缺引用只允许短路 Debug.LogError，不要写运行时扫描、创建、修组件的 fallback
+- \`GMP_EntityBindingManager.mBindings\` 是唯一实体绑定表；不要保留 \`GameSceneCtrl\` / \`SceneObjectRegistry\` 这类隐藏运行时对象表作为第二入口
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验
 - AIBridge 预水合后要清掉一次性临时脚本：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`

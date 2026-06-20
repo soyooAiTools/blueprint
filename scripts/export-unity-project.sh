@@ -413,6 +413,7 @@ node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   PROGRAMMER_DELIVERY_SUMMARY="$WORK/PROGRAMMER_DELIVERY_SUMMARY.json"
   MCP_HYDRATION_REPORT="$WORK/MCP_HYDRATION_REPORT.json"
+  SCENE_BAKE_PLAN="$WORK/SCENE_BAKE_PLAN.json"
   DELIVERY_VALIDATION="$WORK/DELIVERY_VALIDATION.json"
   AIBRIDGE_PACKAGE_ROOT="${AIBRIDGE_PACKAGE_ROOT:-/opt/AIBridge}"
   if [ -d "$AIBRIDGE_PACKAGE_ROOT" ] && [ -f "$AIBRIDGE_PACKAGE_ROOT/package.json" ]; then
@@ -438,6 +439,7 @@ NODE
     echo "[export] WARN: AIBridge package not found at $AIBRIDGE_PACKAGE_ROOT; hydration will require AIBRIDGE_CLI or use static fallback." >&2
   fi
   node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID" > "$PROGRAMMER_DELIVERY_SUMMARY"
+  node "$BP_ROOT/lib/programmer-delivery-scene-bake-plan.cjs" "$WORK" --summary "$PROGRAMMER_DELIVERY_SUMMARY" --out "$SCENE_BAKE_PLAN"
   # programmer-delivery-cleaner may create Entities/*.cs, move scripts into
   # category folders, and inject scene-mounted manager objects. Refresh .meta
   # coverage before AIBridge/hardgate so Unity sees the final script GUIDs.

@@ -42,7 +42,7 @@
 - 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
 - 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
-- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，禁止回退到 `mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组。
+- `GMP_EntityBindingManager.mBindings` 是唯一实体绑定表，禁止回退到 `mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
 - 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；禁止静态 `Init/Get/Return` 工作流。
 - 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
@@ -55,6 +55,7 @@
 - Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`mBindings` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
 - AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本等一次性脚本；确实跨项目复用的能力下沉为正式 Tool。
+- `mBindings` 保留为 Inspector 中的人类可见数据入口；删除的是运行时生成/查找/修复绑定的代码和隐藏 runtime registry。导出必须先写 `SCENE_BAKE_PLAN.json`，再由 AIBridge/Editor bake 写 `SCENE_BAKE_REPORT.json`，最终用 `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明临时 primitive spec、primitive builder/source spec helper 没有留在交付包。
 
 ## DOCX 反馈汇总后的 Prompt 规则
 
@@ -80,6 +81,8 @@
 4. **phase 不是关卡重启**：Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立 level；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
 5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
 6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
+7. **绑定表是数据入口，不是运行时补救入口**：`GMP_EntityBindingManager.mBindings` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。
+8. **不要保留隐藏运行时对象表**：程序员交付版不要把 `GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `mBindings` 或 serialized refs。
 
 ## 两层 Prompt 口径
 
@@ -409,7 +412,10 @@ NODE
 - `Assets/Scripts/Game`
 - `PROGRAMMER_HANDOFF.md`
 - `CODE_RELATION_GRAPH.md`
+- `SCENE_BAKE_PLAN.json`
+- `SCENE_BAKE_REPORT.json`
 - `MCP_HYDRATION_REPORT.json`
+- `PROGRAMMER_TEMP_CODE_AUDIT.json`
 - `PROGRAMMER_MAINTAINABILITY_REPORT.json`
 - `DELIVERY_VALIDATION.json`
 

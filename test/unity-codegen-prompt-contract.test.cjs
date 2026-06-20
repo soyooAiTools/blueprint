@@ -29,6 +29,7 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('AIBridge/MCP') >= 0, label + ' should mention AIBridge/MCP hydration');
   assert.ok(text.indexOf('Inspector') >= 0, label + ' should mention Inspector hydration');
   assert.ok(text.indexOf('mBindings') >= 0, label + ' should mention mBindings as the binding table');
+  assert.ok(text.indexOf('隐藏运行时对象表') >= 0, label + ' should forbid hidden runtime object registries in programmer delivery');
   assert.ok(text.indexOf('逻辑与表现分离') >= 0, label + ' should require logic/visual separation');
   assert.ok(text.indexOf('注释只写关键') >= 0, label + ' should require sparse plain Chinese comments');
   assert.ok(text.indexOf('复杂脚本参数说明') >= 0, label + ' should explain parameters for complex scripts');
@@ -60,6 +61,9 @@ var behaviorTemplateText = fs.readFileSync(path.join(__dirname, '../worker/behav
 var workerCoderText = fs.readFileSync(path.join(__dirname, '../worker/worker-coder.js'), 'utf8');
 var codexCodeCoderText = fs.readFileSync(path.join(__dirname, '../worker/codex-code-coder.js'), 'utf8');
 var staticCheckText = fs.readFileSync(path.join(__dirname, '../engine/static-check.cjs'), 'utf8');
+var reviewStageText = fs.readFileSync(path.join(__dirname, '../engine/stages/review.cjs'), 'utf8');
+var codeReviewerText = fs.readFileSync(path.join(__dirname, '../worker/code-reviewer.js'), 'utf8');
+var commentLocalizerText = fs.readFileSync(path.join(__dirname, '../lib/csharp-comment-localizer.cjs'), 'utf8');
 
 assertDeliveryContract(schemaText, 'schema prompt contract');
 assertDeliveryContract(v5Text, 'v5 prompt');
@@ -79,6 +83,7 @@ assert.ok(behaviorTemplateText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 
 assert.ok(behaviorTemplateText.indexOf('固定 Player 引用') >= 0, 'behavior templates should require fixed player references');
 assert.ok(behaviorTemplateText.indexOf('连续试玩流程') >= 0, 'behavior templates should define phase as continuous flow');
 assert.ok(behaviorTemplateText.indexOf('AIBridge 预水合') >= 0, 'behavior templates should require editor-side hydration cleanup');
+assert.ok(behaviorTemplateText.indexOf('隐藏运行时对象表') >= 0, 'behavior templates should forbid hidden runtime object registries in programmer delivery');
 assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
 assert.ok(codexCodeCoderText.indexOf('复杂脚本参数说明') >= 0, 'codex fix prompt should carry complex-script parameter guidance');
 assert.ok(codexCodeCoderText.indexOf('有意义的空行分块') >= 0, 'codex fix prompt should carry meaningful blank-line grouping guidance');
@@ -86,6 +91,7 @@ assert.ok(codexCodeCoderText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 'c
 assert.ok(codexCodeCoderText.indexOf('固定 Player 引用') >= 0, 'codex fix prompt should require fixed player references');
 assert.ok(codexCodeCoderText.indexOf('连续试玩流程') >= 0, 'codex fix prompt should define phase as continuous flow');
 assert.ok(codexCodeCoderText.indexOf('AIBridge 预水合') >= 0, 'codex fix prompt should require editor-side hydration cleanup');
+assert.ok(codexCodeCoderText.indexOf('隐藏运行时对象表') >= 0, 'codex fix prompt should forbid hidden runtime object registries in programmer delivery');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');
@@ -108,5 +114,9 @@ assert.strictEqual(workerCoderText.indexOf('Collision detection: Vector3.Distanc
 assert.strictEqual(workerCoderText.indexOf('FindObjectOfType(typeof($1))'), -1, 'worker post-fix must not rewrite FindObjectOfType into another scene scan');
 assert.strictEqual(codexCodeCoderText.indexOf('FindObjectOfType(typeof($1))'), -1, 'codex post-fix must not rewrite FindObjectOfType into another scene scan');
 assert.strictEqual(staticCheckText.indexOf('use GameObject.Find() from pool'), -1, 'static-check feedback must not ask the model to use GameObject.Find');
+assert.strictEqual(reviewStageText.indexOf('No GameObject.Find or GFM_Create calls'), -1, 'review stage must not require legacy Find/GFM_Create as positive stub evidence');
+assert.strictEqual(codeReviewerText.indexOf('use GameObject.Find() to locate pre-existing pool objects'), -1, 'code reviewer must not suggest GameObject.Find as the replacement for GFM_Create.Obj');
+assert.strictEqual(commentLocalizerText.indexOf('请使用 GameObject.Find()'), -1, 'comment localizer must not translate legacy advice into GameObject.Find guidance');
+assert.strictEqual(commentLocalizerText.indexOf('回退：CreatePrimitive（Luna 中不会渲染，但可编译）'), -1, 'comment localizer must not preserve legacy CreatePrimitive fallback wording');
 
 console.log('unity codegen prompt contract tests passed');
