@@ -44,7 +44,7 @@ const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'codex-exe
 
 const PROGRAMMER_DELIVERY_PROMPT_CONTRACT = [
   '程序员可交付反馈规则：最终 Unity 交付必须包含 AIBridge/MCP、Inspector hydration、GMP_SceneEntityRefs 和 serialized refs。',
-  'AIBridge 证据必须来自实际运行 AIBridgeCLI：先解析 AIBRIDGE_CLI 或 command -v AIBridgeCLI，记录真实 CLI 路径，再运行 AIBridgeCLI harness status 和 AIBridgeCLI editor get_state --timeout <ms>，把 stdout/stderr/exit code 写入 MCP_HYDRATION_REPORT.json、AIBRIDGE_ATTEMPT_REPORT.json 或 AIBRIDGE_REAL_RUN_REPORT.json；CLI 存在但 Unity Editor/AIBridge 会话超时时写 editor-timeout，不能写成 CLI not found。',
+  'AIBridge 证据必须来自实际运行 AIBRIDGE_CLI：先解析 AIBRIDGE_CLI 或 command -v AIBridgeCLI，记录真实 CLI 路径，再运行 AIBridgeCLI harness status 和 AIBridgeCLI editor get_state --timeout <ms>，把 stdout/stderr/exit code 写入 MCP_HYDRATION_REPORT.json、AIBRIDGE_ATTEMPT_REPORT.json 或 AIBRIDGE_REAL_RUN_REPORT.json；CLI 存在但 Unity Editor/AIBridge 会话超时时写 editor-timeout，不能写成 CLI not found。',
   'Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。',
   '场景引用入口只允许 GMP_SceneEntityRefs 或 serialized refs；禁止通用 object binding 表、隐藏运行时对象表、GameSceneCtrl / SceneObjectRegistry 第二入口。',
   '逻辑与表现分离：根节点挂逻辑和碰撞/交互，表现资源挂子节点；一节点一主脚本，无生命周期能力默认普通 C# 类。',
@@ -55,7 +55,10 @@ const PROGRAMMER_DELIVERY_PROMPT_CONTRACT = [
   'Player/HUD/Camera/关键实体必须走固定 Player 引用或 serialized refs；缺引用只 Debug.LogError，不写 runtime 扫描、创建、修组件 fallback。',
   'Phase 是连续试玩流程，不重置全场；流程资产用 Flow01_<业务语义>.asset，mPhaseId 用 flow01_<业务语义>。',
   'AIBridge 预水合后删除临时脚本、primitive builder、source spec helper、通用绑定表和运行时场景生成/修复代码。',
-  '代码/管理器节点收纳到 MainGame；CanvasScaler 使用 1080x1920、Match 0.5；GMP_EventModule 提供 Subscribe、Unsubscribe、UnSubScribe；GMP_Audio 暴露 mLoopSources 和 mOneShotSources。',
+  '代码/管理器节点收纳到 MainGame；CanvasScaler 使用 1080x1920、Match 0.5；GMP_TipsManager.mTipText 绑定 Text_StepToast，不扫描 Text 或硬改布局。',
+  'GMP_EventModule 提供 Subscribe、Unsubscribe、UnSubScribe；游戏入口发布 ScreenChanged + GMP_ScreenChangeEvent，监听方显式订阅和注销。',
+  'GMP_Audio 暴露 mLoopSources 和 mOneShotSources，并保留 musicChannelDatas、PlayAudioInGroup、StopAudio、StopAllAudio、StopAudioGroup、首触解静音和音阶播放语义。',
+  'GMP_CameraController 交付默认正交相机，phase/end 构图只写目标状态并由 LateUpdate 平滑收敛。',
   '交付文档必须说明流程修改、删除、增加并给例子。'
 ].join('\n');
 

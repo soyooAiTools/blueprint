@@ -86,6 +86,7 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('6. Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。');
   lines.push('7. Tool 层要沉淀跨项目稳定工具：相机、UI 布局校正、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案；Canvas 和核心 UI 节点必须在场景中预创建，不要在业务脚本里 `CreateCanvas/CreateText/AddComponent<Canvas>`。');
   lines.push('8. 音频必须复用集中式 `GMP_Audio` 管理器，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。');
+  lines.push('8.1 `GMP_Audio` 必须保留参考 AudioManager 的分组通道 API：`musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义，不能瘦身成只有单 BGM/SFX。');
   lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
   lines.push('10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。');
   lines.push('10.1 AIBridge 证据必须来自实际运行 AIBridgeCLI，不允许只凭静态报告或项目内路径猜测：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再运行 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`；把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`。CLI 找到但 Unity Editor/AIBridge 会话超时时必须记录为 `editor-timeout`，不能写成 CLI not found。');
@@ -100,10 +101,12 @@ function appendUnityProgramArchitectureRules(lines) {
   lines.push('17. 场景问题优先由 AIBridge/MCP/Editor 处理：Missing Mono Script、Rigidbody、Collider、Animator 等配置不要在业务代码里反复 Find/AddComponent/修复。');
   lines.push('18. 单例/管理器用场景预挂实例和 serialized refs；不要使用 `MonoSingleton<T>`，单例类里也不要再塞静态 Init/Get/Return 这类工作流方法。');
   lines.push('18.1 `GMP_EventModule` 必须有显式 `Subscribe`、`Unsubscribe` 和 `UnSubScribe` 注销别名；禁止只有 Publish/Debug.Log 的假事件模块。');
+  lines.push('18.2 游戏入口必须检测 `Screen.width/Screen.height` 变化并发布 `GMP_LevelEventNames.ScreenChanged` + `GMP_ScreenChangeEvent`；监听方必须显式 Subscribe，并在 OnDestroy 用 UnSubScribe 注销。');
   lines.push('19. 性能和兜底：距离门槛用 `sqrMagnitude`；必要兜底只保留真实可进入且有价值的分支。Player、HUD、相机和关键实体必须走固定 Player 引用、`[SerializeField]`、`GMP_SceneEntityRefs` 或固定 addressable path，缺引用只允许短路 `Debug.LogError`，不能堆运行时扫描、创建、修组件的 fallback。');
   lines.push('20. Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。');
   lines.push('21. AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool。');
   lines.push('21.1 交付文档必须说明流程如何修改、删除、增加，并给一个具体例子；文档、代码关系图和实际 `FlowXX_<业务语义>.asset` / `GMP_PhaseController.mPhases` 必须一致。');
+  lines.push('21.2 `GMP_TipsManager.mTipText` 必须绑定场景预设 Text（如 Text_StepToast），TipsManager 不按名字扫描 Text，也不在代码里硬改 RectTransform 布局/字号/样式。`GMP_CameraController` 交付默认正交相机，phase/end 构图只写目标状态并由 LateUpdate 平滑收敛。');
   lines.push('22. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
   lines.push('23. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
   lines.push('24. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');

@@ -42,7 +42,11 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
 - 程序员交付代码必须能给人类程序员接手：场景引用走 AIBridge/MCP + Inspector hydration，业务代码不靠 runtime `Find` / `AddComponent` / `new GameObject` 补场景；只保留真实调用链会用到的方法。
 - Editor hydration 是最终交付红线：未实际打开 Unity Editor、完成 `AIBridgeCLI editor get_state` / scene hydration 并解析 Inspector 引用前，不能把 Unity 包标记为最终交付认证通过；static YAML、文件级 hardgate 或 CLI probe 只能算文件级审计。
 - 管理器禁止继承 `MonoSingleton<T>` / `GMP_SingletonBase<T>`，统一使用场景预挂实例里的 `mInstance`/只读 `instance`；代码/管理器节点收纳到 `MainGame` 子级，Canvas/UI 由场景预创建并按 1080x1920、Match 0.5、SortOrder 100 配置。
-- `GMP_EventModule` 必须提供 `Subscribe`、`Unsubscribe` 和兼容别名 `UnSubScribe`，音频复用集中式 `GMP_Audio` 多音源数组；交付文档必须包含 Flow/Phase 的修改、删除、增加指南和例子。
+- `GMP_EventModule` 必须提供 `Subscribe`、`Unsubscribe` 和兼容别名 `UnSubScribe`；游戏入口必须检测 `Screen.width/Screen.height` 变化并发布 `ScreenChanged` + `GMP_ScreenChangeEvent`，监听方显式订阅并在销毁时注销。
+- 音频复用集中式 `GMP_Audio` 多音源数组，并保留参考 AudioManager 的 `musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义，不能退化成单 BGM/SFX。
+- `GMP_TipsManager.mTipText` 必须绑定场景预设 Text，如 `Text_StepToast`；TipsManager 只改文本内容/启用状态/颜色，不按名字扫描 Text，也不硬改 RectTransform 布局、字号或样式。
+- 程序员交付相机默认正交：场景 Camera 与 `GMP_CameraController` 都要强制 orthographic，phase/end/跟随构图只写目标位置、旋转和 `orthographicSize`，由 `LateUpdate` 平滑收敛；少数透视项目必须在交付说明中写明原因。
+- 交付文档必须包含 Flow/Phase 的修改、删除、增加指南和例子。
 - 同一个玩法状态只能有一个 owner。简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，Gold 从资源表派生，HUD 目标提示只由 HudController 写。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只做编排，不复制每个实体的调参字段。
 - 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；固定 Player/HUD/Camera/关键实体引用缺失时只短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。

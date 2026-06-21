@@ -37,6 +37,7 @@
 - Movement、Trigger、Interaction、Inventory 这类没有 Unity 生命周期的能力默认是普通 C# 类，不因为名字叫 Component 就挂到同一个场景节点上。
 - Tool 层沉淀跨项目稳定工具，不硬编码项目实体、资源和 phase 文案。
 - 音频必须集中式多音源管理，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组，业务只调用 Audio module API。
+- `GMP_Audio` 必须保留参考 AudioManager 的分组通道入口：`musicChannelDatas`、`PlayAudioInGroup(...)`、`StopAudio(...)`、`StopAllAudio()`、`StopAudioGroup(...)`、首触解静音和音阶播放语义，不能退化成单一 BGM/SFX 瘦身模块。
 - 新增业务优先写进 `Game/Level`、`Game/Entities`、`Game/Player`。
 - 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration。
 - AIBridge 证据必须来自实际运行 AIBridgeCLI：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再跑 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`，并把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`；CLI 找到但 Unity Editor/AIBridge 会话超时时写 `editor-timeout`，不能写成 CLI not found。
@@ -46,6 +47,7 @@
 - 场景层级中代码/管理器节点收纳到 `MainGame` 子级，避免 `GMP_*` 根节点平铺。
 - Canvas 和核心 UI 节点必须在场景中预创建，Canvas 使用 Screen Space - Overlay，Sort Order 100，CanvasScaler 使用 Scale With Screen Size，Reference Resolution 1080x1920，Match 0.5；业务脚本不要 runtime `CreateCanvas/CreateText/AddComponent<Canvas>`。
 - `GMP_EventModule` 必须有显式 `Subscribe`、`Unsubscribe` 和 `UnSubScribe` 注销别名。
+- `GMP_MainManager` 或等价游戏入口必须记录 `Screen.width/Screen.height`，变化时发布 `GMP_LevelEventNames.ScreenChanged` 和 `GMP_ScreenChangeEvent`；相机、HUD 等监听方显式 `Subscribe`，并在 `OnDestroy` 里 `UnSubScribe`。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
 - `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，禁止回退到通用 object binding 表、`mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
@@ -58,6 +60,8 @@
 - 距离门槛判断使用 `(a.position - b.position).sqrMagnitude < range * range`，不要把 `Vector3.Distance` 当正向示例。
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
 - Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
+- `GMP_TipsManager.mTipText` 必须由场景预设 Text（如 `Text_StepToast`）绑定；TipsManager 只改文本内容、启用状态和颜色，不按名字扫描 Text，也不硬改 RectTransform 布局、字号或样式。
+- `GMP_CameraController` 程序员交付默认正交相机：场景 Camera `orthographic = true`，脚本初始化也强制正交；phase/end/跟随构图只写目标位置、旋转和 `orthographicSize`，由 `LateUpdate` 平滑收敛。确需透视时必须在 handoff 中说明。
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
 - 交付文档必须包含“流程增删改指南”，说明修改、删除、增加 Flow/Phase 资产、业务规则和场景引用的步骤，并给出例子。
 - AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本、通用 object binding 表和运行时场景生成/修复代码；确实跨项目复用的能力下沉为正式 Tool。
@@ -89,6 +93,17 @@
 6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
 7. **显式引用是数据入口，不是运行时补救入口**：`GMP_SceneEntityRefs` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。
 8. **不要保留隐藏运行时对象表**：程序员交付版不要把旧通用绑定表、`GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `GMP_SceneEntityRefs` 或 serialized refs。
+
+## 2026-06-21 优化意见补充后的 Prompt 规则
+
+来源：`/nickTemp/优化意见.docx`。这轮反馈重点是把参考脚本能力固化到程序员交付生成链路，而不是只修单个项目：
+
+1. **Tips 文本由场景预设**：`GMP_TipsManager.mTipText` 绑定 `Text_StepToast` 或等价 Text；代码只负责内容、启用状态和颜色，不扫描 Text、不硬改 RectTransform/字号/对齐。
+2. **AudioManager 分组能力不能瘦身**：`GMP_Audio` 可改名，但必须保留 `musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义。
+3. **事件 API 明确成对**：`GMP_EventModule` 同时提供 `Subscribe`、`Unsubscribe` 和兼容别名 `UnSubScribe`，不能只留 `Publish`。
+4. **屏幕尺寸变化走事件**：游戏入口检测 `Screen.width/Screen.height`，变化时发布 `GMP_LevelEventNames.ScreenChanged` + `GMP_ScreenChangeEvent`；相机/HUD 等监听方订阅并在销毁时注销。
+5. **相机默认正交和平滑收敛**：程序员交付场景 Camera 与 `GMP_CameraController` 都默认 orthographic；phase/end/跟随构图只写目标状态，由 `LateUpdate` 平滑位置、旋转和 `orthographicSize`。
+6. **handoff 文档必须可执行**：README/PROGRAMMER_GUIDE/HANDOFF 要说明流程资产如何修改、删除、新增，并给出具体例子。
 
 ## 两层 Prompt 口径
 
