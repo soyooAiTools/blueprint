@@ -82,7 +82,33 @@ function countCodeLines(text) {
   return lines.length;
 }
 
-function sceneObjectYaml(name, guid, index, audio) {
+function sceneSingletonMembers(className) {
+  return [
+    '    private static ' + className + ' mInstance;',
+    '    public static ' + className + ' instance { get { return mInstance; } }',
+    '    private void Awake()',
+    '    {',
+    '        if (mInstance != null && mInstance != this) { enabled = false; return; }',
+    '        mInstance = this;',
+    '    }',
+    '    private void OnDestroy()',
+    '    {',
+    '        if (mInstance == this) mInstance = null;',
+    '    }'
+  ];
+}
+
+function flowGuideText() {
+  return [
+    '## 流程增删改指南',
+    '- 修改流程：编辑 FlowXX_<业务语义>.asset 的 mGuideText、mGate、mSteps，并同步 GMP_PhaseController.mPhases。',
+    '- 删除流程：从 mPhases 移除对应 Flow 资产，删除不再引用的场景实体字段。',
+    '- 增加流程：新增 Flow03_collect_food.asset，补 mPhaseId、场景引用和 LevelRuleEngine 规则。',
+    '- 例子：把 flow03_collect_food 改成 flow04_upgrade_chef 时，同步 Flow04_upgrade_chef.asset 与 README 说明。'
+  ].join('\n');
+}
+
+function sceneObjectYaml(name, guid, index, audio, parentTransformId) {
   var go = 1000 + index * 100;
   var tr = go + 1;
   var mb = go + 2;
@@ -101,6 +127,7 @@ function sceneObjectYaml(name, guid, index, audio) {
     '--- !u!4 &' + tr,
     'Transform:',
     '  m_GameObject: {fileID: ' + go + '}',
+    '  m_Father: {fileID: ' + (parentTransformId || 0) + '}',
     '--- !u!114 &' + mb,
     'MonoBehaviour:',
     '  m_GameObject: {fileID: ' + go + '}',
@@ -118,6 +145,52 @@ function sceneObjectYaml(name, guid, index, audio) {
   return lines.join('\n');
 }
 
+function mainGameYaml() {
+  return [
+    '--- !u!1 &50',
+    'GameObject:',
+    '  m_Component:',
+    '  - component: {fileID: 51}',
+    '  m_Name: MainGame',
+    '--- !u!4 &51',
+    'Transform:',
+    '  m_GameObject: {fileID: 50}',
+    '  m_Father: {fileID: 0}',
+    ''
+  ].join('\n');
+}
+
+function canvasYaml() {
+  return [
+    '--- !u!1 &60000',
+    'GameObject:',
+    '  m_Component:',
+    '  - component: {fileID: 60001}',
+    '  - component: {fileID: 60002}',
+    '  - component: {fileID: 60003}',
+    '  - component: {fileID: 60004}',
+    '  m_Name: Canvas',
+    '--- !u!224 &60001',
+    'RectTransform:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_Father: {fileID: 0}',
+    '--- !u!223 &60002',
+    'Canvas:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_RenderMode: 0',
+    '  m_SortingOrder: 100',
+    '--- !u!114 &60003',
+    'MonoBehaviour:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_ReferenceResolution: {x: 1080, y: 1920}',
+    '  m_MatchWidthOrHeight: 0.5',
+    '--- !u!114 &60004',
+    'MonoBehaviour:',
+    '  m_GameObject: {fileID: 60000}',
+    ''
+  ].join('\n');
+}
+
 function writeRequiredScene(root) {
   var required = [
     { name: 'GMP_MainManager', rel: 'Assets/Scripts/Core/Modules/GMP_MainManager.cs' },
@@ -127,13 +200,13 @@ function writeRequiredScene(root) {
     { name: 'GMP_HudController', rel: 'Assets/Scripts/Core/Modules/GMP_HudController.cs' },
     { name: 'GMP_EventModule', rel: 'Assets/Scripts/Core/Modules/GMP_EventModule.cs' },
     { name: 'GMP_CameraController', rel: 'Assets/Scripts/Tool/GMP_CameraController.cs' },
-    { name: 'GMP_EntityBindingManager', rel: 'Assets/Scripts/Game/Level/GMP_EntityBindingManager.cs' },
+    { name: 'GMP_SceneEntityRefs', rel: 'Assets/Scripts/Game/Level/GMP_SceneEntityRefs.cs' },
     { name: 'GMP_LevelRuleEngine', rel: 'Assets/Scripts/Game/Level/GMP_LevelRuleEngine.cs' },
     { name: 'GMP_Player', rel: 'Assets/Scripts/Game/Player/GMP_Player.cs' },
     { name: 'GMP_AutoPlayDriver', rel: 'Assets/Scripts/Game/AutoPlay/GMP_AutoPlayDriver.cs' }
   ];
-  writeFile(path.join(root, 'Assets', 'Scenes', 'Game.unity'), ['%YAML 1.1'].concat(required.map(function(item, index) {
-    return sceneObjectYaml(item.name, ensureMeta(root, item.rel), index + 1, item.audio);
+  writeFile(path.join(root, 'Assets', 'Scenes', 'Game.unity'), ['%YAML 1.1', mainGameYaml(), canvasYaml()].concat(required.map(function(item, index) {
+    return sceneObjectYaml(item.name, ensureMeta(root, item.rel), index + 1, item.audio, 51);
   }), ['']).join('\n'));
 }
 
@@ -165,8 +238,10 @@ function makeDeliverableRoot() {
   var main = [
     'using UnityEngine;',
     '',
-    'public class GMP_MainManager : MonoSingleton<GMP_MainManager>',
+    'public class GMP_MainManager : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_MainManager')).concat([
+    '',
     '    public GMP_PhaseController mPhaseController;',
     '    public GMP_UIManager mUIManager;',
     '    public GMP_HudController mHudController;',
@@ -175,7 +250,7 @@ function makeDeliverableRoot() {
     '    public GMP_Player mPlayer;',
     '    public GMP_RestaurantEntity mChef;',
     '    public GMP_LevelRuleEngine mRules;',
-    '    public GMP_EntityBindingManager mBindingManager;',
+    '    public GMP_SceneEntityRefs mSceneEntityRefs;',
     '    public GMP_AutoPlayDriver mAutoPlayDriver;',
     '    public GMP_CameraController mCameraController = new GMP_CameraController();',
     '    public AudioClip mPreviewClip;',
@@ -193,20 +268,28 @@ function makeDeliverableRoot() {
     '        if (mPhaseController != null) mPhaseController.StartFlow();',
     '        if (mUIManager != null) mUIManager.SyncSceneEntityLabels();',
     '        if (mHudController != null) mHudController.SetGuideText(1, 1, "Serve shrimp");',
-    '        if (mEventModule != null) mEventModule.Publish("serve", "_chef");',
+    '        if (mEventModule != null)',
+    '        {',
+    '            System.Action<object> callback = OnServeEvent;',
+    '            mEventModule.Subscribe("serve", callback);',
+    '            mEventModule.Unsubscribe("serve", callback);',
+    '            mEventModule.UnSubScribe("serve", callback);',
+    '            mEventModule.Publish("serve", "_chef");',
+    '        }',
     '        if (mAudio != null)',
     '        {',
     '            mAudio.PlayBGM(mPreviewClip);',
     '            mAudio.PlaySFX(mPreviewClip);',
     '            mAudio.StopLoop("bgm");',
     '        }',
-    '        if (mBindingManager != null)',
+    '        if (mSceneEntityRefs != null)',
     '        {',
-    '            mBindingManager.SetState("_chef", GMP_EntityState.Active);',
-    '            mBindingManager.GetState("_chef");',
+    '            mSceneEntityRefs.SetState("_chef", GMP_EntityState.Active);',
+    '            mSceneEntityRefs.GetState("_chef");',
     '        }',
     '        if (mCameraController != null) mCameraController.FrameCurrentPhase();',
     '    }',
+    '    private void OnServeEvent(object payload) {}',
     '    public void Start() { InitCoreModules(); }',
     '    public void Update()',
     '    {',
@@ -216,20 +299,23 @@ function makeDeliverableRoot() {
     '    }',
     '}',
     ''
-  ].join('\n');
+  ]).join('\n');
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_MainManager.cs'), main);
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhaseController.cs'), [
-    'public class GMP_PhaseController : MonoSingleton<GMP_PhaseController>',
+    'using UnityEngine;',
+    'public class GMP_PhaseController : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_PhaseController')).concat([
     '    public void StartFlow() {}',
     '    public void Tick(float dt) {}',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_Audio.cs'), [
     'using UnityEngine;',
     'public class GMP_Audio : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_Audio')).concat([
     '    public AudioSource[] mLoopSources = new AudioSource[0];',
     '    public AudioSource[] mOneShotSources = new AudioSource[0];',
     '    public void PlayLoop(string key, AudioClip clip) {}',
@@ -239,40 +325,42 @@ function makeDeliverableRoot() {
     '    public void PlaySFX(AudioClip clip) { PlayOneShot(clip); }',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_UIManager.cs'), [
-    'public class GMP_UIManager : MonoSingleton<GMP_UIManager>',
+    'using UnityEngine;',
+    'public class GMP_UIManager : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_UIManager')).concat([
     '    public void SyncSceneEntityLabels() {}',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_HudController.cs'), [
-    'public class GMP_HudController : MonoSingleton<GMP_HudController>',
+    'using UnityEngine;',
+    'public class GMP_HudController : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_HudController')).concat([
     '    public void SetGuideText(int index, int count, string text) {}',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EventModule.cs'), [
-    'public class GMP_EventModule : MonoSingleton<GMP_EventModule>',
+    'using System;',
+    'using UnityEngine;',
+    'public class GMP_EventModule : MonoBehaviour',
     '{',
-    '    public void Publish(string eventName, string payload) {}',
+  ].concat(sceneSingletonMembers('GMP_EventModule')).concat([
+    '    public void Subscribe(string eventName, Action<object> callback) {}',
+    '    public void Unsubscribe(string eventName, Action<object> callback) {}',
+    '    public void UnSubScribe(string eventName, Action<object> callback) {}',
+    '    public void Publish(string eventName, object payload) {}',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhasePreset.cs'), [
     'public class GMP_PhaseStep',
     '{',
     '    public GMP_EntityState mSetState = GMP_EntityState.Hidden;',
-    '}',
-    ''
-  ].join('\n'));
-  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'MonoSingleton.cs'), [
-    'using UnityEngine;',
-    'public class MonoSingleton<T> : MonoBehaviour where T : MonoBehaviour',
-    '{',
-    '    public static T instance;',
     '}',
     ''
   ].join('\n'));
@@ -311,7 +399,8 @@ function makeDeliverableRoot() {
     ''
   ].join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Tool', 'GMP_CameraController.cs'), [
-    'public class GMP_CameraController',
+    'using UnityEngine;',
+    'public class GMP_CameraController : MonoBehaviour',
     '{',
     '    public void FrameCurrentPhase() {}',
     '}',
@@ -337,8 +426,10 @@ function makeDeliverableRoot() {
     ''
   ].join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), [
-    'public class GMP_LevelRuleEngine : MonoSingleton<GMP_LevelRuleEngine>',
+    'using UnityEngine;',
+    'public class GMP_LevelRuleEngine : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_LevelRuleEngine')).concat([
     '    public int ServedCount = 0;',
     '    public void TryServe(GMP_RestaurantEntity chef)',
     '    {',
@@ -348,50 +439,57 @@ function makeDeliverableRoot() {
     '    }',
     '}',
     ''
-  ].join('\n'));
-  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_EntityBindingManager.cs'), [
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs'), [
     'using System.Collections.Generic;',
     'using UnityEngine;',
-    'public class GMP_EntityBinding',
+    'public class GMP_SceneEntityRef',
     '{',
     '    public string mEntityName;',
     '    public GameObject mSceneObject;',
     '    public int mInitialState;',
     '    public GMP_EntityState mRuntimeState;',
     '}',
-    'public class GMP_EntityBindingManager : MonoSingleton<GMP_EntityBindingManager>',
+    'public class GMP_SceneEntityRefs : MonoBehaviour',
     '{',
-    '    public List<GMP_EntityBinding> mBindings = new List<GMP_EntityBinding>();',
+  ].concat(sceneSingletonMembers('GMP_SceneEntityRefs')).concat([
+    '    public List<GMP_SceneEntityRef> mSceneEntities = new List<GMP_SceneEntityRef>();',
     '    public void SetState(string entityName, GMP_EntityState state)',
     '    {',
-    '        for (int i = 0; i < mBindings.Count; i++) if (mBindings[i].mEntityName == entityName) { mBindings[i].mRuntimeState = state; return; }',
+    '        for (int i = 0; i < mSceneEntities.Count; i++) if (mSceneEntities[i].mEntityName == entityName) { mSceneEntities[i].mRuntimeState = state; return; }',
     '    }',
     '    public GMP_EntityState GetState(string entityName)',
     '    {',
-    '        for (int i = 0; i < mBindings.Count; i++) if (mBindings[i].mEntityName == entityName) return mBindings[i].mRuntimeState;',
+    '        for (int i = 0; i < mSceneEntities.Count; i++) if (mSceneEntities[i].mEntityName == entityName) return mSceneEntities[i].mRuntimeState;',
     '        return GMP_EntityState.Hidden;',
     '    }',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'AutoPlay', 'GMP_AutoPlayDriver.cs'), [
-    'public class GMP_AutoPlayDriver : MonoSingleton<GMP_AutoPlayDriver>',
+    'using UnityEngine;',
+    'public class GMP_AutoPlayDriver : MonoBehaviour',
     '{',
+  ].concat(sceneSingletonMembers('GMP_AutoPlayDriver')).concat([
     '    public void Tick(float dt) {}',
     '}',
     ''
-  ].join('\n'));
+  ]).join('\n'));
   writeFile(path.join(root, 'README.md'), [
     '# Unity 工程导出',
     '',
     '## 程序员交付边界',
     '- Core / Tool / Game',
+    '',
+    flowGuideText(),
     ''
   ].join('\n'));
   writeFile(path.join(root, 'CODE_RELATION_GRAPH.md'), [
     '# 代码关系图',
     '',
     'GMP_MainManager.InitCoreModules -> GMP_PhaseController.Tick -> GMP_LevelRuleEngine',
+    '',
+    flowGuideText(),
     ''
   ].join('\n'));
   writeFile(path.join(root, 'PROGRAMMER_HANDOFF.md'), [
@@ -399,6 +497,8 @@ function makeDeliverableRoot() {
     '',
     '## 后续维护建议',
     '- 新增业务逻辑优先写入 `Assets/Scripts/Game/`。',
+    '',
+    flowGuideText(),
     '',
     '## 清理统计',
     '- GMP_MainManager.cs 行数：' + countCodeLines(main),
@@ -457,9 +557,9 @@ function addProgrammerFeature(root) {
     '        IsBonusGranted = true;',
     '        chef.MarkCompleted();',
     '        rules.AddBonusCoins(mBonusCoins);',
-    '        if (GMP_EntityBindingManager.instance != null)',
+    '        if (GMP_SceneEntityRefs.instance != null)',
     '        {',
-    '            GMP_EntityBindingManager.instance.SetState(mChefEntityName, GMP_EntityState.Completed);',
+    '            GMP_SceneEntityRefs.instance.SetState(mChefEntityName, GMP_EntityState.Completed);',
     '        }',
     '        return true;',
     '    }',

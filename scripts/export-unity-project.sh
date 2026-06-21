@@ -357,7 +357,7 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   MANAGER_README_PATH="Assets/Scripts/Core/Modules"
   COMMON_README_PATH="Assets/Scripts/Core/Common"
   MANAGER_LABEL="GMP_MainManager.cs 主管理器与 Phase/Event/UI/Economy 等核心模块"
-  DELIVERY_README_EXTRA="- Assets/Scripts/Core/Base/ — MonoSingleton、核心枚举、实体/Player/NPC 基类
+  DELIVERY_README_EXTRA="- Assets/Scripts/Core/Base/ — 核心枚举、实体/Player/NPC 基类；管理器不用 MonoSingleton
 - Assets/Scripts/Core/Components/ — Movement、Trigger、Interaction、Inventory、Skill 等可复用组件
 - Assets/Scripts/Tool/ — 相机、UI、视觉引导等跨项目工具
 - Assets/Scripts/Game/Level/ — 本项目关卡流程与业务规则
@@ -367,7 +367,7 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
 else
   MANAGER_LABEL="GameFlowManagerMain*.cs 主流程与 GameFlowBootstrap.cs 入口"
   DELIVERY_README_EXTRA=""
-  DELIVERY_BOUNDARY_INTRO="程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。"
+  DELIVERY_BOUNDARY_INTRO="程序员交付版会整理为 MainManager.cs 单入口 + 场景预挂 mInstance/instance 管理器，并在 Entities/ 下保留领域对象类。"
   DELIVERY_NEW_CODE_RULE="业务新增脚本优先放到 Assets/Scripts/Manager、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player、Assets/Scripts/Audio 这些参考工程式目录，不再放进 Assets/Program/Script。"
 fi
 cat > "$WORK/README.md" <<EOF

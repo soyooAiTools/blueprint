@@ -29,7 +29,7 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
     // 【初始化】基类 Awake 已确保 Instance 可用,这里只做 UI 资产搭建。
     protected override void OnInit()
     {
-        // 优先复用 UIManager 的 Canvas;若它还没就绪走 GFM_UI.CreateCanvas
+        // 优先复用 UIManager 的 Canvas；程序员交付要求 Canvas 预创建，不在 tips 里临时创建。
         // 拿一个配置正确的 Canvas (含 ScaleWithScreenSize)。不要在这里手搓——
         // 漏配 scaler.uiScaleMode 时默认 ConstantPixelSize,referenceResolution
         // 会被忽略,文字尺寸跟屏幕脱钩。
@@ -39,8 +39,8 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
         }
         else
         {
-            _canvas = GFM_UI.CreateCanvas(960, 640);
-            if (_canvas == null) return;
+            Debug.LogError("GFM_TipsManager 缺少预创建 Canvas，请在场景中绑定 UIManager.Canvas。");
+            return;
         }
 
         _tipText = GFM_UI.CreateText(_canvas, "", new Vector2(0f, 80f), 32);

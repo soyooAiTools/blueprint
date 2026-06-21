@@ -148,8 +148,16 @@ function cleanup(root) {
     var phaseFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhaseController.cs');
     assert.ok(fs.existsSync(mainFile), 'GMP_MainManager.cs should be restored');
     assert.ok(fs.existsSync(phaseFile), 'GMP_PhaseController.cs should be restored');
-    assert.match(fs.readFileSync(mainFile, 'utf8'), /public class GMP_MainManager : MonoSingleton<GMP_MainManager>/);
-    assert.match(fs.readFileSync(phaseFile, 'utf8'), /public class GMP_PhaseController : MonoSingleton<GMP_PhaseController>/);
+    var mainCode = fs.readFileSync(mainFile, 'utf8');
+    var phaseCode = fs.readFileSync(phaseFile, 'utf8');
+    assert.match(mainCode, /public class GMP_MainManager : MonoBehaviour/);
+    assert.match(mainCode, /private static GMP_MainManager mInstance;/);
+    assert.match(mainCode, /public static GMP_MainManager instance \{ get \{ return mInstance; \} \}/);
+    assert.doesNotMatch(mainCode, /MonoSingleton|GMP_SingletonBase/);
+    assert.match(phaseCode, /public class GMP_PhaseController : MonoBehaviour/);
+    assert.match(phaseCode, /private static GMP_PhaseController mInstance;/);
+    assert.match(phaseCode, /public static GMP_PhaseController instance \{ get \{ return mInstance; \} \}/);
+    assert.doesNotMatch(phaseCode, /MonoSingleton|GMP_SingletonBase/);
     assert.match(fs.readFileSync(mainFile + '.meta', 'utf8'), new RegExp('guid: ' + mainGuid));
     assert.match(fs.readFileSync(phaseFile + '.meta', 'utf8'), new RegExp('guid: ' + phaseGuid));
     var handoff = fs.readFileSync(path.join(root, 'PROGRAMMER_HANDOFF.md'), 'utf8');

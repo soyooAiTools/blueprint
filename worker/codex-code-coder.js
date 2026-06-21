@@ -42,6 +42,23 @@ const LEGACY_SYSTEM_PROMPT_FILE = 'CLAUDE.md';
 const CODEX_SETTINGS_DIRNAME = '.codex';
 const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'codex-exec';
 
+const PROGRAMMER_DELIVERY_PROMPT_CONTRACT = [
+  '程序员可交付反馈规则：最终 Unity 交付必须包含 AIBridge/MCP、Inspector hydration、GMP_SceneEntityRefs 和 serialized refs。',
+  'AIBridge 证据必须来自实际运行 AIBridgeCLI：先解析 AIBRIDGE_CLI 或 command -v AIBridgeCLI，记录真实 CLI 路径，再运行 AIBridgeCLI harness status 和 AIBridgeCLI editor get_state --timeout <ms>，把 stdout/stderr/exit code 写入 MCP_HYDRATION_REPORT.json、AIBRIDGE_ATTEMPT_REPORT.json 或 AIBRIDGE_REAL_RUN_REPORT.json；CLI 存在但 Unity Editor/AIBridge 会话超时时写 editor-timeout，不能写成 CLI not found。',
+  'Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。',
+  '场景引用入口只允许 GMP_SceneEntityRefs 或 serialized refs；禁止通用 object binding 表、隐藏运行时对象表、GameSceneCtrl / SceneObjectRegistry 第二入口。',
+  '逻辑与表现分离：根节点挂逻辑和碰撞/交互，表现资源挂子节点；一节点一主脚本，无生命周期能力默认普通 C# 类。',
+  '注释只写关键；复杂脚本参数说明要清楚；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。',
+  '只保留会被调用的方法；必要兜底才写；Missing Mono Script、Rigidbody、Collider、Animator 等场景问题优先由 AIBridge/MCP/Editor 修场景。',
+  '单例和管理器禁止 MonoSingleton<T>，用场景预挂 mInstance + 只读 instance；禁止静态 Init/Get/Return 工作流。',
+  '距离门槛用 sqrMagnitude；MoveSpeed 归 MovementComponent；Init/Configure/Setup 未被调用就删除；依赖 Awake/Start 时不保留并行 Init。',
+  'Player/HUD/Camera/关键实体必须走固定 Player 引用或 serialized refs；缺引用只 Debug.LogError，不写 runtime 扫描、创建、修组件 fallback。',
+  'Phase 是连续试玩流程，不重置全场；流程资产用 Flow01_<业务语义>.asset，mPhaseId 用 flow01_<业务语义>。',
+  'AIBridge 预水合后删除临时脚本、primitive builder、source spec helper、通用绑定表和运行时场景生成/修复代码。',
+  '代码/管理器节点收纳到 MainGame；CanvasScaler 使用 1080x1920、Match 0.5；GMP_EventModule 提供 Subscribe、Unsubscribe、UnSubScribe；GMP_Audio 暴露 mLoopSources 和 mOneShotSources。',
+  '交付文档必须说明流程修改、删除、增加并给例子。'
+].join('\n');
+
 function envFlag(name, env) {
   env = env || process.env;
   return /^(1|true|yes|on)$/i.test(String(env[name] || ''));
@@ -1322,6 +1339,7 @@ ${whitelistBlock}
 如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain*.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 WHITELIST 列出的 partial 文件里找禁用 API 的调用并删除/替换**。
 
 ### ⛔ 当前任务的硬约束
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 - 禁止使用泛型 API：\`GetComponent<T>()\`、\`FindObjectOfType<T>()\`、\`Resources.GetBuiltinResource<T>()\`
 - 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
@@ -1417,7 +1435,7 @@ ${inlineSkeletonSystems}
 5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 
 两个文件是 partial class，共享所有字段。`
         : `## 任务：生成 Luna 试玩广告代码
@@ -1443,7 +1461,7 @@ ${inlineSkeletonMain}
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 
 代码必须完整（1300-1600 行），不要省略任何部分。`)
       : `## 任务：生成 Luna 试玩广告代码
@@ -1462,7 +1480,7 @@ ${inlinePromptMd}
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
 可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
-程序员交付补充规则：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 Debug.LogError，不写查找/创建/修组件的 fallback；phase 是连续试玩流程，不能重置全场；流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，不要只叫 \`Phase1.asset\` / \`phase1\`；AIBridge 预水合后删除 primitive builder、source spec helper 等临时脚本。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }

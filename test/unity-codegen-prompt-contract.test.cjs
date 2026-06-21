@@ -55,6 +55,30 @@ function assertDeliveryContract(text, label) {
   assert.ok(text.indexOf('重置全场') >= 0, label + ' should forbid phase-as-level-reset behavior');
   assert.ok(text.indexOf('AIBridge 预水合') >= 0, label + ' should require editor-side hydration before runtime');
   assert.ok(text.indexOf('临时脚本') >= 0, label + ' should remove one-off temporary generation scripts from delivery');
+  assert.ok(
+    text.indexOf('实际运行 AIBridgeCLI') >= 0 ||
+    text.indexOf('actually running AIBridgeCLI') >= 0 ||
+    text.indexOf('actually run AIBridgeCLI') >= 0,
+    label + ' should require a real AIBridgeCLI run, not static guessing'
+  );
+  assert.ok(text.indexOf('AIBRIDGE_CLI') >= 0, label + ' should require explicit AIBRIDGE_CLI path evidence');
+  assert.ok(text.indexOf('command -v AIBridgeCLI') >= 0, label + ' should require PATH-based CLI discovery evidence');
+  assert.ok(text.indexOf('harness status') >= 0, label + ' should require AIBridge harness status probe');
+  assert.ok(text.indexOf('editor get_state') >= 0, label + ' should require live Editor state probe');
+  assert.ok(text.indexOf('stdout/stderr/exit code') >= 0, label + ' should require recording AIBridge probe stdout/stderr/exit code');
+  assert.ok(text.indexOf('editor-timeout') >= 0, label + ' should distinguish Editor timeout from CLI discovery failure');
+  assert.ok(text.indexOf('CLI not found') >= 0, label + ' should forbid misreporting Editor timeout as CLI not found');
+  assert.ok(text.indexOf('Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过') >= 0, label + ' should block final Unity certification without live Editor hydration');
+  assert.ok(text.indexOf('MonoSingleton<T>') >= 0, label + ' should explicitly forbid MonoSingleton manager inheritance');
+  assert.ok(text.indexOf('mInstance') >= 0 && text.indexOf('只读 `instance`') >= 0, label + ' should require scene-mounted mInstance/instance managers');
+  assert.ok(text.indexOf('MainGame') >= 0, label + ' should require code/manager hierarchy grouping under MainGame');
+  assert.ok(text.indexOf('CanvasScaler') >= 0, label + ' should include the CanvasScaler delivery standard');
+  assert.ok(text.indexOf('1080x1920') >= 0, label + ' should require the 1080x1920 Canvas reference resolution');
+  assert.ok(text.indexOf('Match = 0.5') >= 0 || text.indexOf('Match 0.5') >= 0, label + ' should require Canvas match 0.5');
+  assert.ok(text.indexOf('GMP_EventModule') >= 0, label + ' should mention the delivery EventModule contract');
+  assert.ok(text.indexOf('Subscribe') >= 0 && text.indexOf('UnSubScribe') >= 0, label + ' should require explicit event subscribe/unsubscribe APIs');
+  assert.ok(text.indexOf('mLoopSources') >= 0 && text.indexOf('mOneShotSources') >= 0, label + ' should require centralized multi-source audio fields');
+  assert.ok(text.indexOf('流程如何修改、删除、增加') >= 0 || text.indexOf('流程修改、删除、增加') >= 0, label + ' should require flow edit/delete/add handoff guidance');
   assert.strictEqual(text.indexOf('GMP_EntityBindingManager'), -1, label + ' must not restore the legacy binding manager as the positive entry');
   assert.strictEqual(text.indexOf('mBindings'), -1, label + ' must not restore mBindings as the positive entry');
 }
@@ -89,9 +113,15 @@ assert.ok(behaviorTemplateText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 
 assert.ok(behaviorTemplateText.indexOf('固定 Player 引用') >= 0, 'behavior templates should require fixed player references');
 assert.ok(behaviorTemplateText.indexOf('连续试玩流程') >= 0, 'behavior templates should define phase as continuous flow');
 assert.ok(behaviorTemplateText.indexOf('AIBridge 预水合') >= 0, 'behavior templates should require editor-side hydration cleanup');
+assert.ok(behaviorTemplateText.indexOf('MainGame') >= 0, 'behavior templates should require code objects under MainGame');
+assert.ok(behaviorTemplateText.indexOf('1080x1920') >= 0 && behaviorTemplateText.indexOf('Match 0.5') >= 0, 'behavior templates should carry the Canvas standard');
+assert.ok(behaviorTemplateText.indexOf('UnSubScribe') >= 0, 'behavior templates should carry the event unsubscribe alias');
+assert.ok(behaviorTemplateText.indexOf('mLoopSources') >= 0 && behaviorTemplateText.indexOf('mOneShotSources') >= 0, 'behavior templates should carry the multi-source audio contract');
+assert.ok(behaviorTemplateText.indexOf('流程修改、删除、增加') >= 0, 'behavior templates should require flow edit guidance');
 assert.ok(behaviorTemplateText.indexOf('隐藏运行时对象表') >= 0, 'behavior templates should forbid hidden runtime object registries in programmer delivery');
 assert.ok(behaviorTemplateText.indexOf('GMP_SceneEntityRefs') >= 0, 'behavior templates should point final delivery to explicit scene refs');
 assert.ok(behaviorTemplateText.indexOf('通用 object binding 表') >= 0, 'behavior templates should forbid generic object binding tables');
+assert.ok(behaviorTemplateText.indexOf('Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过') >= 0, 'behavior templates should block final certification without live Editor hydration');
 assert.ok(codexCodeCoderText.indexOf('程序员可交付反馈规则') >= 0, 'codex fix prompt should carry programmer-delivery feedback warnings');
 assert.ok(codexCodeCoderText.indexOf('复杂脚本参数说明') >= 0, 'codex fix prompt should carry complex-script parameter guidance');
 assert.ok(codexCodeCoderText.indexOf('有意义的空行分块') >= 0, 'codex fix prompt should carry meaningful blank-line grouping guidance');
@@ -99,9 +129,15 @@ assert.ok(codexCodeCoderText.indexOf('MoveSpeed 归 MovementComponent') >= 0, 'c
 assert.ok(codexCodeCoderText.indexOf('固定 Player 引用') >= 0, 'codex fix prompt should require fixed player references');
 assert.ok(codexCodeCoderText.indexOf('连续试玩流程') >= 0, 'codex fix prompt should define phase as continuous flow');
 assert.ok(codexCodeCoderText.indexOf('AIBridge 预水合') >= 0, 'codex fix prompt should require editor-side hydration cleanup');
+assert.ok(codexCodeCoderText.indexOf('MainGame') >= 0, 'codex fix prompt should require code objects under MainGame');
+assert.ok(codexCodeCoderText.indexOf('1080x1920') >= 0 && codexCodeCoderText.indexOf('Match 0.5') >= 0, 'codex fix prompt should carry the Canvas standard');
+assert.ok(codexCodeCoderText.indexOf('UnSubScribe') >= 0, 'codex fix prompt should carry the event unsubscribe alias');
+assert.ok(codexCodeCoderText.indexOf('mLoopSources') >= 0 && codexCodeCoderText.indexOf('mOneShotSources') >= 0, 'codex fix prompt should carry the multi-source audio contract');
+assert.ok(codexCodeCoderText.indexOf('流程修改、删除、增加') >= 0, 'codex fix prompt should require flow edit guidance');
 assert.ok(codexCodeCoderText.indexOf('隐藏运行时对象表') >= 0, 'codex fix prompt should forbid hidden runtime object registries in programmer delivery');
 assert.ok(codexCodeCoderText.indexOf('GMP_SceneEntityRefs') >= 0, 'codex fix prompt should point final delivery to explicit scene refs');
 assert.ok(codexCodeCoderText.indexOf('通用 object binding 表') >= 0, 'codex fix prompt should forbid generic object binding tables');
+assert.ok(codexCodeCoderText.indexOf('Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过') >= 0, 'codex fix prompt should block final certification without live Editor hydration');
 
 assert.strictEqual(v5Text.indexOf('每个字段声明都必须有详细中文注释'), -1, 'v5 prompt must not require field-by-field boilerplate comments');
 assert.strictEqual(v5Text.indexOf('每个方法都必须有详细中文注释'), -1, 'v5 prompt must not require method-by-method boilerplate comments');

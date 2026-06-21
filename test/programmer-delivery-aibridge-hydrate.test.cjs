@@ -75,7 +75,7 @@ function makeRoot() {
     { name: 'GMP_HudController', rel: 'Assets/Scripts/Core/Modules/GMP_HudController.cs' },
     { name: 'GMP_EventModule', rel: 'Assets/Scripts/Core/Modules/GMP_EventModule.cs' },
     { name: 'GMP_CameraController', rel: 'Assets/Scripts/Tool/GMP_CameraController.cs' },
-    { name: 'GMP_EntityBindingManager', rel: 'Assets/Scripts/Game/Level/GMP_EntityBindingManager.cs' },
+    { name: 'GMP_SceneEntityRefs', rel: 'Assets/Scripts/Game/Level/GMP_SceneEntityRefs.cs' },
     { name: 'GMP_LevelRuleEngine', rel: 'Assets/Scripts/Game/Level/GMP_LevelRuleEngine.cs' },
     { name: 'GMP_Player', rel: 'Assets/Scripts/Game/Player/GMP_Player.cs' },
     { name: 'GMP_AutoPlayDriver', rel: 'Assets/Scripts/Game/AutoPlay/GMP_AutoPlayDriver.cs' }

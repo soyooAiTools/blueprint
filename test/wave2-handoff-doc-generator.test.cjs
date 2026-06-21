@@ -78,6 +78,7 @@ assert.ok(/## 3\. 分镜与代码对应表/.test(docs.handoffMd), 'handoff §3')
 assert.ok(/## 4\. 关键规则/.test(docs.handoffMd), 'handoff §4');
 assert.ok(/## 5\. GFM 工具库索引/.test(docs.handoffMd), 'handoff §5');
 assert.ok(/## 6\. 二期接入清单/.test(docs.handoffMd), 'handoff §6');
+assert.ok(/## 6\.1 流程增删改指南/.test(docs.handoffMd), 'handoff §6.1 flow edit guide');
 assert.ok(/## 7\. 反馈与迭代/.test(docs.handoffMd), 'handoff §7');
 
 // 估算总时长（12 + 10 = 22s，带兜底）
@@ -96,6 +97,10 @@ assert.ok(/FramePoint/.test(docs.handoffMd), '镜头规则应指向 FramePoint')
 assert.ok(/offscreenEntities/.test(docs.handoffMd), '运行态出画检查应写入文档');
 assert.ok(/Phase_<id>_Init.*Phase_<id>_OnTap.*Phase_<id>_OnAutoPlayArrive.*CheckEventRules/.test(docs.handoffMd), '阅读路径应说明每个 shot 的代码顺序');
 assert.ok(/Luna/.test(docs.handoffMd), 'Luna 兼容章节应存在');
+assert.ok(/修改流程/.test(docs.handoffMd), '流程指南应说明修改流程');
+assert.ok(/删除流程/.test(docs.handoffMd), '流程指南应说明删除流程');
+assert.ok(/增加流程/.test(docs.handoffMd), '流程指南应说明增加流程');
+assert.ok(/例子/.test(docs.handoffMd), '流程指南应包含例子');
 
 // GFM 索引必须包含核心 Manager 文件
 assert.ok(/GameFlowManagerMain\.cs/.test(docs.handoffMd), 'GFM 索引：主流程文件');

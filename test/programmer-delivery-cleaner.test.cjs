@@ -60,6 +60,73 @@ assert.match(workerPlayerSource, /new Vector3\(-h, 0, -v\)/, 'manual joystick ax
 assert.doesNotMatch(workerPlayerSource, /new Vector3\(h, 0, -v\)/, 'manual joystick horizontal axis must not use the pre-storyboard camera mapping');
 const overlayCanvasSceneRe = /--- !u!223 &[0-9]+\nCanvas:[\s\S]*?m_RenderMode: 0[\s\S]*?m_PlaneDistance: 8[\s\S]*?m_SortingOrder: 100/;
 
+{
+  const singletonCases = [
+    {
+      className: 'GMP_PlayerBase',
+      code: [
+        'public class GMP_PlayerBase : GMP_BaseGameFlowEntity',
+        '{',
+        '  public static GMP_PlayerBase instance;',
+        '  protected override void Awake()',
+        '  {',
+        '    base.Awake();',
+        '    instance = this;',
+        '  }',
+        '}',
+      ].join('\n')
+    },
+    {
+      className: 'GMP_Player',
+      code: [
+        'using UnityEngine;',
+        'public class GMP_Player : GMP_PlayerBase',
+        '{',
+        '  public static new GMP_Player instance;',
+        '  protected override void Awake()',
+        '  {',
+        '    base.Awake();',
+        '    instance = this;',
+        '  }',
+        '}',
+      ].join('\n'),
+      typedNew: true
+    },
+    {
+      className: 'GMP_Joystick',
+      code: [
+        'using UnityEngine;',
+        'public class GMP_Joystick : MonoBehaviour',
+        '{',
+        '  public static GMP_Joystick instance;',
+        '  private void Awake() { instance = this; }',
+        '}',
+      ].join('\n')
+    },
+    {
+      className: 'GMP_Pool',
+      code: [
+        'using UnityEngine;',
+        'public class GMP_Pool : MonoBehaviour',
+        '{',
+        '  public static GMP_Pool instance { get; private set; }',
+        '  private void Awake() { instance = this; }',
+        '}',
+      ].join('\n')
+    },
+  ];
+  singletonCases.forEach((item) => {
+    const text = cleanerInternals.normalizeSceneSingletonInstanceMembers(item.code, item.className);
+    assert.match(text, new RegExp('private static ' + item.className + ' mInstance;'));
+    assert.match(text, new RegExp('public ' + (item.typedNew ? 'new ' : '') + 'static ' + item.className + ' instance \\{ get \\{ return mInstance; \\} \\}'));
+    assert.match(text, /mInstance = this;/);
+    assert.doesNotMatch(text, new RegExp('public static (?:new )?' + item.className + ' instance\\s*;'));
+    assert.doesNotMatch(text, /instance \{ get; private set; \}/);
+    assert.doesNotMatch(text, /instance = this;/);
+    assert.doesNotMatch(text, /base\.Awake\(\);/);
+  });
+}
+
 const duplicateEventSystemRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eventsystem-dedupe-'));
 fs.mkdirSync(path.join(duplicateEventSystemRoot, 'Assets', 'Scenes'), { recursive: true });
 fs.writeFileSync(path.join(duplicateEventSystemRoot, 'Assets', 'Scenes', 'Game.unity'), [
@@ -314,6 +381,11 @@ try {
   const handoff = fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8');
   assert.match(handoff, /程序员交付版说明/);
   assert.match(handoff, /移除 tools 目录数：1/);
+  assert.match(handoff, /流程增删改指南/);
+  assert.match(handoff, /修改流程/);
+  assert.match(handoff, /删除流程/);
+  assert.match(handoff, /增加流程/);
+  assert.match(handoff, /例子/);
   // Wave C: HANDOFF 必须用"保留 5 partial"语,绝不能再出现"普通继承基类分层"。
   assert.match(handoff, /保留.*5 个 partial 拆分/);
   assert.match(handoff, /保留的 GameFlowManagerMain partial 文件数：6/);
@@ -416,11 +488,14 @@ try {
     assert.ok(!fs.existsSync(path.join(gameEntities, 'GMP_BarrackEntity.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'Entities')), 'Entities should be sibling to Manager in reference layout');
     assert.ok(fs.existsSync(path.join(coreModules, 'GMP_MainManager.cs')));
-    assert.ok(fs.existsSync(path.join(coreBase, 'MonoSingleton.cs')));
+    assert.ok(!fs.existsSync(path.join(coreBase, 'MonoSingleton.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'GameFlowManagerMain.cs')), 'reference layout should merge away GameFlowManagerMain.cs');
 
     const mainManager = fs.readFileSync(path.join(coreModules, 'GMP_MainManager.cs'), 'utf8');
-    assert.match(mainManager, /public class GMP_MainManager : MonoSingleton<GMP_MainManager>/);
+    assert.match(mainManager, /public class GMP_MainManager : MonoBehaviour/);
+    assert.match(mainManager, /private static GMP_MainManager mInstance;/);
+    assert.match(mainManager, /public static GMP_MainManager instance \{ get \{ return mInstance; \} \}/);
+    assert.doesNotMatch(mainManager, /MonoSingleton/);
     assert.match(mainManager, /public GameObject mBarrack;/);
     assert.match(mainManager, /public GameObject mGold;/);
     assert.match(mainManager, /GMP_ResourceIds\.Gold/);
@@ -917,6 +992,7 @@ try {
     assert.doesNotMatch(generatedCsText, /\/\/\s*方法说明：执行/, 'delivery scripts should not contain empty generated method comments');
     assert.doesNotMatch(generatedCsText, /\/\/\s*(初始化当前模块|按帧推进当前模块|Unity 生命周期入口：|Unity 每帧更新入口：|Unity LateUpdate 入口：|更新玩家引导文案)/, 'delivery scripts should not contain obvious boilerplate comments');
     assert.doesNotMatch(generatedCsText, /GameObject\.Find|FindObjectOfType|Resources\.FindObjectsOfTypeAll|\.AddComponent\s*(?:<|\()|new\s+GameObject\s*\(/, 'delivery scripts should not mention runtime lookup or object creation APIs');
+    assert.doesNotMatch(generatedCsText, /\bMonoSingleton\s*<|\bclass\s+MonoSingleton\b|\bGMP_SingletonBase\b/, 'delivery scripts should use scene-mounted mInstance/instance managers instead of MonoSingleton');
     const semanticPhaseAssets = fs.readdirSync(phaseDir).filter((name) => /^Flow\d+_[A-Za-z0-9]+\.asset$/.test(name)).sort();
     assert.strictEqual(semanticPhaseAssets.length, 2);
     assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 0);
@@ -996,9 +1072,12 @@ try {
     assert.match(deliveryCamera, /GMP_UIManager\.instance\.SyncSceneEntityLabels\(\)/, 'camera LateUpdate should refresh labels after camera movement');
     const deliveryPlayer = fs.readFileSync(path.join(scripts, 'Game', 'Player', 'GMP_Player.cs'), 'utf8');
     assert.match(deliveryPlayer, /public class GMP_Player : GMP_PlayerBase/, 'project Player should inherit the reusable Core Player base');
-    assert.match(deliveryPlayer, /protected override void Awake\(\)/, 'project Player should override the Core PlayerBase Awake hook');
-    assert.match(deliveryPlayer, /base\.Awake\(\);/, 'project Player should register the Core PlayerBase singleton state');
-    assert.match(deliveryPlayer, /Bind\(Go, PlayerPoolName, "Player"\);/, 'project Player should bind its source scene object to GMP_PlayerBase');
+    assert.match(deliveryPlayer, /private static GMP_Player mInstance;/, 'project Player should expose a scene-mounted mInstance singleton');
+    assert.match(deliveryPlayer, /public new static GMP_Player instance/, 'project Player should expose its typed scene-mounted instance');
+    assert.match(deliveryPlayer, /private void Awake\(\)/, 'project Player should register from its scene-mounted Awake');
+    assert.match(deliveryPlayer, /mInstance = this;/, 'project Player should assign mInstance during Awake');
+    assert.doesNotMatch(deliveryPlayer, /MonoSingleton|GMP_SingletonBase|base\.Awake\(\);/, 'project Player should not use legacy singleton bases or base singleton hooks');
+    assert.doesNotMatch(deliveryPlayer, /Bind\(|PlayerPoolName|EnsurePlayerObject/, 'project Player should not depend on undefined binding helpers');
     assert.doesNotMatch(deliveryPlayer, /mPlayer\.transform\.position = new Vector3\(0f, 0\.5f, 0f\)/, 'Player runtime init must not overwrite the source scene position');
     assert.match(deliveryPlayer, /public GameObject mPlayerObject;/, 'Player should expose an Inspector/MCP-assigned scene object');
     assert.match(deliveryPlayer, /mPlayer = mPlayerObject;/, 'Player runtime init should bind the assigned scene object');
@@ -1358,10 +1437,11 @@ try {
       const uiManager = fs.readFileSync(uiManagerPath, 'utf8');
       assert.doesNotMatch(uiManager, /DisplayNameForEntity/, 'Core UIManager should use a generic fallback label helper, not a Game display-name mapper');
       assert.doesNotMatch(uiManager, /mTargetHintText|SetTargetHint/, 'UIManager should not duplicate HudController target hint ownership');
+      assert.doesNotMatch(uiManager, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)|GMP_UI\.ConfigureSourceHudLayout\(mCanvas/, 'UIManager should not rewrite scene-authored Canvas/HUD layout at runtime');
       assert.match(uiManager, /FallbackEntityLabel\(targetEntity\)/);
     }
     assert.doesNotMatch(hudController, /mScoreText = FindText\("Text_Coin"\)/);
-    assert.match(hudController, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)/);
+    assert.doesNotMatch(hudController, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)/, 'HudController should not rewrite scene-authored Canvas settings at runtime');
     const levelRuleEngine = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), 'utf8');
     assert.doesNotMatch(levelRuleEngine, /using UnityEngine\.UI;/);
     assert.match(levelRuleEngine, /RefreshTargetHint\(\)/);

@@ -25,7 +25,8 @@ function makeRoot(options) {
   fs.mkdirSync(path.join(root, 'Assets', 'Scenes'), { recursive: true });
 
   var main = [
-    'public class GMP_MainManager : MonoSingleton<GMP_MainManager>',
+    'using UnityEngine;',
+    'public class GMP_MainManager : MonoBehaviour',
     '{',
     '  GMP_LevelRuleEngine mLevel = new GMP_LevelRuleEngine();',
     '  GMP_ChefEntity mChef = new GMP_ChefEntity();',
@@ -61,7 +62,14 @@ function makeRoot(options) {
     entities: [{ id: '_chef', label: 'Chef' }],
     phases: [{ phaseId: 'serve', guideText: 'Serve shrimp' }]
   }, null, 2));
-  fs.writeFileSync(path.join(root, 'README.md'), '# Unity 工程导出\n\n## 程序员交付边界\n- Core / Tool / Game\n');
+  var flowGuide = [
+    '## 流程增删改指南',
+    '- 修改流程：编辑 FlowXX_<业务语义>.asset 的 mGuideText、mGate、mSteps，并同步 GMP_PhaseController.mPhases。',
+    '- 删除流程：从 mPhases 移除对应 Flow 资产，删除不再引用的场景实体字段。',
+    '- 增加流程：新增 Flow03_collect_food.asset，补 mPhaseId、场景引用和 LevelRuleEngine 规则。',
+    '- 例子：把 flow03_collect_food 改成 flow04_upgrade_chef 时，同步 Flow04_upgrade_chef.asset 与 README 说明。'
+  ].join('\n');
+  fs.writeFileSync(path.join(root, 'README.md'), '# Unity 工程导出\n\n## 程序员交付边界\n- Core / Tool / Game\n\n' + flowGuide + '\n');
   fs.writeFileSync(path.join(root, 'CODE_RELATION_GRAPH.md'), options.staleDocs
     ? '# 代码关系图\n\nUpdate -> CheckEventRules -> GFM_Player -> Phase_OnTap\n'
     : (options.missingDocRef
@@ -113,6 +121,19 @@ function makeRoot(options) {
       '}'
     ].join('\n'));
   }
+  if (options.dynamicUiCreationLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_DynamicUiLeak.cs'), [
+      'using UnityEngine;',
+      'using UnityEngine.UI;',
+      'public class GMP_DynamicUiLeak',
+      '{',
+      '  public void Build(Canvas canvas)',
+      '  {',
+      '    GMP_UI.CreateText(canvas, "runtime text", Vector2.zero, 20);',
+      '  }',
+      '}'
+    ].join('\n'));
+  }
   if (options.vectorDistanceLeak) {
     fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_DistanceLeak.cs'), [
       'using UnityEngine;',
@@ -127,6 +148,16 @@ function makeRoot(options) {
       'public class GMP_StaticWorkflowLeak',
       '{',
       '  public static void Init() { }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.sceneSingletonLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_BadManager.cs'), [
+      'using UnityEngine;',
+      'public class GMP_BadManager : MonoBehaviour',
+      '{',
+      '  public static GMP_BadManager instance;',
+      '  private void Awake() { instance = this; }',
       '}'
     ].join('\n'));
   }
@@ -188,6 +219,7 @@ try {
   var clean = gate.validateMaintainability(cleanRoot, { strict: true });
   assert.strictEqual(clean.passed, true, JSON.stringify(clean.errors, null, 2));
   assert.strictEqual(clean.summary.thinEntityClassCount, 0);
+  assert.strictEqual(clean.summary.dynamicUiCreationCount, 0);
 } finally {
   cleanup(cleanRoot);
 }
@@ -291,6 +323,17 @@ try {
   cleanup(newGameObjectRoot);
 }
 
+var dynamicUiRoot = makeRoot({ dynamicUiCreationLeak: true });
+try {
+  var dynamicUiReport = gate.validateMaintainability(dynamicUiRoot, { strict: true });
+  assert.strictEqual(dynamicUiReport.passed, false);
+  assert.ok(dynamicUiReport.errors.some(function(error) { return error.code === 'dynamic-ui-creation'; }));
+  assert.strictEqual(dynamicUiReport.summary.dynamicUiCreationCount, 1);
+  assert.strictEqual(dynamicUiReport.summary.dynamicUiCreationFileCount, 1);
+} finally {
+  cleanup(dynamicUiRoot);
+}
+
 var unusedMethodRoot = makeRoot({ unusedMethodLeak: true });
 try {
   var unusedMethodReport = gate.validateMaintainability(unusedMethodRoot, { strict: true });
@@ -319,6 +362,16 @@ try {
   assert.strictEqual(staticWorkflowReport.summary.staticWorkflowMethodCount, 1);
 } finally {
   cleanup(staticWorkflowRoot);
+}
+
+var sceneSingletonRoot = makeRoot({ sceneSingletonLeak: true });
+try {
+  var sceneSingletonReport = gate.validateMaintainability(sceneSingletonRoot, { strict: true });
+  assert.strictEqual(sceneSingletonReport.passed, false);
+  assert.ok(sceneSingletonReport.errors.some(function(error) { return error.code === 'scene-singleton-contract'; }));
+  assert.strictEqual(sceneSingletonReport.summary.sceneSingletonContractIssueCount, 1);
+} finally {
+  cleanup(sceneSingletonRoot);
 }
 
 var duplicateStateRoot = makeRoot({ duplicateStateLeak: true });

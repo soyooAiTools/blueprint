@@ -1,7 +1,7 @@
 # 当前 Unity 代码生成 Prompts 整理
 
-更新时间：2026-06-20
-主仓版本：2026-06-20 Unity codegen prompt hydration / programmer-delivery maintainability 优化
+更新时间：2026-06-21
+主仓版本：2026-06-21 Unity codegen prompt hydration / programmer-delivery feedback hardening
 
 本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
 
@@ -28,7 +28,7 @@
 所有当前 Unity codegen prompt 都应携带这组规则：
 
 - 最终 `Assets/Scripts` 只允许 `Core` / `Tool` / `Game` 三个顶层目录。
-- `Core/Base` 放 `MonoSingleton`、核心 enum、实体/角色/NPC 基类。
+- `Core/Base` 放核心 enum、实体/角色/NPC 基类；管理器禁止继承 `MonoSingleton<T>` / `GMP_SingletonBase<T>`，统一用场景预挂实例里的 `mInstance`/只读 `instance`，缺实例返回 `null` 且不创建对象。
 - `Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可复用能力。
 - `Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。
 - 核心管理层只能有一个主管理器，负责集中初始化模块后启动关卡。
@@ -36,11 +36,16 @@
 - Player/NPC/Entity 走“基类 + 可选组件”组合，不把一次性业务字段散落在核心类型里。
 - Movement、Trigger、Interaction、Inventory 这类没有 Unity 生命周期的能力默认是普通 C# 类，不因为名字叫 Component 就挂到同一个场景节点上。
 - Tool 层沉淀跨项目稳定工具，不硬编码项目实体、资源和 phase 文案。
-- 音频必须集中式多音源管理，业务只调用 Audio module API。
+- 音频必须集中式多音源管理，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组，业务只调用 Audio module API。
 - 新增业务优先写进 `Game/Level`、`Game/Entities`、`Game/Player`。
 - 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration。
+- AIBridge 证据必须来自实际运行 AIBridgeCLI：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再跑 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`，并把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`；CLI 找到但 Unity Editor/AIBridge 会话超时时写 `editor-timeout`，不能写成 CLI not found。
+- Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。
 - 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
 - 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
+- 场景层级中代码/管理器节点收纳到 `MainGame` 子级，避免 `GMP_*` 根节点平铺。
+- Canvas 和核心 UI 节点必须在场景中预创建，Canvas 使用 Screen Space - Overlay，Sort Order 100，CanvasScaler 使用 Scale With Screen Size，Reference Resolution 1080x1920，Match 0.5；业务脚本不要 runtime `CreateCanvas/CreateText/AddComponent<Canvas>`。
+- `GMP_EventModule` 必须有显式 `Subscribe`、`Unsubscribe` 和 `UnSubScribe` 注销别名。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
 - `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，禁止回退到通用 object binding 表、`mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
@@ -54,6 +59,7 @@
 - 兜底代码只在真实可进入、能解释风险的位置保留；不要为理论上进不去的分支堆十几行查找、创建或修复逻辑。
 - Player、HUD、Camera 和关键实体必须走固定引用、serialized refs、`GMP_SceneEntityRefs` 或固定 addressable path；缺引用只允许短路 `Debug.LogError`，不能写 runtime 扫描、创建、修组件 fallback。
 - Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。
+- 交付文档必须包含“流程增删改指南”，说明修改、删除、增加 Flow/Phase 资产、业务规则和场景引用的步骤，并给出例子。
 - AIBridge 预水合后要删除 primitive builder、source spec helper、临时生成脚本、通用 object binding 表和运行时场景生成/修复代码；确实跨项目复用的能力下沉为正式 Tool。
 - `GMP_SceneEntityRefs` 显式字段保留为 Inspector 中的人类可见数据入口；删除的是运行时生成/查找/修复绑定的代码、通用 object binding 表和隐藏 runtime registry。导出必须先写 `SCENE_BAKE_PLAN.json`，再由 AIBridge/Editor bake 写 `SCENE_BAKE_REPORT.json`，最终用 `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明临时 primitive spec、primitive builder/source spec helper、通用绑定表没有留在交付包。
 
@@ -115,6 +121,7 @@
 必须：
 
 - 通过 AIBridge/MCP 读取真实场景信息并做 hydration。
+- 实际运行 AIBridgeCLI probe，记录 CLI 路径、stdout/stderr/exit code 和 Editor 会话状态；不能把 Editor timeout 误写成 CLI not found。
 - 把对象引用写进 Inspector/scene YAML。
 - Manager、HUD、Camera、Audio、Entity 依赖用 `[SerializeField]`、`GMP_SceneEntityRefs` 或同类 serialized refs 表达。
 - 根节点负责逻辑，表现资源挂子节点。
@@ -320,6 +327,8 @@ test/unity-codegen-prompt-contract.test.cjs
 它检查：
 
 - schema prompt、V5、V4、Codex markdown、worker prompt 都包含 AIBridge/MCP。
+- prompt 中明确要求实际运行 AIBridgeCLI，记录 `AIBRIDGE_CLI` / `command -v AIBridgeCLI`、`harness status`、`editor get_state`、stdout/stderr/exit code，并区分 `editor-timeout` 与 CLI not found。
+- prompt 中明确声明 Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；静态 YAML、文件级 hardgate 或 CLI probe 只能作为文件级审计证据。
 - prompt 中保留 Inspector hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释规则。
 - prompt 中保留 DOCX 反馈汇总后的可交付规则：一节点一主脚本、无生命周期能力用普通 C# 类、只保留会被调用的方法、必要兜底才写。
 - V5 prompt 展示 binding-based object access。
