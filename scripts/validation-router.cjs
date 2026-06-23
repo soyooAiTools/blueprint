@@ -178,6 +178,12 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:storyboard2html-contract', ['node', 'test/storyboard2html-contract.test.cjs'], 'Validate storyboard2html HTML contract and hardgate command shape.'));
   }
 
+  if (/^(engine\/stages\/build-schema-prompt-v3\.cjs|worker\/(prompt-v5-basetemplate\.js|prompt-v4\.js|luna-codex-code\.md|worker-coder\.js|codex-code-coder\.js|behavior-templates\.md)|test\/unity-codegen-prompt-contract\.test\.cjs)$/.test(file)) {
+    addTag(plan, 'unity-codegen-prompt');
+    addTag(plan, 'programmer-delivery-boundary');
+    addCommand(plan, command('unit:unity-codegen-prompt-contract', ['node', 'test/unity-codegen-prompt-contract.test.cjs'], 'Validate Luna/WebGL prompt boundaries and stale Unity delivery constraints.'));
+  }
+
   if (/^(lib\/unity-delivery-spec-projector\.cjs|lib\/unitycomponent-profile-registry\.cjs|lib\/unitycomponent-v1-accepted-corpus\.cjs|lib\/unitycomponent-v1-emitter\.cjs|lib\/unitycomponent-v1-hardgate\.cjs|scripts\/export-unitycomponent-v1\.cjs|scripts\/unitycomponent-v1-cutover-gates\.cjs|scripts\/unitycomponent-v1-unity-smoke\.cjs|docs\/unitycomponent-contract-v1-remediation-plan\.md|test\/(blueprint-skill-unitycomponent-profile-contract|delivery-spec-source-parity|unity-delivery-spec-projector|unitycomponent-profile-registry|unitycomponent-v1-emitter|unitycomponent-v1-hardgate|unitycomponent-v1-synthetic-export-corpus|unitycomponent-v1-accepted-artifact-corpus|unitycomponent-v1-cutover-gates|unitycomponent-v1-unity-smoke)\.test\.cjs)$/.test(file)) {
     addTag(plan, 'unitycomponent-v1');
     addCommand(plan, command('unit:unitycomponent-profile-registry', ['node', 'test/unitycomponent-profile-registry.test.cjs'], 'Validate explicit Unity delivery profile split and defaults.'));

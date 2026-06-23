@@ -8,9 +8,15 @@
 蓝图 JSON 在 `blueprint.json`，阅读它了解游戏流程。
 GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Pool/GFM_Luna 等，每个文件一个类），DO NOT Read 它们（~48KB），API 已在 prompt 内联。
 
+## 输出边界
+
+本文件只给 Luna/WebGL staging 代码使用，不是程序员 Unity 交付工程 prompt。storyboard2html/source HTML/WebGL parity 是事实源，不要在 C# 中改写 phase、guideText、targetSequence、entity/resource/gate 语义。
+
+程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。本文件中的 `GameObject.Find("__Pool_*")`、`GFM_*` 和 Luna 对象池规则不得带入程序员 Unity 交付包。
+
 ## 核心规则：基础样例工程模式
 
-场景已预制 160 个带颜色的 3D 对象 + UI 元素。**优先使用池对象（Find），只有池对象数量不够时才用 Instantiate 复制**。
+场景已预制 160 个带颜色的 3D 对象 + UI 元素。**优先使用 prompt 已分配或骨架已绑定的池对象；对象不够时只能复用白名单备用池对象，不要直接 Instantiate**。
 ⛔ **绝对不要用 GFM_Create.Obj() / GFM_Create.Ground() / CreatePrimitive()** — 这些在 Luna 中不可见或会导致问题。
 
 你只需要：
@@ -18,7 +24,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）
 3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）
 4. 颜色已烘焙在对象中 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，**不要用 SetColor**
-5. `Instantiate(obj)` 复制池对象（仅当同色同形状的 5 个池对象全部用完时才用）
+5. 对象数量不够时，从 prompt 的备用池对象白名单中选择，不要直接 `Instantiate(obj)`
 6. 写游戏逻辑（交互、碰撞检测、流程控制）
 
 ## 骨架已预创建的变量（直接使用，不要重新创建）
@@ -50,7 +56,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - 不要用 `transform.parent` / `SetParent` / `FindObjectOfType`
 - 不要用泛型方法：`GetComponent<T>()` → 用 `(T)GetComponent(typeof(T))`
 - ⛔ **绝对不要用 `Resources.GetBuiltinResource`（泛型或非泛型）** — Luna runtime 未实现，会抛 "method not implemented" 导致 Start() 崩溃。字体加载由 GFM_UI.CreateText 内部处理（模板已提供 Resources/DefaultFont.ttf）
-- 不要用 `FindObjectOfType<T>()` → 用 `(T)FindObjectOfType(typeof(T))`
+- 不要用 `FindObjectOfType<T>()`，也不要改写成非泛型 `FindObjectOfType(typeof(T))`；对象引用只能来自骨架字段、白名单池对象或 GameSceneCtrl
 - 不要直接设置 `Text.font` / `Text.fontSize` / `Text.alignment` / `Text.horizontalOverflow`；Luna 的 UI.Text backing element 可能未初始化。创建文字用 `GFM_UI.CreateText`，后续只更新 `.text`
 
 ## 场景对象池（已存在，直接 Find 使用）
@@ -78,11 +84,11 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - CTA: `Luna.Unity.Playable.InstallFullGame()`
 - 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds
 - ⚠️ `phaseTimer` 仅用于 8 秒最短停留守卫（防止玩家秒过），**绝对不要用 timer 触发 Phase 推进**
-- 更新引导文字: `guideText.text = "点击采集";` 用骨架的 guideText
+- 更新引导文字: `SetGuideText("点击采集");`，不要绕过统一 helper 直接写 `guideText.text`
 - 更新分数文字: `scoreText.text = "Score: " + score;` 用骨架的 scoreText
 - 创建更多文字: `GFM_UI.CreateText(uiCanvas, "text", new Vector2(x, y), fontSize)`
 - 创建按钮: `GFM_UI.CreateButton(uiCanvas, "Play", new Vector2(0, -100), new Vector2(200, 60), OnClick)`
-- 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`
+- 距离门槛: `(a.position - b.position).sqrMagnitude < radius * radius`，不要用 `Vector3.Distance(...) < radius`
 - 相机操作: 不要直接写 `mainCam.transform.position` / `mainCam.orthographicSize`；shot 镜头统一用 `GFM_CameraController.Instance.FramePoint(...)`、`SetOrthographicSize(...)`、`SetCameraHeight(...)`
 - GameSceneCtrl: 骨架已在 Start() 中初始化 `GameSceneCtrl.Init(gameObject)` 并注册所有实体。可用 `GameSceneCtrl.instance.Get("name")` / `.Show("name", pos)` / `.Hide("name")` / `.IsNear("a", "b", range)`
 - ScriptActivator: 池对象上已预烘焙。简单行为可用 `var sa = (ScriptActivator)obj.GetComponent(typeof(ScriptActivator)); if (sa != null) sa.Activate("npc", "patrol", speed, range, 0f);` — 支持 patrol/chase/rotate/bob/orbit。⚠️ 必须先 Show() 移动到场景中再 Activate()（patrol/bob 会记录激活时的位置作为原点）。隐藏时用 `.Deactivate()` + `Hide()` 配合，否则行为会覆盖隐藏位置

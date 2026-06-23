@@ -94,6 +94,13 @@ assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-syn
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-cutover-gates'), 'export script should route to batch cutover gate tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-unity-smoke'), 'export script should route to Unity smoke script tests');
 
+const promptPlan = router.buildValidationPlan({
+  files: ['worker/prompt-v5-basetemplate.js'],
+});
+assert.ok(promptPlan.riskTags.includes('unity-codegen-prompt'), 'prompt files should route to prompt contract tests');
+assert.ok(promptPlan.riskTags.includes('programmer-delivery-boundary'), 'prompt files should preserve Unity delivery boundary checks');
+assert.ok(commandIds(promptPlan).includes('unit:unity-codegen-prompt-contract'), 'prompt files should route to unity codegen prompt contract tests');
+
 const unknownPlan = router.buildValidationPlan({
   files: ['docs/notes.md'],
 });

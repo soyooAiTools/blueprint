@@ -376,12 +376,15 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('   - 不要把逻辑重新塞回主文件');
   lines.push('   - `Flow.cs` 内部按职责放置 phase-specific 方法：`Phase_<id>_Init()` / `Phase_<id>_OnTap()` / `Phase_<id>_OnAutoPlayArrive()` / `Snapshot_<id>_GateEntities()`');
   lines.push('   - `GameFlowManagerMain.cs` 不应再出现 phase-specific TODO、OnAutoPlayArrive 大 switch、或 Snapshot helper');
-  lines.push('   - 每个字段、每个方法的注释必须紧邻定义本身，不能只在文件顶部给一段总注释');
-  lines.push('   - 任何多行 if 条件或含 && / || 的条件链，都必须在前一行写注释解释该条件的业务意图');
+  lines.push('   - 本 prompt 只生成 Luna/WebGL staging 代码，不是程序员 Unity 交付工程；`GameObject.Find("__Pool_*")`、`GFM_*` 和并行数组规则不得带入 `gmp-v14` 或 `unitycomponent-v1` 程序员交付包');
+  lines.push('   - storyboard2html/source HTML/WebGL parity 是事实源；不要在 C# 中改写 phase、guideText、targetSequence、entity/resource/gate 语义');
+  lines.push('   - 程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}` 和 UnityDeliverySpec');
+  lines.push('   - 关键字段、复杂方法、跨 phase 状态和多参数 helper 的中文注释必须紧邻定义或调用，不能只在文件顶部给一段总注释');
+  lines.push('   - 多行 if 条件或含 && / || 的条件链，必须在前一行写注释解释该条件的业务意图');
   lines.push('2. 用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]');
   lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
   lines.push('4. Update() / HandlePlayerInteractions() / OnAutoPlayArrive() 必须保持轻量，只负责直接调用更小的方法');
-  lines.push('5. 每个字段、每个方法、每个条件分支都必须写详细注释，解释用途和意图');
+  lines.push('5. 注释要少而准：关键字段、复杂方法、跨 phase 状态和复杂条件写清用途/单位/边界/副作用；自解释字段、简单 getter 和单行 guard 不要机械补注释');
   lines.push('6. 禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage，方法必须直接调用');
   lines.push('7. CheckEventRules(): 检查每条规则的条件，满足且 ruleTriggered[i]==false → 执行动作 + 标记已触发');
   lines.push('   示例:');

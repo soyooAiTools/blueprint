@@ -4,6 +4,7 @@
 > CUA 验证器会检测: 如果游戏在无玩家输入下自动跑完所有 Phase → **直接 FAIL**。
 
 > 纯事件驱动，无线性 Phase。用 bool[] ruleTriggered 跟踪规则状态。
+> 本文件只服务 Luna/WebGL staging prompt，不是程序员 Unity 交付工程规则；这里的 `GameObject.Find("__Pool_*")` / `GFM_*` 不得带入 `gmp-v14` 或 `unitycomponent-v1` 程序员交付包。
 
 ## 通用架构
 
@@ -31,6 +32,10 @@ bool[] ruleTriggered = new bool[RULE_COUNT];
 int gold = 0;
 int wood = 0;
 int enemyKillCount = 0;
+
+bool IsNear(Vector3 a, Vector3 b, float radius) {
+    return (a - b).sqrMagnitude < radius * radius;
+}
 
 void Update() {
     float dt = Time.deltaTime;
@@ -75,8 +80,8 @@ cube.transform.localScale = new Vector3(1, 2, 1);
 // ✅ 地面已存在
 var ground = GameObject.Find("__Ground");
 
-// ✅ 需要更多同类对象时，Instantiate 复制（仅当池对象用完时）
-var extraCube = Instantiate(cube);
+// ✅ 需要更多同类对象时，只能使用 prompt 白名单中的备用池对象
+var extraCube = GameObject.Find("__Pool_Cube_Red_02");
 extraCube.transform.position = new Vector3(3, 1, 0);
 ```
 
@@ -106,8 +111,7 @@ void UpdatePlayer(float dt) {
 ```csharp
 void UpdateBuildable(int idx, float dt) {
     if (eState[idx] == 0) {
-        float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
-        if (dist < triggerRadius && gold >= cost) {
+        if (IsNear(eGo[E_PLAYER].transform.position, eGo[idx].transform.position, triggerRadius) && gold >= cost) {
             gold -= cost;
             eState[idx] = 1;
             eTimer[idx] = 0;
@@ -145,7 +149,7 @@ void UpdateEnemy(int idx, float dt) {
     if (eHP[idx] <= 0) { OnEnemyDeath(idx); return; }
     Vector3 dir = (basePos - eGo[idx].transform.position).normalized;
     eGo[idx].transform.position += dir * moveSpeed * dt;
-    if (Vector3.Distance(eGo[idx].transform.position, basePos) < 1.5f) {
+    if (IsNear(eGo[idx].transform.position, basePos, 1.5f)) {
         DamageBase(1);
         eHP[idx] = 0;
     }
@@ -182,8 +186,7 @@ void UpdateSpawner(int idx, float dt) {
 ```csharp
 void UpdateCollectible(int idx, float dt) {
     if (!eActive[idx]) return;
-    float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
-    if (dist < collectRadius) {
+    if (IsNear(eGo[E_PLAYER].transform.position, eGo[idx].transform.position, collectRadius)) {
         gold += rewardAmount;
         eGo[idx].transform.position = new Vector3(0, -999, 0);
         eActive[idx] = false;
@@ -200,7 +203,7 @@ void UpdateProjectiles(float dt) {
         Vector3 dir = (arrowTarget[i] - arrowGo[i].transform.position).normalized;
         arrowGo[i].transform.position += dir * arrowSpeed * dt;
         arrowGo[i].transform.forward = dir;
-        if (Vector3.Distance(arrowGo[i].transform.position, arrowTarget[i]) < 0.5f) {
+        if (IsNear(arrowGo[i].transform.position, arrowTarget[i], 0.5f)) {
             DamageNearestEnemy(arrowTarget[i], arrowDamage);
             arrowGo[i].transform.position = new Vector3(0, -999, 0);
             arrowActive[i] = false;
@@ -222,8 +225,7 @@ void UpdateCarry(float dt) {
         // 检测靠近可拾取物
         for (int i = PICKUP_START; i < PICKUP_END; i++) {
             if (!eActive[i]) continue;
-            float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[i].transform.position);
-            if (dist < pickupRadius) {
+            if (IsNear(eGo[E_PLAYER].transform.position, eGo[i].transform.position, pickupRadius)) {
                 carrying++;
                 eGo[i].transform.position = new Vector3(0, -999, 0);
                 eActive[i] = false;
@@ -233,8 +235,7 @@ void UpdateCarry(float dt) {
     }
     // 检测靠近投递点
     if (carrying > 0) {
-        float distDrop = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[E_DROPOFF].transform.position);
-        if (distDrop < dropRadius) {
+        if (IsNear(eGo[E_PLAYER].transform.position, eGo[E_DROPOFF].transform.position, dropRadius)) {
             gold += carrying * rewardPerItem;
             delivered += carrying;
             carrying = 0;
@@ -254,8 +255,7 @@ int[] upgradeValue = {1, 3, 5, 10};        // 每级的效果值（如搬运量�
 void UpdateUpgradeable(int idx, float dt) {
     int level = eState[idx];
     if (level >= upgradeValue.Length - 1) return; // 已满级
-    float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
-    if (dist < triggerRadius && gold >= upgradeCost[level + 1]) {
+    if (IsNear(eGo[E_PLAYER].transform.position, eGo[idx].transform.position, triggerRadius) && gold >= upgradeCost[level + 1]) {
         gold -= upgradeCost[level + 1];
         eState[idx] = level + 1;
         // 应用升级效果，例如:
@@ -277,8 +277,7 @@ void UpdateDragMovement(float dt) {
     if (Input.GetMouseButtonDown(0)) {
         // 射线检测是否点到了玩家附近
         Vector3 mouseWorld = GetMouseWorldPos();
-        float dist = Vector3.Distance(mouseWorld, eGo[E_PLAYER].transform.position);
-        if (dist < 3f) {
+        if (IsNear(mouseWorld, eGo[E_PLAYER].transform.position, 3f)) {
             isDragging = true;
             dragStart = mouseWorld;
             playerStart = eGo[E_PLAYER].transform.position;
@@ -311,8 +310,7 @@ void UpdateConverter(int idx, float dt) {
     if (eState[idx] < 2) return; // 未建好
     // 投递原料
     if (carrying > 0) {
-        float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
-        if (dist < dropRadius) {
+        if (IsNear(eGo[E_PLAYER].transform.position, eGo[idx].transform.position, dropRadius)) {
             eTimer[idx] += carrying; // 累积原料
             carrying = 0;
         }
@@ -350,7 +348,7 @@ void Update() {
 void CheckEventRules() {
     // Rule 2: 玩家移动到冰矿附近 → 触发采集
     if (!ruleTriggered[1] && 
-        Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[E_ICE_MINE].transform.position) < 2f) {
+        IsNear(eGo[E_PLAYER].transform.position, eGo[E_ICE_MINE].transform.position, 2f)) {
         ruleTriggered[1] = true;
         eState[E_ICE_MINE] = 1; // 开始采集动画
         AddCompletedPhase("collectIce");

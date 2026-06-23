@@ -205,6 +205,9 @@ function callClaudeWithRetry(systemPrompt, userMessage, timeoutMs, model, maxRet
 var GENERATE_PROMPT = [
   'You are a Unity C# code generator for playable ads built with Luna SDK (HTML5 export).',
   'Luna converts Unity C# to JavaScript for web — many Unity features are NOT supported.',
+  'Scope boundary: this prompt is for Luna/WebGL staging code only, not programmer Unity delivery. Do not export gmp-v14 or unitycomponent-v1 project structure from this prompt.',
+  'storyboard2html/source HTML/WebGL parity remains the source of truth; do not rewrite phase, guideText, targetSequence, entity/resource/gate semantics in C#.',
+  'Programmer Unity delivery uses separate profiles: default gmp-v14 legacy, or explicit unitycomponent-v1 with UnityComponent(3) Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}, Entity/BaseComponent/EntityManager/GameEntry, UnityDeliverySpec and v1 hardgate.',
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #1 — READ THIS FIRST ⛔⛔⛔',
   '',
@@ -468,8 +471,7 @@ var GENERATE_PROMPT = [
   '            break;',
   '        case 1: // Wait for player to reach target (player uses joystick to move)',
   '            if (_player != null && _currentTarget != null) {',
-  '                float dist = Vector3.Distance(_player.transform.position, _currentTarget.transform.position);',
-  '                if (dist < 2f) { _shotState = 2; _shotTimer = 0; }',
+  '                if ((_player.transform.position - _currentTarget.transform.position).sqrMagnitude < 2f * 2f) { _shotState = 2; _shotTimer = 0; }',
   '            }',
   '            break;',
   '        case 2: // Build animation / progress',
@@ -1436,13 +1438,15 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
 
   // V5 System Prompt — 简洁版，强调 Find+Move
   var sysPrompt = 'You are a Luna playable ad developer using the BASE TEMPLATE approach.\n'
+    + 'Scope boundary: this is Luna/WebGL staging code, not programmer Unity delivery. Do not emit gmp-v14 or unitycomponent-v1 project structure here.\n'
+    + 'storyboard2html/source HTML/WebGL parity remains the source of truth for phases, guideText, targets, entities, resources and gates.\n'
     + 'The Unity scene already contains 242 pre-built 3D objects. You do NOT create objects.\n\n'
     + 'YOUR APPROACH:\n'
     + '1. GameObject.Find("Name") to get object references in Start()\n'
     + '2. transform.position = new Vector3(x,y,z) to show objects\n'
     + '3. transform.position = new Vector3(0,-999,0) to hide objects\n'
     + '4. Colors are pre-baked into pool names (__Pool_Cube_Red_01) — no SetColor() needed\n'
-    + '5. Instantiate(obj) if you need more copies of an object\n'
+    + '5. If you need more objects, use prompt-approved reserve pool literals; do NOT directly Instantiate(obj)\n'
     + '6. Write game logic (interactions, collisions, flow control)\n\n'
     + 'CRITICAL RULES:\n'
     + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
@@ -1454,7 +1458,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- Hide with position y=-999, NOT SetActive(false)\n'
     + '- Game end: Luna.Unity.LifeCycle.GameEnded(); then ShowCTA()\n'
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
-    + '- Collision detection: Vector3.Distance(a.position, b.position) < radius\n'
+    + '- Distance gates: (a.position - b.position).sqrMagnitude < radius * radius; do NOT use Vector3.Distance(...) < radius\n'
     + '- Do NOT define class EventPool (conflicts with template)\n'
     + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n'
     + '- Do NOT use generic methods: GetComponent<T>(), Resources.GetBuiltinResource<T>(), FindObjectOfType<T>()\n'
@@ -1578,8 +1582,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
         // Fix Resources.GetBuiltinResource<T>("name") -> Luna-safe fallback.
         files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<Font>\(([^)]+)\)/g, 'Resources.Load<Font>("DefaultFont")');
         files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<(\w+)>\(([^)]+)\)/g, 'default($1)');
-        // Fix FindObjectOfType<T>() -> (T)FindObjectOfType(typeof(T))
-        files[fi].content = files[fi].content.replace(/FindObjectOfType<(\w+)>\(\)/g, '($1)FindObjectOfType(typeof($1))');
+        // Do not rewrite FindObjectOfType<T>() into another scene scan; static/fix-loop should block it.
         // Fix GetComponent<T>() -> (T)GetComponent(typeof(T))
         files[fi].content = files[fi].content.replace(/\.GetComponent<(\w+)>\(\)/g, '.GetComponent(typeof($1)) as $1');
       }
@@ -1603,10 +1606,10 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     log('[coder] V5 Verification: ' + lineCount + ' lines, ' + findCalls + ' Find() calls, ' + gfmCreateCalls + ' GFM_Create.Obj() calls (should be 0)', taskId);
 
     if (gfmCreateCalls > 0) {
-      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use Find() instead', taskId);
+      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use bound pool objects instead', taskId);
     }
     if (findCalls === 0) {
-      log('[coder] ⚠️ WARNING: No GameObject.Find() calls — AI may not be using base template objects', taskId);
+      log('[coder] Info: 0 GameObject.Find() calls; acceptable only when generated code uses skeleton-bound entity fields', taskId);
     }
     if (!hasGameEnded) {
       log('[coder] ⚠️ WARNING: No GameEnded() call — Luna lifecycle may not end properly', taskId);
@@ -1776,7 +1779,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
 
     // Warnings
     if (!hasGFMCreate) {
-      log('[coder] Warning: No GFM_Create.Obj() calls found — AI may have used wrong API', taskId);
+      log('[coder] Info: 0 GFM_Create.Obj() calls; current staging prompts prefer bound pool objects or skeleton bindings', taskId);
     }
     if (!hasPhaseCheck) {
       log('[coder] Warning: No phase transition logic found', taskId);

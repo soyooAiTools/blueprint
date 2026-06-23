@@ -10,14 +10,14 @@
 | 仓库 | 本机部署路径 | 角色 |
 |------|------------|------|
 | `soyooAiTools/blueprint`（本仓库） | `/opt/blueprint-editor/` | 主代码：engine / adapters / worker / api / dashboard |
-| `soyooAiTools/blueprint-skill` | `~/.openclaw/workspace/skills/blueprint/` | Claude Code skill 说明书 + references。**改 stage/recipe/static-check 时同步更新此 SKILL.md** |
+| `soyooAiTools/blueprint-skill` | `/opt/blueprint-skill/`（当前安装入口 `/root/.codex/skills/blueprint -> /opt/blueprint-skill`） | Codex blueprint skill 说明书 + references。**改 stage/recipe/static-check/prompt/Unity delivery contract 时同步更新此 SKILL.md** |
 | `soyooAiTools/cua-agent` | `/root/cua-agent/` | CUA Python 验证器（observe_mode 6 层防御实现） |
 | `soyooAiTools/luna-base-template` | `/opt/luna-base-template/` | Luna 7.1.0 工程模板的 git 镜像 |
 | `soyooAiTools/luna-poc` | `/opt/luna-poc/` | 本机 build-api 编译服务（127.0.0.1:18860） |
 | `soyooAiTools/blueprint-ops` | `/opt/blueprint-ops/` | 部署机本地资产：Luna docs / runtime patches / nginx / cc 切换脚本（symlink 回 /root /etc/nginx） |
 | `soyooAiTools/openclaw-workspace` | `~/.openclaw/workspace/` | 30+ 协调 skill + memory + learnings（dashboard/feedbacksystem 等通过 sub-agent 调用） |
 
-新机部署 7 个 repo 都要 clone；blueprint-skill 必须放在 `~/.openclaw/workspace/skills/blueprint/`，否则 Claude Code 不会加载。
+新机部署 7 个 repo 都要 clone；blueprint-skill 必须放在 `/opt/blueprint-skill/`，并确保 `/root/.codex/skills/blueprint` 指向该目录，否则 Codex 不会加载当前 blueprint skill。
 blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README 的"部署机原始位置"表）。
 
 ## 架构
@@ -63,6 +63,31 @@ Blueprint 的 deterministic assembly 现在同时输出结构化 runtime snapsho
 - CUA report 侧由 `soyooAiTools/cua-agent` 的 `phase_evidence_reporter.py` 汇总 `phaseEvidenceSummary`，重点看 `triggeredPresentFullRate`、`triggeredAntiAutoplayHeldRate`、validation violations 和 non-passed triggered modules。
 
 收口归档见 `docs/_archived/2026-05-21-phase-d-runtime-snapshot-closeout.md`。
+
+### Unity Programmer Delivery Profiles（2026-06-24）
+
+Unity 程序员交付与 WebGL staging 分开处理：
+
+- 默认 profile 仍是冻结的 `gmp-v14` legacy，导出脚本按 `Assets/Scripts/Core` / `Tool` / `Game`、`GMP_BaseComponent`、`GMP_BaseGameFlowEntity`、`GMP_EntityManager`、`GMP_MainManager` 口径清理和验证。
+- 新框架必须显式传 `--profile unitycomponent-v1`，输出 UnityComponent(3) / SLGFrameWork 原生结构：`Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、`Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab`、`Assets/BlueprintDelivery/UnityDeliverySpec.json` 和 `FrameworkTemplateManifest.json`。
+- `unitycomponent-v1` 是 SourceIR/WebGL 之后的下游投影，不能改 storyboard2html/source HTML/WebGL 的 phase、guideText、targetSequence、entity/resource/gate parity。
+- Unity smoke 证据不能只看 JSON self-report；必须打开随报告保存的真实 Unity log，确认 `BatchMode`/`-batchmode` 和 `projectPath` 指向当前工程。`BatchMode: 0`、`-openfile`、缺少 `-batchmode` 或 project path 不匹配都算失败。
+- Editor/AIBridge scene hydration 未完成时，Unity 包只能算文件级审计通过，不能标记为最终交付认证通过。
+
+关键入口：
+
+```bash
+# 显式 v1 导出
+scripts/export-unity-project.sh <taskId> --profile unitycomponent-v1 --out <tar.gz>
+
+# v1 cutover gate，CI/切流必须 required Unity
+node scripts/unitycomponent-v1-cutover-gates.cjs --unity-required --limit 5 --out-dir <ci-artifacts>
+
+# prompt 边界回归
+node test/unity-codegen-prompt-contract.test.cjs
+```
+
+详细方案见 `docs/unitycomponent-contract-v1-remediation-plan.md`；当前 prompt 汇总见 `docs/unity-codegen-prompts-current.md`。
 
 ### Engine 核心模块
 

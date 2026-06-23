@@ -5,6 +5,8 @@ var DEFAULT_SLICE_MAX_CHARS = 1800;
 var MAPPING_CHEATSHEET = [
   '## three.js HTML -> Unity GFM 翻译速查',
   '',
+  '边界: 本表只服务 Luna/WebGL staging schema 生成，不是程序员 Unity 交付工程。`GFM_*` / pool / GameFlowManager 规则不得带入 `gmp-v14` 或显式 `unitycomponent-v1` 交付；UnityComponent v1 只从已验收 source artifacts 投影到 UnityDeliverySpec 和 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`。',
+  '',
   '总原则: 逻辑 1:1, API 全替换; 不抄具体数值, 抄关系; 观察性位移走 SmoothMover; 禁止直写相机/玩家位置。',
   '',
   '| HTML pattern | Unity GFM API | 备注 |',

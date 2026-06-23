@@ -346,6 +346,14 @@ Current executable coverage:
   changes through both legacy programmer-delivery coverage and the
   unitycomponent-v1 profile/projector/emitter/hardgate/synthetic-corpus plus
   accepted-corpus gates.
+- `test/unity-codegen-prompt-contract.test.cjs` locks current Luna/WebGL
+  staging prompts against stale Unity delivery constraints: no direct
+  `Instantiate` positive pool overflow example, no `Vector3.Distance(...) <
+  radius` distance gates, no `FindObjectOfType<T>()` to non-generic scene-scan
+  rewrite, no "every field/method needs detailed comments" boilerplate, and no
+  warnings that encourage restoring `GFM_Create.Obj()` or direct
+  `GameObject.Find`. Prompt files are routed to this test by
+  `scripts/validation-router.cjs`.
 - `scripts/unitycomponent-v1-cutover-gates.cjs --unity-required --limit 5 --out-dir <ci-artifacts>`
   is the batch cutover CI gate. It discovers accepted corpus samples, emits a
   Unity project per sample, writes per-sample v1 hardgate reports, then runs

@@ -287,18 +287,20 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- **GameFlowManagerMain.Scene.cs**：场景控制');
   lines.push('不要把功能重新塞回主文件。按职责把方法放进对应 partial 文件。');
   lines.push('`GameFlowManagerMain.cs` 应保持轻量：只保留初始化、Update 节拍、CheckEventRules 编排，以及对各系统方法的直接调用。');
-  lines.push('每个字段、每个方法的说明注释必须紧邻定义本身；不要只在文件顶部写总说明。');
-  lines.push('任何多行 `if (...)`、含 `&&` / `||` 的条件链，都必须在前一行写注释解释这个 gate 为什么存在。');
+  lines.push('');
+  lines.push('## 输出边界（必须保持）');
+  lines.push('- 本 prompt 只生成 Luna/WebGL staging 的 `GameFlowManagerMain` partial 代码，不生成程序员 Unity 交付工程。');
+  lines.push('- storyboard2html/source HTML/WebGL parity 是事实源；不要在 C# 里改写 phase、guideText、targetSequence、entity/resource/gate 语义。');
+  lines.push('- 程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。');
+  lines.push('- 本 prompt 中的 Luna 对象池、`GameObject.Find("__Pool_*")`、`GFM_*` 只属于 WebGL staging，不得带入程序员 Unity 交付包。');
+  lines.push('');
+  lines.push('关键字段、跨 phase 方法、多参数 helper 和复杂 gate 的说明注释必须紧邻定义或调用；不要只在文件顶部写总说明。');
+  lines.push('含 `&&` / `||` 或跨 phase 状态的条件链，必须在前一行写注释解释这个 gate 为什么存在。');
   lines.push('');
   lines.push('## 代码结构硬要求');
-  lines.push('1. **每个字段声明都必须有详细中文注释**，说明用途、生命周期、由谁更新。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-field` 会扫描每个 public/private 字段;无注释直接报 warning。');
-  lines.push('2. **每个方法都必须有详细中文注释**，说明输入、输出、副作用、调用时机。');
-  lines.push('   优先使用 `///` XML doc summary;紧邻方法上方一行 `//` 也算合规。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-method` 强制此项。');
-  lines.push('3. **每个 ≥3 行的条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
-  lines.push('   `if`/`else if`/`switch case` 块体 ≥ 3 行时由 `delivery-comment-coverage-condition` 校验。');
-  lines.push('   单行 guard (`if (x == null) return;`) 不强制注释,避免噪声。');
+  lines.push('1. **注释要少而准**：关键字段、复杂方法、跨 phase 状态、单位/边界/副作用要用中文大白话说明；自解释字段、简单 getter、单行 guard 不要机械补注释。');
+  lines.push('2. **复杂条件要说明业务原因**：含 `&&` / `||`、跨 phase 依赖或资源门槛的分支，在进入条件前说明为什么这样判断，而不是复述代码结果。');
+  lines.push('3. **空行按职责分块**：字段、初始化、输入、状态推进、UI、验证/兜底之间留空行；连续逻辑内部不要随意插空行。');
   lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
   lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
   lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
@@ -464,8 +466,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   // ========== 5b. 备用池对象（Pool Manifest） ==========
   var reservePool = computeReservePool(prefabMap);
   if (reservePool.length > 0) {
-    lines.push('# 备用池对象（Instantiate 溢出时可用）');
-    lines.push('如果同色同形状的已分配对象用完，可以 Instantiate 复制后使用以下备用对象：');
+    lines.push('# 备用池对象（按白名单复用）');
+    lines.push('如果同色同形状的已分配对象用完，只能从以下备用对象中选择；不要直接 Instantiate 或发明新的 pool literal：');
     lines.push('');
     for (var rpi = 0; rpi < reservePool.length; rpi++) {
       lines.push('- `' + reservePool[rpi] + '`');
@@ -566,7 +568,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
   lines.push('- 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds');
   lines.push('- UI 文字: guide 用 `SetGuideText("xxx")`；score 用已存在的 `scoreText` 字段，避免新 Find');
-  lines.push('- 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`');
+  lines.push('- 距离门槛: `(a.position - b.position).sqrMagnitude < radius * radius`；不要用 `Vector3.Distance(...) < radius`');
   lines.push('- 不要用 transform.parent / SetParent / FindObjectOfType');
   lines.push('- 不要定义 class EventPool（和模板冲突）');
   lines.push('- 最后一个步骤必须有 GameEnded() + CTA 按钮');
@@ -685,7 +687,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');
   lines.push('  if (currentPhaseName == "phase_1") {');
   lines.push('    var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
-  lines.push('    if (target != null && Vector3.Distance(playerPos, target.transform.position) < 1.5f) {');
+  lines.push('    if (target != null && (playerPos - target.transform.position).sqrMagnitude < 1.5f * 1.5f) {');
   lines.push('      AddCompletedPhase("phase_xxx_2"); // 用蓝图中 Rule 的真实 ID');
   lines.push('      currentPhaseName = "phase_2";');
   lines.push('      ShowGuide("点击建造按钮");');

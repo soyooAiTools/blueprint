@@ -1023,7 +1023,7 @@ function stripGenericMethodCallsForLuna(src) {
   next = next.replace(/\(\s*Font\s*\)\s*Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*Font\s*\)\s*,\s*[^)]*\)/g, 'Resources.Load<Font>("DefaultFont")');
   next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, 'default($1)');
   next = next.replace(/Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*,\s*[^)]*\)/g, 'default($1)');
-  next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
+  // Do not rewrite FindObjectOfType<T>() into another scene scan; static/fix-loop should block it.
   next = next.replace(/((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '(($2)$1.GetComponent(typeof($2)))');
   next = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');
   next = next.replace(/\bCreateLocalCanvas\s*\(/g, 'GFM_UI.CreateCanvas(');
@@ -1286,6 +1286,13 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   prepareWorkDir(clientDir, blueprint, prompt, skeleton, log, taskId);
 
   let userPrompt;
+  const codegenScopeBoundary = [
+    '## 输出边界（必须保持）',
+    '本任务只生成 Luna/WebGL staging 的 GameFlowManagerMain 代码，不生成程序员 Unity 交付工程。',
+    'storyboard2html/source HTML/WebGL parity 是事实源；不要在 C# 中改写 phase、guideText、targetSequence、entity/resource/gate 语义。',
+    '程序员 Unity 交付另走 profile：默认 gmp-v14 legacy；显式 unitycomponent-v1 才输出 UnityComponent(3) Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}、Entity/BaseComponent/EntityManager/GameEntry、UnityDeliverySpec 和 v1 hardgate。',
+    '本 prompt 中的 GameObject.Find("__Pool_*")、GFM_*、GameSceneCtrl 和并行数组只属于 Luna/WebGL staging，不得带入程序员 Unity 交付包。'
+  ].join('\n');
   if (hasFeedback) {
     const feedbackTexts = blueprint.feedbackHistory.map(buildFeedbackText).join('\n---\n');
     const allowedPools = Array.from(new Set(Object.values(promptV5Module.matchPrefabs(blueprint.entities || []))));
@@ -1448,6 +1455,7 @@ ${inlinePromptMd}
 
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
+  userPrompt = codegenScopeBoundary + '\n\n' + userPrompt;
 
   const slot = await acquireLock(taskId, log);
   log('[codex-code] 🚀 Starting Codex code agent...', taskId);
@@ -1560,7 +1568,7 @@ ${inlinePromptMd}
   }
 
   if (gfmCreateCalls > 0) {
-    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use Find() instead', taskId);
+    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use bound pool objects instead', taskId);
   }
   if (!hasGameEnded) {
     log('[codex-code] ⚠️ WARNING: No GameEnded() call', taskId);
