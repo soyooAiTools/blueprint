@@ -56,23 +56,32 @@ const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-1215
 const UNITY_PROGRAM_ARCHITECTURE_RULES_TEXT = [
   '## 程序架构硬规则（最终 Unity 交付必须严格执行）',
   '',
-  '当前 legacy 生成路径可能仍先输出 `GameFlowManagerMain.cs` staging 文件，但最终程序员交付必须由后处理清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`。',
+  '本段只约束当前默认 `gmp-v14` legacy prompt；显式 `unitycomponent-v1` profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate，不生成旧 `Blueprint.UnityComponent` namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。',
+  '当前默认 `gmp-v14` legacy 生成路径可能仍先输出 `GameFlowManagerMain.cs` staging 文件，但最终程序员交付必须由后处理清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`。',
   '- `Assets/Scripts` 最终只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。',
   '- `Core/Base` 放核心 enum、实体/角色/NPC 基类；管理器禁止继承 `MonoSingleton<T>`，统一用场景预挂实例里的 `private static <Type> mInstance` + 只读 `instance` getter，getter 缺实例返回 `null` 且不创建对象；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。',
+  '- Unity 程序员交付框架冲突以 `/nickTemp/UnityComponent(3).rar` / UnityComponent(3) 工程文档为准：按 `Entity` 持有 scene object 生命周期、`[Serializable] BaseComponent` 承载纯逻辑能力、`EntityManager` 注册并统一 Tick entity、模块间通信优先 EventModule 的理念落地。',
+  '- 当前默认 `gmp-v14` legacy 落地到本工程必须使用 GMP 命名：`Core/Base` 至少包含 `GMP_BaseComponent` 与 `GMP_BaseGameFlowEntity`，`Core/Modules` 至少包含 `GMP_EntityManager`；实体必须提供 `AddEcsComponent`、`GetEcsComponent<T>`、`GetFirstEcsComponent<T>`、`HasEcsComponent<T>`，组件生命周期顺序为 `OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy`。',
+  '- `GMP_MainManager` 是 blueprint 兼容的 GameEntry：集中缓存/初始化 Pool、Audio、Event、EntityManager、UI、Economy、Item/Npc、Phase/Level，并在唯一 Update 中调度 `GMP_EntityManager.Tick(dt)`；不要照搬 UnityComponent 的 Odin/DOTween/本地 Luna 路径，也不要 runtime 创建常驻管理器。确有多 scene 生命周期时可让场景预挂 Manager 持久化，但不能用代码临时 new 管理器。',
+  '- UnityComponent(3) 只覆盖程序员 Unity 交付框架冲突；Storyboard2HTML/source HTML/SourceSceneIR/WebGL 的 phase、guideText、targetSequence、entity/resource/gate 一致性仍是最高红线，不得为了框架改造改写语义链路。',
   '- 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。',
   '- 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。',
   '- 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。',
-  '- Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目选择 Movement、Trigger、Interaction、Inventory、Skill；背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。',
+  '- Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目真实需要选择 Movement、Trigger、Interaction、Inventory、Skill；不要把所有组件默认塞进 Player。背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。',
+  '- 组件必须是真能力而不是装饰：`GMP_BaseComponent` 子类要拥有自己的状态、调参和语义 API，或通过 OnUpdate/事件订阅参与生命周期；禁止只 `new` 出来再 `AddEcsComponent`，但实际逻辑仍复制在 Entity/Manager 里。',
+  '- `GMP_BaseGameFlowEntity` 只负责身份绑定、scene object 生命周期和组件生命周期转发；不要把可见性、位移、交互计数、完成状态、奖励结算等业务便利函数塞进 Entity 基类。位移归 Movement，触发归 Trigger/Interaction，进度归 Game/Level 规则或具体业务实体。',
   '- Tool 层要沉淀跨项目稳定工具：相机、UI 布局校正、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案；Canvas 和核心 UI 节点必须在场景中预创建，不要在业务脚本里 `CreateCanvas/CreateText/AddComponent<Canvas>`。',
   '- 音频必须复用集中式 `GMP_Audio` 管理器，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。',
   '- `GMP_Audio` 必须保留参考 AudioManager 的分组通道 API：`musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义，不能瘦身成只有单 BGM/SFX。',
   '- 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。',
-  '- 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。',
+  '- 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补常驻场景结构。',
   '- Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。',
   '- 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案；场景层级中代码/管理器节点收纳到 `MainGame` 子级下，避免 `GMP_*` 根节点平铺。',
   '- Canvas 标准：场景预创建 `Canvas` + `CanvasScaler` + `GraphicRaycaster`，Render Mode = Screen Space - Overlay，Sort Order = 100，CanvasScaler = Scale With Screen Size，Reference Resolution = 1080x1920，Match = 0.5。',
-  '- `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，由 AIBridge/Editor 预先写入场景对象、标签、初始状态、默认缩放和标签高度；禁止生成通用 object binding 表、隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。',
-  '- 程序员可交付反馈规则：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 MonoBehaviour，Movement/Trigger/Interaction/Inventory 等无生命周期能力默认用普通 C# 类。',
+  '- `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见关键场景实体引用入口，由 AIBridge/Editor 预先写入玩家、相机/HUD 目标、建筑、交互点、CTA 等持久对象；禁止生成通用 object binding 表、隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。',
+  '- 子弹、金币、掉落物、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象不进入 `GMP_SceneEntityRefs`，也不要预写成 1000 个 serialized refs；它们必须走 `GMP_Pool` 的 prefab/pool archetype、`Preload`、`Get`、`Return/ReturnAfter`。业务层只向 Pool 请求对象，不直接 Instantiate 作为兜底。',
+  '- 跨脚本调用要有明确通道：强所有权关系用 serialized refs/构造注入，广播和模块联动用 `GMP_EventModule.Subscribe/Publish/Unsubscribe`，不要把所有模块互相 `instance.` 直连成网状耦合。',
+  '- 程序员可交付反馈规则：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 MonoBehaviour，Movement/Trigger/Interaction/Inventory 等无生命周期能力必须是继承 `GMP_BaseComponent` 的纯逻辑 C# 能力，不挂到场景节点。',
   '- 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。',
   '- 代码要让人类程序员能直接接手：变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；不要为了“看起来分层”拆一堆函数和变量。',
   '- 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流。',
@@ -249,7 +258,7 @@ var GENERATE_PROMPT = [
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #1 — READ THIS FIRST ⛔⛔⛔',
   '',
-  'Visible 3D objects come from Luna-compatible pools or pre-bound scene references. V5 MODE: Objects are PRE-CREATED as __Pool_{Shape}_{Color}_{NN}; use existing bound fields / GameSceneCtrl first, and only let the staging binding layer resolve pool literals.',
+  'Visible 3D objects come from Luna-compatible pools or pre-bound scene references. V5 MODE: Objects are PRE-CREATED as __Pool_{Shape}_{Color}_{NN}; Luna/WebGL staging code uses existing bound fields / GameSceneCtrl, and only the staging binding layer may resolve pool literals.',
   'CreatePrimitive() and new GameObject() with mesh/renderer are FORBIDDEN — they produce INVISIBLE objects in Luna WebGL.',
   '',
   'AVAILABLE GFM_ classes (DO NOT invent others): GFM_Create, GFM_UI, GFM_Utils, GFM_Audio, GFM_Pool, GFM_Luna, GFM_Joystick, GFM_Grid, GFM_Pathfinding, GFM_ReturnTimer.',
@@ -267,7 +276,7 @@ var GENERATE_PROMPT = [
   '  // var ground = GameSceneCtrl.instance.Get("__Ground"); // Existing scene object',
   '  cube.transform.position = new Vector3(0, 1, 0);',
   '',
-  'V5 MODE: Use RegisterEntityBindings()/GameSceneCtrl for pre-existing pool objects; only staging binding code may resolve __Pool_{Shape}_{Color}_{NN}. Do not add GFM_Create.Obj() in generated gameplay code.',
+  'V5 MODE: Use RegisterEntityBindings()/GameSceneCtrl for pre-existing pool objects in Luna/WebGL staging; programmer delivery must use AIBridge/Inspector hydrated refs. Only staging binding code may resolve __Pool_{Shape}_{Color}_{NN}. Do not add GFM_Create.Obj() in generated gameplay code.',
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #2 — EVERY SHOT MUST HAVE VISIBLE UI ⛔⛔⛔',
   '',
@@ -425,12 +434,12 @@ var GENERATE_PROMPT = [
   '- ⛔ DO NOT use: new Material(), Shader.Find(), FindObjectOfType<Renderer>()',
   '- ⛔ DO NOT use: GameObject.Find("__MaterialSource") or runtime material setup',
   '',
-  '// Scene entities are pre-bound by AIBridge/MCP hydration; show or move those objects directly.',
+  '// Luna/WebGL staging entities are pre-bound through RegisterEntityBindings/GameSceneCtrl; programmer delivery refs are written by AIBridge/MCP hydration.',
   '// Do not create gameplay objects at runtime unless a reused pooled effect already exists.',
   '```',
   '',
   '#### Then represent your game world from bound scene objects:',
-  '- 3D objects: use existing bound fields or `GameSceneCtrl.instance.Get("EntityName")` for pre-existing pool objects.',
+  '- 3D objects: in Luna/WebGL staging, use existing bound fields or `GameSceneCtrl.instance.Get("EntityName")` for pre-existing pool objects; final programmer delivery uses AIBridge/Inspector hydrated refs.',
   '- UI Canvas: prefer the existing `uiCanvas` from the base template; create a new canvas only if the template truly lacks one.',
   '- UI Text: `Text txt = GFM_UI.CreateText(canvas, "Hello", new Vector2(0, 100), 28);`',
   '- UI Button: `Button btn = GFM_UI.CreateButton(canvas, "Go", new Vector2(0,-200), new Vector2(300,80), ()=>{});`',
@@ -618,7 +627,7 @@ var GENERATE_PROMPT = [
   '',
   '### ⚠️ RETURN TYPES MATTER — read carefully:',
   '- Current V5 gameplay code must not add GFM_Create.InitMaterialFromScene(), GFM_Create.Obj(), GFM_Create.Ground(), or GFM_Create.SetColor().',
-  '- 3D objects already exist through AIBridge/MCP Inspector hydration; access them through bound fields or GameSceneCtrl.instance.Get("EntityName").',
+  '- 3D objects already exist before gameplay starts. Luna/WebGL staging accesses them through bound fields or GameSceneCtrl.instance.Get("EntityName"); programmer delivery accesses them through AIBridge/MCP Inspector-hydrated serialized refs.',
   '- Only staging binding tables may mention raw __Pool_{Shape}_{Color}_{NN} names.',
   '',
   '- Prefer the pre-created `uiCanvas`; `GFM_UI.CreateCanvas(int w, int h)` is legacy staging fallback only and must not appear in programmer delivery logic.',
@@ -1583,7 +1592,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
   }
 
   userMsg += '\n\nGenerate the COMPLETE GameFlowManagerMain.cs file. '
-    + 'Use existing bound fields / RegisterEntityBindings() / GameSceneCtrl to get pre-built objects; do not add direct GameObject.Find("__Pool_*") in business TODO code. '
+    + 'For Luna/WebGL staging, use existing bound fields / RegisterEntityBindings() / GameSceneCtrl to get pre-built objects; programmer delivery must use AIBridge/Inspector hydrated serialized refs. Do not add direct GameObject.Find("__Pool_*") in business TODO code. '
     + 'Move objects to show/hide them. Write game logic. '
     + 'Output the file in a ```csharp code block.';
 
@@ -1641,10 +1650,10 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     log('[coder] V5 Verification: ' + lineCount + ' lines, ' + bindingCalls + ' binding refs, ' + findCalls + ' legacy Find() calls (should be 0), ' + gfmCreateCalls + ' GFM_Create.Obj() calls (should be 0)', taskId);
 
     if (gfmCreateCalls > 0) {
-      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use existing bindings / GameSceneCtrl instead', taskId);
+      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
     }
     if (findCalls > 0) {
-      log('[coder] ⚠️ WARNING: AI used GameObject.Find() in V5 mode — should use existing bindings / GameSceneCtrl instead', taskId);
+      log('[coder] ⚠️ WARNING: AI used GameObject.Find() in V5 mode — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
     }
     if (bindingCalls === 0) {
       log('[coder] ⚠️ WARNING: No binding refs found — AI may not be using base template objects', taskId);
@@ -1817,7 +1826,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
 
     // Warnings
     if (gfmCreateCalls > 0) {
-      log('[coder] Warning: GFM_Create.Obj() found — current delivery code should use bound objects / GameSceneCtrl instead', taskId);
+      log('[coder] Warning: GFM_Create.Obj() found — Luna staging should use bound objects/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
     }
     if (bindingRefs === 0 && legacyFinds === 0) {
       log('[coder] Warning: No bound object references found — AI may not be using scene objects', taskId);

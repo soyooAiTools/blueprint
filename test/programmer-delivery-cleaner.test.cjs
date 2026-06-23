@@ -369,12 +369,11 @@ try {
   assert.match(baseEntityCode, /string FallbackEntityId\(\)/);
   assert.match(baseEntityCode, /ApplyDomainName\(SourceObject\);/);
   assert.match(baseEntityCode, /current\.StartsWith\("__Pool_"\)/);
-  // 反馈 01 #5: BaseGameFlowEntity 必须提供 MoveToPosition lerp tween,运行中位移不瞬移。
-  assert.match(baseEntityCode, /using System\.Collections;/);
-  assert.match(baseEntityCode, /public virtual void MoveToPosition\(Vector3 target, float duration = 0\.4f\)/);
-  assert.match(baseEntityCode, /private IEnumerator MoveToPositionCoroutine/);
-  assert.match(baseEntityCode, /Vector3\.LerpUnclamped\(startPos, target, t\)/);
-  assert.match(baseEntityCode, /StartCoroutine\(MoveToPositionCoroutine/);
+  // 2026-06-22 修改意见：Entity 基类只管身份绑定和组件生命周期，不再吞掉位移/显示/进度能力。
+  assert.doesNotMatch(baseEntityCode, /using System\.Collections;/);
+  assert.doesNotMatch(baseEntityCode, /MoveToPosition|MoveToInitialPosition/);
+  assert.doesNotMatch(baseEntityCode, /SetVisible|SetPosition/);
+  assert.doesNotMatch(baseEntityCode, /InteractionCount|IsCompleted|MarkInteracted|MarkCompleted|ResetProgress/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
@@ -483,11 +482,13 @@ try {
     const coreBase = path.join(tmpRef, 'Assets', 'Scripts', 'Core', 'Base');
     const coreModules = path.join(tmpRef, 'Assets', 'Scripts', 'Core', 'Modules');
     const gameEntities = path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Entities');
+    assert.ok(fs.existsSync(path.join(coreBase, 'GMP_BaseComponent.cs')));
     assert.ok(fs.existsSync(path.join(coreBase, 'GMP_BaseGameFlowEntity.cs')));
     assert.ok(fs.existsSync(path.join(gameEntities, 'GMP_RestaurantEntity.cs')));
     assert.ok(!fs.existsSync(path.join(gameEntities, 'GMP_BarrackEntity.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'Entities')), 'Entities should be sibling to Manager in reference layout');
     assert.ok(fs.existsSync(path.join(coreModules, 'GMP_MainManager.cs')));
+    assert.ok(fs.existsSync(path.join(coreModules, 'GMP_EntityManager.cs')));
     assert.ok(!fs.existsSync(path.join(coreBase, 'MonoSingleton.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'GameFlowManagerMain.cs')), 'reference layout should merge away GameFlowManagerMain.cs');
 
@@ -495,6 +496,9 @@ try {
     assert.match(mainManager, /public class GMP_MainManager : MonoBehaviour/);
     assert.match(mainManager, /private static GMP_MainManager mInstance;/);
     assert.match(mainManager, /public static GMP_MainManager instance \{ get \{ return mInstance; \} \}/);
+    assert.match(mainManager, /\[SerializeField\] private GMP_EntityManager mEntityManager;/);
+    assert.match(mainManager, /mEntityManager\.Init\(\)/);
+    assert.match(mainManager, /mEntityManager\.Tick\(dt\)/);
     assert.doesNotMatch(mainManager, /MonoSingleton/);
     assert.match(mainManager, /public GameObject mBarrack;/);
     assert.match(mainManager, /public GameObject mGold;/);
@@ -669,12 +673,13 @@ try {
     buildFixture(b);
     const sa = cleaner.cleanProgrammerDelivery(a, { project: { id: 'scene_a', name: 'scene_a' } });
     const sb = cleaner.cleanProgrammerDelivery(b, { project: { id: 'scene_b', name: 'scene_b' } });
-    assert.ok(sa.sceneObjectsInjected >= 2, 'should inject MainManager and GMP_Audio');
-    assert.ok(sb.sceneObjectsInjected >= 2, 'should inject MainManager and GMP_Audio');
+    assert.ok(sa.sceneObjectsInjected >= 3, 'should inject MainManager, EntityManager and GMP_Audio');
+    assert.ok(sb.sceneObjectsInjected >= 3, 'should inject MainManager, EntityManager and GMP_Audio');
     const sceneA = fs.readFileSync(path.join(a, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     const sceneB = fs.readFileSync(path.join(b, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     assert.strictEqual(sceneA, sceneB, 'scene injection should be deterministic across export roots');
     assert.match(sceneA, /m_Name: GMP_MainManager/);
+    assert.match(sceneA, /m_Name: GMP_EntityManager/);
     assert.match(sceneA, /m_Name: GMP_Audio/);
     assert.strictEqual((sceneA.match(/AudioSource:/g) || []).length, 8, 'GMP_Audio should mount loop and one-shot AudioSource pools');
     assert.match(sceneA, /mBgmList: \[\]/);
@@ -947,6 +952,7 @@ try {
     const phaseDir = path.join(scripts, 'Game', 'Phases');
     [
       [coreModules, 'GMP_MainManager'],
+      [coreModules, 'GMP_EntityManager'],
       [coreModules, 'GMP_PhaseController'],
       [gameLevel, 'GMP_SceneEntityRef'],
       [gameLevel, 'GMP_SceneEntityRefs'],
@@ -975,6 +981,8 @@ try {
     const phaseControllerCode = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
     assert.match(phaseControllerCode, /preset\.mGate\.IsReady/, 'PhaseController should use PhasePreset gate data');
     const mainManagerCode = fs.readFileSync(path.join(coreModules, 'GMP_MainManager.cs'), 'utf8');
+    assert.match(mainManagerCode, /\[SerializeField\] private GMP_EntityManager mEntityManager;/, 'MainManager should receive EntityManager through a serialized scene reference');
+    assert.match(mainManagerCode, /mEntityManager\.Tick\(dt\)/, 'MainManager should tick the EntityManager from the single Update entry');
     assert.match(mainManagerCode, /\[SerializeField\] private GMP_Pool mPool;/, 'MainManager should receive Pool through a serialized scene reference');
     assert.match(mainManagerCode, /\[SerializeField\] private GMP_Audio mAudio;/, 'MainManager should receive Audio through a serialized scene reference');
     assert.doesNotMatch(mainManagerCode, /GMP_(?:Audio|Pool|GameSceneCtrl)\.Init\(/, 'MainManager should not call static module creators');
@@ -1019,7 +1027,7 @@ try {
     assert.match(phase1Asset, /mThreshold: 2/, 'entity gates should use built-state threshold');
     assert.match(phase2Asset, /mTarget: "_ctaButton"/, 'last phase should use EndGame gate target');
     const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
-    ['GMP_MainManager', 'GMP_PhaseController', 'GMP_SceneEntityRefs', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
+    ['GMP_MainManager', 'GMP_EntityManager', 'GMP_PhaseController', 'GMP_SceneEntityRefs', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
     });
     assert.match(scene, /m_Name: "Text_Tip"/, 'HUD guide text placeholder should be scene-mounted');
@@ -1117,20 +1125,24 @@ try {
     assert.doesNotMatch(deliveryPlayer, /Vector3\.Distance/, 'Player distance gates should use sqrMagnitude');
     assert.doesNotMatch(deliveryPlayer, /new Vector3\(h, 0, -v\)/, 'Joystick horizontal axis must not use the pre-storyboard camera mapping');
     const deliveryMovement = fs.readFileSync(path.join(scripts, 'Core', 'Components', 'GMP_MovementComponent.cs'), 'utf8');
-    assert.match(deliveryMovement, /public class GMP_MovementComponent\s*\{/, 'movement ability should be a plain class, not a MonoBehaviour');
+    assert.match(deliveryMovement, /public class GMP_MovementComponent\s*:\s*GMP_BaseComponent/, 'movement ability should inherit the pure C# base component, not a MonoBehaviour');
     assert.doesNotMatch(deliveryMovement, /:\s*MonoBehaviour/, 'movement ability should not be scene-mounted');
     assert.match(deliveryMovement, /public void Move\(Transform target, Vector3 direction, float speed, float dt\)/, 'movement component should accept caller-supplied real-time dt');
     assert.doesNotMatch(deliveryMovement, /mDefaultSpeed|finalSpeed/, 'movement component should not own a second movement speed default');
     assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(speed \* safeDt\);/, 'movement component should use the caller-supplied speed and dt');
-    ['GMP_MovementComponent', 'GMP_TriggerComponent', 'GMP_InteractionComponent', 'GMP_InventoryComponent'].forEach((name) => {
+    ['GMP_MovementComponent', 'GMP_InventoryComponent'].forEach((name) => {
       const file = path.join(scripts, 'Core', 'Components', name + '.cs');
       const text = fs.readFileSync(file, 'utf8');
       const meta = fs.readFileSync(file + '.meta', 'utf8');
       const guid = /guid:\s*([0-9a-f]{32})/.exec(meta)[1];
-      assert.match(text, new RegExp('public class ' + name + '\\s*\\{'), name + ' should be a plain class');
+      assert.match(text, new RegExp('public class ' + name + '\\s*:\\s*GMP_BaseComponent'), name + ' should inherit the pure C# base component');
       assert.doesNotMatch(text, /:\s*MonoBehaviour/, name + ' should not inherit MonoBehaviour without lifecycle use');
       assert.doesNotMatch(scene, new RegExp(guid), name + ' should not be mounted into Game.unity');
     });
+    ['GMP_TriggerComponent', 'GMP_InteractionComponent', 'GMP_SkillComponent'].forEach((name) => {
+      assert.ok(!fs.existsSync(path.join(scripts, 'Core', 'Components', name + '.cs')), name + ' should not be generated when the current project has no real call chain for it');
+    });
+    assert.ok(summary.unusedCoreComponentsPruned >= 2, 'cleaner should prune optional unused Core/Components instead of keeping decorative framework files');
     assert.strictEqual(summary.playerTaggedForCameraFollow, true);
     assert.strictEqual(summary.deliveryCameraControllerFollowRepaired, true);
     assert.strictEqual(summary.initialPhaseCameraFramed, true);

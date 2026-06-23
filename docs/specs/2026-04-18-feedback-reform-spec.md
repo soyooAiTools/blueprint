@@ -2,7 +2,9 @@
 
 **Author**: AI + Nick review
 **Date**: 2026-04-18
-**Status**: Draft — 待确认
+**Status**: Historical — 已被 2026-06-23 gmp-v14 legacy / unitycomponent-v1 双 profile 程序员交付口径取代
+
+> 过期说明：本文记录 2026-04-18 的旧 Luna/WebGL staging 改造草案，不能作为当前 prompt、reviewer 或最终程序员 Unity 交付约束。当前权威入口是 Blueprint 2.0 双 profile：Luna/WebGL staging 可保留受控骨架绑定和 `GameSceneCtrl`；默认 `gmp-v14` legacy 交付走 `Assets/Scripts/Core` / `Tool` / `Game`、AIBridge/Editor hydration、`GMP_SceneEntityRefs` / serialized refs 和 `GMP_Pool`；显式 `unitycomponent-v1` 交付走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。不得把 GameSceneCtrl、通用 object binding 表、runtime `Find/AddComponent/new GameObject` 当第二入口。
 
 ---
 

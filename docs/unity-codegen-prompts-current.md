@@ -1,14 +1,16 @@
 # 当前 Unity 代码生成 Prompts 整理
 
-更新时间：2026-06-21
-主仓版本：2026-06-21 Unity codegen prompt hydration / programmer-delivery feedback hardening
+更新时间：2026-06-23
+主仓版本：2026-06-23 gmp-v14 legacy freeze / explicit unitycomponent-v1 profile guard
 
 本文整理当前 Blueprint Unity 代码生成相关 prompt。这里说的 “Unity 代码生成” 包含两层：
 
 1. **Luna/WebGL staging 生成层**：为了 storyboard2html -> WebGL 稳定，仍允许使用骨架绑定、`GameSceneCtrl` 和受控对象池 literal。
-2. **程序员 Unity 交付层**：最终交付给人类程序员的 Unity 工程，必须走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`GMP_SceneEntityRefs`/serialized refs 和稀疏中文注释。
+2. **程序员 Unity 交付层**：默认仍是冻结的 `gmp-v14` legacy，走 Core / Tool / Game 三层、AIBridge/MCP 场景 hydration、Inspector/scene 引用、`GMP_SceneEntityRefs`/serialized refs 和稀疏中文注释；显式 `unitycomponent-v1` profile 不使用 GMP 命名，走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。
 
 最高红线：storyboard2html 生成的 HTML 与最终 WebGL 的一致性是系统终极红线，千万不能碰。不要为了清理程序员交付代码，通过 WebGL 侧临时兜底、HTML 侧假状态或报告文字绕过 `source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 的 phase、guideText、targetSequence、entity/resource/gate 语义一致性。
+
+2026-06-23 之后，程序员 Unity 交付框架冲突以 `/nickTemp/UnityComponent(3).rar` / UnityComponent(3) 工程文档为准，但要按 profile 分层：当前默认 prompt 是 `gmp-v14` legacy，仍用 `GMP_BaseComponent`、`GMP_BaseGameFlowEntity`、`GMP_EntityManager` 和 `GMP_MainManager` 的 GameEntry 角色落地；新的 `unitycomponent-v1` 必须显式选择，并用原生 UnityComponent 命名、UnityDeliverySpec projector、emitter、hardgate 和 N=10 cold-export corpus 文件级 gate。这个优先级只覆盖最终 Unity 工程框架，不覆盖 storyboard2html/source HTML/WebGL 的语义一致性红线。
 
 ## Prompt 源文件总览
 
@@ -21,20 +23,27 @@
 | `worker/worker-coder.js` | `GENERATE_PROMPT` / `FIX_PROMPT` / V4/V5 system prompt | legacy worker/Claude 路径和 V5 system prompt |
 | `worker/codex-code-coder.js` | incremental fix user prompt / append system prompt | Codex code runner 的增量修复约束 |
 | `worker/behavior-templates.md` | 行为模板参考 | Luna staging 行为模板，明确不作为最终程序员交付结构 |
-| `test/unity-codegen-prompt-contract.test.cjs` | 回归测试 | 防止 prompt 退回旧的 Find-heavy / GFM_Create-heavy / 注释-heavy 口径 |
+| `test/unity-codegen-prompt-contract.test.cjs` | 回归测试 | 防止 prompt 退回旧的 Find-heavy / GFM_Create-heavy / 注释-heavy 口径，并防止 `gmp-v14` / `unitycomponent-v1` profile 边界回潮 |
 
 ## 统一架构契约
 
-所有当前 Unity codegen prompt 都应携带这组规则：
+所有当前默认 Unity codegen prompt 都应携带这组规则：
 
-- 最终 `Assets/Scripts` 只允许 `Core` / `Tool` / `Game` 三个顶层目录。
+- 本段只约束当前默认 `gmp-v14` legacy prompt；显式 `unitycomponent-v1` profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate，不生成旧 `Blueprint.UnityComponent` namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。
+- 默认 `gmp-v14` legacy 最终 `Assets/Scripts` 只允许 `Core` / `Tool` / `Game` 三个顶层目录。
 - `Core/Base` 放核心 enum、实体/角色/NPC 基类；管理器禁止继承 `MonoSingleton<T>` / `GMP_SingletonBase<T>`，统一用场景预挂实例里的 `mInstance`/只读 `instance`，缺实例返回 `null` 且不创建对象。
+- Unity 程序员交付框架冲突以 `/nickTemp/UnityComponent(3).rar` / UnityComponent(3) 工程文档为准：按 `Entity` 持有 scene object 生命周期、`[Serializable] BaseComponent` 承载纯逻辑能力、`EntityManager` 注册并统一 Tick entity、模块间通信优先 EventModule 的理念落地。
+- 当前默认 `gmp-v14` legacy 的 `Core/Base` 至少包含 `GMP_BaseComponent` 与 `GMP_BaseGameFlowEntity`，`Core/Modules` 至少包含 `GMP_EntityManager`；实体必须提供 `AddEcsComponent`、`GetEcsComponent<T>`、`GetFirstEcsComponent<T>`、`HasEcsComponent<T>`，组件生命周期顺序为 `OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy`。
+- `GMP_MainManager` 是 blueprint 兼容的 GameEntry：集中缓存/初始化 Pool、Audio、Event、EntityManager、UI、Economy、Item/Npc、Phase/Level，并在唯一 Update 中调度 `GMP_EntityManager.Tick(dt)`；不要照搬 UnityComponent 的 Odin/DOTween/本地 Luna 路径，也不要 runtime 创建常驻管理器。确有多 scene 生命周期时可让场景预挂 Manager 持久化，但不能用代码临时 new 管理器。
+- UnityComponent(3) 只覆盖程序员 Unity 交付框架冲突；Storyboard2HTML/source HTML/SourceSceneIR/WebGL 的 phase、guideText、targetSequence、entity/resource/gate 一致性仍是最高红线。
 - `Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可复用能力。
 - `Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。
 - 核心管理层只能有一个主管理器，负责集中初始化模块后启动关卡。
 - 状态和步骤类型必须用 enum，不用 0/1/2 魔法数字或裸字符串表达跨层状态。
-- Player/NPC/Entity 走“基类 + 可选组件”组合，不把一次性业务字段散落在核心类型里。
-- Movement、Trigger、Interaction、Inventory 这类没有 Unity 生命周期的能力默认是普通 C# 类，不因为名字叫 Component 就挂到同一个场景节点上。
+- Player/NPC/Entity 走“基类 + 可选组件”组合，不把一次性业务字段散落在核心类型里；组件按项目真实需要保留，不把 Movement/Trigger/Interaction/Inventory/Skill 全量默认塞进 Player。
+- Movement、Trigger、Interaction、Inventory 这类能力继承 `GMP_BaseComponent`，是纯逻辑 C# 能力，不继承 `MonoBehaviour`，不因为名字叫 Component 就挂到同一个场景节点上。
+- 组件必须是真能力而不是装饰：`GMP_BaseComponent` 子类要拥有自己的状态、调参、语义 API、OnUpdate 或事件订阅；禁止只 `new` 出来再 `AddEcsComponent`，但实际逻辑仍复制在 Entity/Manager 里。
+- `GMP_BaseGameFlowEntity` 只负责身份绑定、scene object 生命周期和组件生命周期转发；不要把可见性、位移、交互计数、完成状态、奖励结算等业务便利函数塞进 Entity 基类。
 - Tool 层沉淀跨项目稳定工具，不硬编码项目实体、资源和 phase 文案。
 - 音频必须集中式多音源管理，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组，业务只调用 Audio module API。
 - `GMP_Audio` 必须保留参考 AudioManager 的分组通道入口：`musicChannelDatas`、`PlayAudioInGroup(...)`、`StopAudio(...)`、`StopAllAudio()`、`StopAudioGroup(...)`、首触解静音和音阶播放语义，不能退化成单一 BGM/SFX 瘦身模块。
@@ -42,14 +51,16 @@
 - 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration。
 - AIBridge 证据必须来自实际运行 AIBridgeCLI：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再跑 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`，并把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`；CLI 找到但 Unity Editor/AIBridge 会话超时时写 `editor-timeout`，不能写成 CLI not found。
 - Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。
-- 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补场景。
+- 程序员交付业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补常驻场景结构。
 - 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值。
 - 场景层级中代码/管理器节点收纳到 `MainGame` 子级，避免 `GMP_*` 根节点平铺。
 - Canvas 和核心 UI 节点必须在场景中预创建，Canvas 使用 Screen Space - Overlay，Sort Order 100，CanvasScaler 使用 Scale With Screen Size，Reference Resolution 1080x1920，Match 0.5；业务脚本不要 runtime `CreateCanvas/CreateText/AddComponent<Canvas>`。
 - `GMP_EventModule` 必须有显式 `Subscribe`、`Unsubscribe` 和 `UnSubScribe` 注销别名。
 - `GMP_MainManager` 或等价游戏入口必须记录 `Screen.width/Screen.height`，变化时发布 `GMP_LevelEventNames.ScreenChanged` 和 `GMP_ScreenChangeEvent`；相机、HUD 等监听方显式 `Subscribe`，并在 `OnDestroy` 里 `UnSubScribe`。
 - `GetComponent` 只用于当前对象或子对象的局部组件访问，不作为依赖注入方案。
-- `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见实体引用入口，禁止回退到通用 object binding 表、`mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
+- `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见关键场景实体引用入口，登记 Player、相机/HUD 目标、建筑、交互点、CTA 等持久对象；禁止回退到通用 object binding 表、`mEntityNames`、`mDefaultPositions`、`mDefaultScales` 这类隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。
+- 子弹、金币、掉落、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象不进入 `GMP_SceneEntityRefs`，也不要预写成 1000 个 serialized refs；它们必须走 `GMP_Pool` 的 prefab/pool archetype、`Preload`、`Get`、`Return/ReturnAfter`。
+- 跨脚本调用要有明确通道：强所有权关系用 serialized refs/构造注入，广播和模块联动用 `GMP_EventModule.Subscribe/Publish/Unsubscribe`；不要把所有模块互相 `instance.` 直连成网状耦合。
 - 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。
 - 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；禁止静态 `Init/Get/Return` 工作流。
 - 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。
@@ -72,7 +83,7 @@
 来源：`/nickTemp/代码规范与优化建议.docx`。整理后不逐条照搬截图，而是合并成这组生成约束：
 
 1. **场景和引用先交给 MCP/Editor**：Missing Mono Script、Rigidbody/Collider/Animator 等场景遗留或组件配置，由 AIBridge/MCP/Editor 修场景；业务代码不要再写一遍 Find/AddComponent/修复逻辑。
-2. **节点挂载要克制**：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 `MonoBehaviour`。Movement/Trigger/Interaction/Inventory 这类无生命周期能力默认用普通 C# 类。
+2. **节点挂载要克制**：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 `MonoBehaviour`。Movement/Trigger/Interaction/Inventory 这类能力继承 `GMP_BaseComponent`，仍是纯逻辑 C# 能力，不挂到场景节点。
 3. **代码要能交给人类程序员接手**：变量名说清业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的 helper 直接内联；不要为了“看起来分层”拆一堆函数、变量和空壳类。
 4. **单例和管理器少用静态工作流**：管理器从场景预挂实例启动，通过 serialized refs 拿依赖；单例类里不要再塞静态 `Init/Get/Return` 这类工作流方法。
 5. **兜底必须有现实入口**：必要兜底才写。理论上进不去的分支不要堆十几行查找、创建、修复代码；这会让交付代码膨胀且更难维护。
@@ -92,7 +103,7 @@
 5. **AIBridge 先水合，临时脚本后清理**：primitive builder、source spec helper、临时生成脚本、通用 object binding 表只允许作为 Editor 侧过渡；最终交付要删除，或把确实可复用的能力下沉为正式 Tool。
 6. **HTML/WebGL 一致性仍是最高红线**：任何 Unity/程序员交付清理都不能反向改变 SourceSceneIR/source HTML/WebGL 事实源；发现差异先修上游 source contract 或确定性投影规则。
 7. **显式引用是数据入口，不是运行时补救入口**：`GMP_SceneEntityRefs` 应由 AIBridge/Inspector 预填，供程序员查看和扩展；业务代码不能通过 runtime `Find/AddComponent/new GameObject` 补绑定。
-8. **不要保留隐藏运行时对象表**：程序员交付版不要把旧通用绑定表、`GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `GMP_SceneEntityRefs` 或 serialized refs。
+8. **不要保留隐藏运行时对象表**：默认 `gmp-v14` legacy 程序员交付版不要把旧通用绑定表、`GameSceneCtrl`、`SceneObjectRegistry`、`mNames/mObjects` 这类 registry 当第二入口；自动播放、业务规则和维护文档都应直接指向 `GMP_SceneEntityRefs` 或 serialized refs。显式 `unitycomponent-v1` 对应 `Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据 / serialized refs，不使用 GMP 命名。
 
 ## 2026-06-21 优化意见补充后的 Prompt 规则
 
@@ -104,6 +115,16 @@
 4. **屏幕尺寸变化走事件**：游戏入口检测 `Screen.width/Screen.height`，变化时发布 `GMP_LevelEventNames.ScreenChanged` + `GMP_ScreenChangeEvent`；相机/HUD 等监听方订阅并在销毁时注销。
 5. **相机默认正交和平滑收敛**：程序员交付场景 Camera 与 `GMP_CameraController` 都默认 orthographic；phase/end/跟随构图只写目标状态，由 `LateUpdate` 平滑位置、旋转和 `orthographicSize`。
 6. **handoff 文档必须可执行**：README/PROGRAMMER_GUIDE/HANDOFF 要说明流程资产如何修改、删除、新增，并给出具体例子。
+
+## 2026-06-22 修改意见与 2026-06-23 Profile Guard
+
+来源：`/nickTemp/修改意见.docx`。这轮反馈纠正的是“框架类引入了但没有形成框架”的问题，必须系统化落进 prompt、cleaner 和 maintainability gate：
+
+1. **组件不能只是装饰**：不要把 Movement/Trigger/Interaction/Inventory/Skill 默认全塞进 Player，也不要只 `new` 后 `AddEcsComponent` 就算组件化。保留的组件必须拥有真实状态、调参、语义 API、OnUpdate 或事件订阅。
+2. **Entity 基类要瘦**：`GMP_BaseGameFlowEntity` 只管身份绑定、scene object 生命周期和组件生命周期转发；可见性、位移、交互计数、完成状态、奖励结算放到组件、`GMP_SceneEntityRefs`、Game/Level 规则或具体业务实体。
+3. **常驻对象和临时对象分层**：AudioManager、CameraManager、MainManager、Canvas、关键交互实体是场景预创建/Inspector 水合对象；子弹、金币、掉落、飘字、命中特效、波次小兵是短生命周期/大量重复对象，走 `GMP_Pool` prefab/pool archetype，不写成 1000 个 `GMP_SceneEntityRefs` 字段。
+4. **SceneEntityRefs 是持久对象入口**：`GMP_SceneEntityRefs` 不暴露 `Spawn` 这种误导 API，只做关键场景对象的显式 refs、显示/隐藏、状态读取。生成链路要阻断 transient refs 过度展开。
+5. **跨脚本调用要有通道**：强所有权关系用 serialized refs/构造注入；广播和模块联动用 `GMP_EventModule.Subscribe/Publish/Unsubscribe`。不要让 Manager/Entity 互相 `instance.` 直连成网状耦合。
 
 ## 两层 Prompt 口径
 
@@ -161,7 +182,7 @@
 这是当前主力路径。它的 prompt 主要包括：
 
 1. 任务说明：在 `GameFlowManagerMain` partial 系列文件里实现 Luna playable。
-2. 程序架构硬规则：Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释。
+2. 程序架构硬规则：当前默认 `gmp-v14` legacy 走 Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释；显式 `unitycomponent-v1` 走原生 Entity/BaseComponent/EntityManager/GameEntry、UnityDeliverySpec 和 v1 hardgate。
 3. 代码结构要求：主文件保持轻量，职责放到对应 partial。
 4. 基础样例工程模式：场景已有预制对象，不创建对象。
 5. 对象引用规则：优先使用骨架绑定字段 / `GameSceneCtrl.instance.Get("entityName")`。
@@ -200,7 +221,7 @@ V4 是旧事件驱动路径，当前仍保留兼容。它已经补上新版程�
 - V4 legacy 兼容层可以在 Start 的 staging 绑定代码里解析对象池。
 - 如果已有绑定表或 `GameSceneCtrl`，优先使用绑定表，不在业务逻辑里重复 Find。
 - V4 staging 可用 `eGo[]`、`eActive[]`、`eState[]`、`eTimer[]`、`eHP[]`。
-- 程序员交付版必须收口到 `GMP_SceneEntityRefs` 或同类显式 serialized refs。
+- 默认 `gmp-v14` 程序员交付版必须收口到 `GMP_SceneEntityRefs` 或同类显式 serialized refs；显式 `unitycomponent-v1` 不使用 GMP 命名，收口到 `GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据 / serialized refs。
 - 注释只写关键、难懂、容易踩坑的地方。
 
 关键当前规则：
@@ -226,7 +247,7 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 - 实体列表。
 - JSON-only 输出要求。
 
-当前作用：把 Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释这些规则提前注入 schema 阶段。
+当前作用：把默认 `gmp-v14` legacy 的 Core / Tool / Game、AIBridge/MCP hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释，以及显式 `unitycomponent-v1` 的原生命名、UnityDeliverySpec 和 v1 hardgate guard 提前注入 schema 阶段。
 
 ## Codex Code Runner Prompt
 
@@ -274,7 +295,7 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 同时保留 legacy path 说明：
 
 - legacy 生成路径可能仍先输出 `GameFlowManagerMain.cs` staging 文件。
-- 最终程序员交付由 cleaner 拆成 Core / Tool / Game。
+- 默认 `gmp-v14` 最终程序员交付由 cleaner 拆成 Core / Tool / Game；显式 `unitycomponent-v1` 不走 GMP cleaner 混改。
 - V5 使用 pre-bound pool objects。
 - 程序员交付用 AIBridge/MCP Inspector hydration。
 
@@ -286,8 +307,9 @@ V4 legacy 代码只作为 Luna/WebGL staging 兼容层；
 
 ```text
 本文件只给 Luna/WebGL staging 代码参考。
-程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration。
-引用进入 GMP_SceneEntityRefs 或 [SerializeField] 字段。
+默认 `gmp-v14` 程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration，引用进入 GMP_SceneEntityRefs 或 [SerializeField] 字段。
+显式 `unitycomponent-v1` 程序员 Unity 交付版使用 `Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据 / serialized refs，不使用 GMP 命名。
+N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。
 不要把这里的平行数组、运行时 Find 或一次性模板拆法照搬成最终交付结构。
 ```
 
@@ -344,8 +366,8 @@ test/unity-codegen-prompt-contract.test.cjs
 - schema prompt、V5、V4、Codex markdown、worker prompt 都包含 AIBridge/MCP。
 - prompt 中明确要求实际运行 AIBridgeCLI，记录 `AIBRIDGE_CLI` / `command -v AIBridgeCLI`、`harness status`、`editor get_state`、stdout/stderr/exit code，并区分 `editor-timeout` 与 CLI not found。
 - prompt 中明确声明 Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；静态 YAML、文件级 hardgate 或 CLI probe 只能作为文件级审计证据。
-- prompt 中保留 Inspector hydration、`GMP_SceneEntityRefs`/serialized refs、逻辑/表现分离、稀疏中文注释规则。
-- prompt 中保留 DOCX 反馈汇总后的可交付规则：一节点一主脚本、无生命周期能力用普通 C# 类、只保留会被调用的方法、必要兜底才写。
+- prompt 中保留 Inspector hydration、默认 `gmp-v14` 的 `GMP_SceneEntityRefs`/serialized refs、显式 `unitycomponent-v1` 的 `GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据、逻辑/表现分离、稀疏中文注释规则。
+- prompt 中保留 DOCX 反馈汇总后的可交付规则：一节点一主脚本、能力组件在 `gmp-v14` 继承 `GMP_BaseComponent`、在 `unitycomponent-v1` 继承原生 `BaseComponent`，都不挂成 MonoBehaviour、只保留会被调用的方法、必要兜底才写。
 - V5 prompt 展示 binding-based object access。
 - V4 prompt 明确 `__Pool_*` 只属于 staging 绑定层。
 - behavior templates 标记为 staging-only。
@@ -429,7 +451,7 @@ NODE
 
 ## 人类程序员接手时看什么
 
-程序员不需要读完整 Luna staging prompt。交付包应主要看：
+程序员不需要读完整 Luna staging prompt。默认 `gmp-v14` legacy 交付包应主要看：
 
 - `Assets/Scripts/Core`
 - `Assets/Scripts/Tool`
@@ -442,5 +464,16 @@ NODE
 - `PROGRAMMER_TEMP_CODE_AUDIT.json`
 - `PROGRAMMER_MAINTAINABILITY_REPORT.json`
 - `DELIVERY_VALIDATION.json`
+
+显式 `unitycomponent-v1` 交付包应主要看：
+
+- `Assets/SLGFrameWork/Scripts/Base`
+- `Assets/SLGFrameWork/Scripts/Component`
+- `Assets/SLGFrameWork/Scripts/Entity`
+- `Assets/SLGFrameWork/Scripts/Manager`
+- `Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab`
+- `Assets/BlueprintDelivery/UnityDeliverySpec.json`
+- `Assets/BlueprintDelivery/FrameworkTemplateManifest.json`
+- `UNITYCOMPONENT_V1_VALIDATION.json`
 
 如果程序员发现交付工程里还大量出现业务层 `GameObject.Find`、runtime `.AddComponent(...)`、Missing Mono Script、空壳实体类、并行数组主导业务状态，或 Player 一个节点挂了一排无生命周期脚本，说明 prompt / cleaner / hydration gate 至少有一个环节回归。

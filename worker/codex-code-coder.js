@@ -43,11 +43,20 @@ const CODEX_SETTINGS_DIRNAME = '.codex';
 const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'codex-exec';
 
 const PROGRAMMER_DELIVERY_PROMPT_CONTRACT = [
-  '程序员可交付反馈规则：最终 Unity 交付必须包含 AIBridge/MCP、Inspector hydration、GMP_SceneEntityRefs 和 serialized refs。',
+  '默认 gmp-v14 legacy 程序员可交付反馈规则：最终 Unity 交付必须包含 AIBridge/MCP、Inspector hydration、GMP_SceneEntityRefs 和 serialized refs；显式 unitycomponent-v1 使用 Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs，不使用 GMP 命名。',
+  '本段只约束当前默认 gmp-v14 legacy prompt；显式 unitycomponent-v1 profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}、Entity / BaseComponent / EntityManager / GameEntry、UnityDeliverySpec 和 v1 hardgate，不生成旧 Blueprint.UnityComponent namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。',
+  'Unity 程序员交付框架冲突以 /nickTemp/UnityComponent(3).rar / UnityComponent(3) 工程文档为准：按 Entity 持有 scene object 生命周期、[Serializable] BaseComponent 承载纯逻辑能力、EntityManager 注册并统一 Tick entity、模块间通信优先 EventModule 的理念落地。',
+  '当前默认 gmp-v14 legacy 落地到本工程必须使用 GMP 命名：Core/Base 至少包含 GMP_BaseComponent 与 GMP_BaseGameFlowEntity，Core/Modules 至少包含 GMP_EntityManager；实体必须提供 AddEcsComponent、GetEcsComponent<T>、GetFirstEcsComponent<T>、HasEcsComponent<T>，组件生命周期顺序为 OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy。',
+  'GMP_MainManager 是 blueprint 兼容的 GameEntry：集中缓存/初始化 Pool、Audio、Event、EntityManager、UI、Economy、Item/Npc、Phase/Level，并在唯一 Update 中调度 GMP_EntityManager.Tick(dt)；不要照搬 UnityComponent 的 Odin/DOTween/本地 Luna 路径，也不要 runtime 创建常驻管理器。确有多 scene 生命周期时可让场景预挂 Manager 持久化，但不能用代码临时 new 管理器。',
+  'UnityComponent(3) 只覆盖程序员 Unity 交付框架冲突；Storyboard2HTML/source HTML/SourceSceneIR/WebGL 的 phase、guideText、targetSequence、entity/resource/gate 一致性仍是最高红线，不得为了框架改造改写语义链路。',
   'AIBridge 证据必须来自实际运行 AIBRIDGE_CLI：先解析 AIBRIDGE_CLI 或 command -v AIBridgeCLI，记录真实 CLI 路径，再运行 AIBridgeCLI harness status 和 AIBridgeCLI editor get_state --timeout <ms>，把 stdout/stderr/exit code 写入 MCP_HYDRATION_REPORT.json、AIBRIDGE_ATTEMPT_REPORT.json 或 AIBRIDGE_REAL_RUN_REPORT.json；CLI 存在但 Unity Editor/AIBridge 会话超时时写 editor-timeout，不能写成 CLI not found。',
   'Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。',
-  '场景引用入口只允许 GMP_SceneEntityRefs 或 serialized refs；禁止通用 object binding 表、隐藏运行时对象表、GameSceneCtrl / SceneObjectRegistry 第二入口。',
-  '逻辑与表现分离：根节点挂逻辑和碰撞/交互，表现资源挂子节点；一节点一主脚本，无生命周期能力默认普通 C# 类。',
+  '组件必须是真能力而不是装饰：GMP_BaseComponent 子类要拥有自己的状态、调参和语义 API，或通过 OnUpdate/事件订阅参与生命周期；禁止只 new 出来再 AddEcsComponent，但实际逻辑仍复制在 Entity/Manager 里。',
+  'GMP_BaseGameFlowEntity 只负责身份绑定、scene object 生命周期和组件生命周期转发；不要把可见性、位移、交互计数、完成状态、奖励结算等业务便利函数塞进 Entity 基类。',
+  '当前默认 gmp-v14 legacy 场景引用入口只允许 GMP_SceneEntityRefs 或 serialized refs；显式 unitycomponent-v1 使用 GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs；禁止通用 object binding 表、隐藏运行时对象表、GameSceneCtrl / SceneObjectRegistry 第二入口。',
+  'GMP_SceneEntityRefs 只登记玩家、相机/HUD 目标、建筑、交互点、CTA 等关键持久对象；子弹、金币、掉落、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象必须走 GMP_Pool 的 prefab/pool archetype、Preload、Get、Return/ReturnAfter，不写成 1000 个 serialized refs。',
+  '跨脚本调用要有明确通道：强所有权关系用 serialized refs/构造注入，广播和模块联动用 GMP_EventModule.Subscribe/Publish/Unsubscribe，不要让所有模块互相 instance. 直连。',
+  '逻辑与表现分离：根节点挂逻辑和碰撞/交互，表现资源挂子节点；一节点一主脚本，无生命周期能力必须是继承 GMP_BaseComponent 的纯逻辑 C# 能力，不挂成 MonoBehaviour。',
   '注释只写关键；复杂脚本参数说明要清楚；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。',
   '只保留会被调用的方法；必要兜底才写；Missing Mono Script、Rigidbody、Collider、Animator 等场景问题优先由 AIBridge/MCP/Editor 修场景。',
   '单例和管理器禁止 MonoSingleton<T>，用场景预挂 mInstance + 只读 instance；禁止静态 Init/Get/Return 工作流。',
@@ -1347,8 +1356,8 @@ ${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 - 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
-- 不要直接写 \`GameObject.Find("__Pool_*")\`；Luna/WebGL staging 可用骨架绑定层，程序员 Unity 交付必须由 AIBridge 写入 \`GMP_SceneEntityRefs\`/serialized refs
-- 程序员可交付反馈规则：一节点一主脚本；无生命周期能力默认用普通 C# 类；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
+- 不要直接写 \`GameObject.Find("__Pool_*")\`；Luna/WebGL staging 可用骨架绑定层，默认 gmp-v14 legacy 程序员 Unity 交付必须由 AIBridge 写入 \`GMP_SceneEntityRefs\`/serialized refs，显式 unitycomponent-v1 使用 GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs
+- 程序员可交付反馈规则：一节点一主脚本；无生命周期能力必须是继承 \`GMP_BaseComponent\` 的纯逻辑 C# 能力，不挂成 MonoBehaviour；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
 - 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段
 - 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流
 - 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用
@@ -1523,7 +1532,7 @@ ${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
         + '4. Read ALL existing GameFlowManagerMain*.cs partial files FIRST, then apply targeted edits based on the feedback. Do NOT invent file names — use `ls` or `Glob` on the Manager/ directory to discover which partials actually exist.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
         + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.\n'
-        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.\n'
+        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; Luna/WebGL staging uses existing bound entity fields, while programmer delivery uses Inspector-hydrated serialized refs. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.\n'
         + '8. Keep programmer-delivery maintainability: one primary script per node, plain C# classes for abilities without Unity lifecycle, meaningful variable names, no unused methods, inline one-call one-line helpers, and only necessary fallbacks.\n'
         + '9. Keep readability: explain parameters for complex scripts or multi-param helpers near the declaration/call site, and use blank lines only to separate meaningful blocks such as fields, initialization, input, state progression, UI, validation, and fallback code.'
       : null,
@@ -1602,10 +1611,10 @@ ${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
   }
 
   if (gfmCreateCalls > 0) {
-    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use existing bindings / GameSceneCtrl instead', taskId);
+    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
   }
   if (findCalls > 0) {
-    log('[codex-code] ⚠️ WARNING: AI used GameObject.Find() — should use existing bindings / GameSceneCtrl instead', taskId);
+    log('[codex-code] ⚠️ WARNING: AI used GameObject.Find() — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
   }
   if (bindingCalls === 0) {
     log('[codex-code] ⚠️ WARNING: No binding refs found — AI may not be using hydrated scene objects', taskId);

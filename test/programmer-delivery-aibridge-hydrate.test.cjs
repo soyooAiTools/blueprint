@@ -69,6 +69,7 @@ function makeRoot() {
   var root = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-aibridge-hydrate-'));
   var required = [
     { name: 'GMP_MainManager', rel: 'Assets/Scripts/Core/Modules/GMP_MainManager.cs' },
+    { name: 'GMP_EntityManager', rel: 'Assets/Scripts/Core/Modules/GMP_EntityManager.cs' },
     { name: 'GMP_PhaseController', rel: 'Assets/Scripts/Core/Modules/GMP_PhaseController.cs' },
     { name: 'GMP_Audio', rel: 'Assets/Scripts/Core/Modules/GMP_Audio.cs', audio: true },
     { name: 'GMP_UIManager', rel: 'Assets/Scripts/Core/Modules/GMP_UIManager.cs' },

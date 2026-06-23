@@ -35,20 +35,36 @@ function cleanup(root) {
     });
 
     var baseFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_BaseGameFlowEntity.cs');
+    var baseComponentFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_BaseComponent.cs');
+    var entityManagerFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EntityManager.cs');
     var restaurantFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_RestaurantEntity.cs');
     var chefFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_ChefEntity.cs');
+    assert.ok(fs.existsSync(baseComponentFile), 'pure base component should be generated');
+    assert.ok(fs.existsSync(entityManagerFile), 'entity manager should be generated');
     assert.ok(fs.existsSync(baseFile), 'base entity should be generated');
     assert.ok(fs.existsSync(restaurantFile), 'reusable restaurant entity should be generated');
     assert.ok(!fs.existsSync(chefFile), 'fake per-entity shell should not be generated');
 
     var baseCode = fs.readFileSync(baseFile, 'utf8');
-    assert.match(baseCode, /public int InteractionCount/);
-    assert.match(baseCode, /public bool IsCompleted/);
-    assert.match(baseCode, /public virtual void MarkCompleted\(\)/);
+    assert.match(baseCode, /AddEcsComponent/);
+    assert.match(baseCode, /GetEcsComponent<T>/);
+    assert.match(baseCode, /GetFirstEcsComponent<T>/);
+    assert.doesNotMatch(baseCode, /InteractionCount|IsCompleted|MarkCompleted|ResetProgress|MoveToPosition|SetVisible|SetPosition/);
+
+    var baseComponentCode = fs.readFileSync(baseComponentFile, 'utf8');
+    assert.match(baseComponentCode, /\[Serializable\]/);
+    assert.match(baseComponentCode, /public virtual void OnAwake\(\)/);
+    assert.match(baseComponentCode, /public virtual void OnUpdate\(\)/);
+
+    var entityManagerCode = fs.readFileSync(entityManagerFile, 'utf8');
+    assert.match(entityManagerCode, /public class GMP_EntityManager : MonoBehaviour/);
+    assert.match(entityManagerCode, /RegisterEntity\(GMP_BaseGameFlowEntity entity\)/);
+    assert.match(entityManagerCode, /entity\.OnTick\(\)/);
 
     var entityCode = fs.readFileSync(restaurantFile, 'utf8');
     assert.match(entityCode, /public enum GMP_RestaurantEntityKind/);
     assert.match(entityCode, /public class GMP_RestaurantEntity : GMP_BaseGameFlowEntity/);
+    assert.match(entityCode, /public bool IsCompleted = false/);
     assert.match(entityCode, /public void GrantReward\(GMP_EconomyManager economy\)/);
     assert.doesNotMatch(entityCode, /GameFlowStateBase/);
   } finally {
@@ -145,15 +161,20 @@ function cleanup(root) {
     });
 
     var mainFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_MainManager.cs');
+    var entityManagerFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EntityManager.cs');
     var phaseFile = path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhaseController.cs');
     assert.ok(fs.existsSync(mainFile), 'GMP_MainManager.cs should be restored');
+    assert.ok(fs.existsSync(entityManagerFile), 'GMP_EntityManager.cs should be restored');
     assert.ok(fs.existsSync(phaseFile), 'GMP_PhaseController.cs should be restored');
     var mainCode = fs.readFileSync(mainFile, 'utf8');
+    var entityManagerCode = fs.readFileSync(entityManagerFile, 'utf8');
     var phaseCode = fs.readFileSync(phaseFile, 'utf8');
     assert.match(mainCode, /public class GMP_MainManager : MonoBehaviour/);
     assert.match(mainCode, /private static GMP_MainManager mInstance;/);
     assert.match(mainCode, /public static GMP_MainManager instance \{ get \{ return mInstance; \} \}/);
     assert.doesNotMatch(mainCode, /MonoSingleton|GMP_SingletonBase/);
+    assert.match(entityManagerCode, /public class GMP_EntityManager : MonoBehaviour/);
+    assert.match(entityManagerCode, /RegisterEntity\(GMP_BaseGameFlowEntity entity\)/);
     assert.match(phaseCode, /public class GMP_PhaseController : MonoBehaviour/);
     assert.match(phaseCode, /private static GMP_PhaseController mInstance;/);
     assert.match(phaseCode, /public static GMP_PhaseController instance \{ get \{ return mInstance; \} \}/);

@@ -2363,7 +2363,7 @@ module.exports = {
     if (!ctx.csCode) throw new Error('No code to review');
     var lines = ctx.csCode.split('\n');
     var lineCount = lines.length;
-    var bindingSignals = (ctx.csCode.match(/RegisterEntityBindings|GameSceneCtrl|mBindings|SetGuideText|Phase_|StartPhase|UpdatePhase|currentPhase|phaseTimer|CheckEventRules|GMP_EntityBindingManager/g) || []).length;
+    var bindingSignals = (ctx.csCode.match(/RegisterEntityBindings|GameSceneCtrl|SetGuideText|Phase_|StartPhase|UpdatePhase|currentPhase|phaseTimer|CheckEventRules/g) || []).length;
     var todoLines = lines.filter(function(l) { return /\/\/ TODO(?!_\w+(?:START|END))/i.test(l); }).length;
     var todoRatio = todoLines / lineCount;
     if (lineCount < 100) throw new Error('Stub code: only ' + lineCount + ' lines');

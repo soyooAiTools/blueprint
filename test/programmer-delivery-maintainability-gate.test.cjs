@@ -204,6 +204,50 @@ function makeRoot(options) {
       '}'
     ].join('\n'));
   }
+  if (options.decorativeComponentLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Components', 'GMP_ShellComponent.cs'), [
+      'public class GMP_ShellComponent : GMP_BaseComponent',
+      '{',
+      '}'
+    ].join('\n'));
+  }
+  if (options.unusedComponentLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Components', 'GMP_OptionalComponent.cs'), [
+      'public class GMP_OptionalComponent : GMP_BaseComponent',
+      '{',
+      '  public void DoOptionalThing() { }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.baseEntityOverreachLeak) {
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_BaseGameFlowEntity.cs'), [
+      'using UnityEngine;',
+      'public class GMP_BaseGameFlowEntity',
+      '{',
+      '  public int InteractionCount;',
+      '  public bool IsCompleted;',
+      '  public virtual void MarkCompleted() { IsCompleted = true; }',
+      '  public virtual void MoveToPosition(Vector3 target, float duration = 0.4f) { }',
+      '}'
+    ].join('\n'));
+  }
+  if (options.sceneRefsSpawnLeak || options.sceneRefsTransientLeak) {
+    var fields = [];
+    if (options.sceneRefsTransientLeak) {
+      for (var transientIndex = 0; transientIndex < 90; transientIndex++) {
+        var prefix = transientIndex < 20 ? 'mCoinDrop' : 'mStaticThing';
+        fields.push('  public GMP_SceneEntityRef ' + prefix + transientIndex + ' = new GMP_SceneEntityRef();');
+      }
+    }
+    fs.writeFileSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs'), [
+      'public class GMP_SceneEntityRef { }',
+      'public class GMP_SceneEntityRefs',
+      '{',
+      options.sceneRefsSpawnLeak ? '  public void Spawn(string entityName, int count) { }' : '',
+      fields.join('\n'),
+      '}'
+    ].filter(Boolean).join('\n'));
+  }
   if (options.missingMainFile) {
     fs.rmSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_MainManager.cs'), { force: true });
   }
@@ -382,6 +426,57 @@ try {
   assert.ok(duplicateStateReport.summary.duplicateStateOwnerCount >= 4);
 } finally {
   cleanup(duplicateStateRoot);
+}
+
+var decorativeComponentRoot = makeRoot({ decorativeComponentLeak: true });
+try {
+  var decorativeComponentReport = gate.validateMaintainability(decorativeComponentRoot, { strict: true });
+  assert.strictEqual(decorativeComponentReport.passed, false);
+  assert.ok(decorativeComponentReport.errors.some(function(error) { return error.code === 'decorative-component-files'; }));
+  assert.strictEqual(decorativeComponentReport.summary.decorativeComponentCount, 1);
+} finally {
+  cleanup(decorativeComponentRoot);
+}
+
+var unusedComponentRoot = makeRoot({ unusedComponentLeak: true });
+try {
+  var unusedComponentReport = gate.validateMaintainability(unusedComponentRoot, { strict: true });
+  assert.strictEqual(unusedComponentReport.passed, false);
+  assert.ok(unusedComponentReport.errors.some(function(error) { return error.code === 'unused-component-files'; }));
+  assert.strictEqual(unusedComponentReport.summary.unusedComponentFileCount, 1);
+} finally {
+  cleanup(unusedComponentRoot);
+}
+
+var baseEntityOverreachRoot = makeRoot({ baseEntityOverreachLeak: true });
+try {
+  var baseEntityOverreachReport = gate.validateMaintainability(baseEntityOverreachRoot, { strict: true });
+  assert.strictEqual(baseEntityOverreachReport.passed, false);
+  assert.ok(baseEntityOverreachReport.errors.some(function(error) { return error.code === 'entity-base-overreach'; }));
+  assert.ok(baseEntityOverreachReport.summary.baseEntityOverreachCount >= 2);
+} finally {
+  cleanup(baseEntityOverreachRoot);
+}
+
+var sceneRefsSpawnRoot = makeRoot({ sceneRefsSpawnLeak: true });
+try {
+  var sceneRefsSpawnReport = gate.validateMaintainability(sceneRefsSpawnRoot, { strict: true });
+  assert.strictEqual(sceneRefsSpawnReport.passed, false);
+  assert.ok(sceneRefsSpawnReport.errors.some(function(error) { return error.code === 'scene-entity-refs-spawn-api'; }));
+  assert.strictEqual(sceneRefsSpawnReport.summary.sceneEntityRefsSpawnMethodCount, 1);
+} finally {
+  cleanup(sceneRefsSpawnRoot);
+}
+
+var sceneRefsTransientRoot = makeRoot({ sceneRefsTransientLeak: true });
+try {
+  var sceneRefsTransientReport = gate.validateMaintainability(sceneRefsTransientRoot, { strict: true });
+  assert.strictEqual(sceneRefsTransientReport.passed, false);
+  assert.ok(sceneRefsTransientReport.errors.some(function(error) { return error.code === 'scene-entity-refs-transient-overuse'; }));
+  assert.strictEqual(sceneRefsTransientReport.summary.sceneEntityRefsFieldCount, 90);
+  assert.strictEqual(sceneRefsTransientReport.summary.sceneEntityRefsTransientFieldCount, 20);
+} finally {
+  cleanup(sceneRefsTransientRoot);
 }
 
 console.log('programmer delivery maintainability gate tests passed');

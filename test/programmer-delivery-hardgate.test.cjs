@@ -173,6 +173,7 @@ function makeRoot() {
     '  void OnEvent(object payload) {}',
     '}',
   ].join('\n')) });
+  scriptGuids.push({ name: 'GMP_EntityManager', guid: writeScript('Assets/Scripts/Core/Modules/GMP_EntityManager.cs', 'using UnityEngine;\npublic class GMP_EntityManager : MonoBehaviour {}\n') });
   scriptGuids.push({ name: 'GMP_PhaseController', guid: writeScript('Assets/Scripts/Core/Modules/GMP_PhaseController.cs', 'using UnityEngine;\npublic class GMP_PhaseController : MonoBehaviour {}\n') });
   var audioGuid = writeScript('Assets/Scripts/Core/Modules/GMP_Audio.cs', [
     'using UnityEngine;',

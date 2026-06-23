@@ -71,6 +71,36 @@ const storyboardPlan = router.buildValidationPlan({
 assert.ok(storyboardPlan.riskTags.includes('storyboard2html'));
 assert.ok(commandIds(storyboardPlan).includes('unit:storyboard2html-contract'));
 
+const promptPlan = router.buildValidationPlan({
+  files: ['worker/prompt-v5-basetemplate.js'],
+});
+assert.ok(promptPlan.riskTags.includes('programmer-delivery'));
+assert.ok(commandIds(promptPlan).includes('unit:unity-codegen-prompt-contract'), 'prompt files should route to prompt contract tests');
+
+const unityComponentPlan = router.buildValidationPlan({
+  files: ['lib/unitycomponent-v1-emitter.cjs'],
+});
+assert.ok(unityComponentPlan.riskTags.includes('unitycomponent-v1'));
+assert.ok(commandIds(unityComponentPlan).includes('unit:blueprint-skill-unitycomponent-profile-contract'), 'v1 files should route to skill/profile contract tests');
+assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-emitter'), 'v1 files should route to emitter tests');
+assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-cold-export-corpus'), 'v1 files should route to cold export corpus tests');
+
+const unityExportScriptPlan = router.buildValidationPlan({
+  files: ['scripts/export-unity-project.sh'],
+});
+assert.ok(unityExportScriptPlan.riskTags.includes('programmer-delivery'), 'export script should keep legacy programmer-delivery coverage');
+assert.ok(unityExportScriptPlan.riskTags.includes('unitycomponent-v1'), 'export script should include explicit v1 profile coverage');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:export-unity-project-bootstrap'), 'export script should route to bootstrap/profile guard tests');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-profile-registry'), 'export script should validate profile registry contract');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-emitter'), 'export script should route to v1 emitter tests');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-cold-export-corpus'), 'export script should route to v1 cold corpus tests');
+
+const historicalDocsPlan = router.buildValidationPlan({
+  files: ['docs/specs/2026-04-18-feedback-reform-spec.md'],
+});
+assert.ok(historicalDocsPlan.riskTags.includes('programmer-delivery-docs'));
+assert.ok(commandIds(historicalDocsPlan).includes('unit:blueprint-skill-unitycomponent-profile-contract'), 'historical programmer docs should route to profile contract tests');
+
 const unknownPlan = router.buildValidationPlan({
   files: ['docs/notes.md'],
 });

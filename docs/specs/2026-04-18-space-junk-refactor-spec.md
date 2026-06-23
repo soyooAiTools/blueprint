@@ -1,5 +1,7 @@
 # 太空捡垃圾 2026-04-18 Pipeline 重跑改造 Spec
 
+> 状态：历史复盘文档，已被 2026-06-23 gmp-v14 legacy / unitycomponent-v1 双 profile 程序员交付口径取代。本文中的直接 `GameObject.Find("__Pool_*")`、旧 pool manifest、ScriptActivator/GameSceneCtrl 方案只用于解释当时问题，不是当前 prompt 或最终 Unity 交付约束。当前默认 `gmp-v14` legacy 交付以 AIBridge/Editor hydration、`GMP_SceneEntityRefs` / serialized refs、`GMP_Pool` 和 Core/Tool/Game 三层为准；显式 `unitycomponent-v1` 交付以 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate 为准；HTML/WebGL 一致性红线仍不可改写。
+
 ## 摘要
 
 把 `proj_1776391516726_urbib0`(太空捡垃圾)重新跑一遍 pipeline,用今日(2026-04-18)所有新规则+模板重生成 C#,**不改 blueprint 本身**,只验证今日改造的回归收益。

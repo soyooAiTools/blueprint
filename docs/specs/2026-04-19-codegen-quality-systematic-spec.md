@@ -4,6 +4,8 @@
 **关联任务**: urbib0(太空捡垃圾)为基线样本
 **作者**: Claude (依据用户 7 条反馈)
 
+> 状态：历史方案，已被 2026-06-23 gmp-v14 legacy / unitycomponent-v1 双 profile 程序员交付口径取代。本文中“每个变量/方法有详细注释”、五系统 partial class、`Assets/Program/Script/Game` 等旧要求不再作为当前 prompt 或最终 Unity 交付约束。当前默认 `gmp-v14` legacy 口径要求稀疏关键中文注释、Core/Tool/Game 三层、`GMP_BaseComponent` + `GMP_BaseGameFlowEntity` + `GMP_EntityManager`、AIBridge/Editor hydration、`GMP_SceneEntityRefs` / serialized refs；显式 `unitycomponent-v1` 要求 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate；不得为了框架改造破坏 storyboard2html/source HTML/WebGL 语义一致性。
+
 ---
 
 ## 摘要

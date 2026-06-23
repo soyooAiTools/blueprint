@@ -86,7 +86,7 @@
   {
     "description": "Template has 160 pre-baked colored pool objects named __Pool_{Shape}_{Color}_{NN}. Colors are baked in URP/Lit materials. Never use GFM_Create.SetColor() — it causes GL_INVALID_OPERATION.",
     "rule": "Pre-Baked Color Pool",
-    "fix": "Use GameObject.Find(\"__Pool_Cube_Red_01\") to get a red cube. Available shapes: Cube, Sphere, Cylinder, Plane. Available colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink.",
+    "fix": "Use the project entity-to-pool binding map through pre-bound fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get(entityName). Do not add direct GameObject.Find(\"__Pool_*\") calls in gameplay code.",
     "severity": "critical",
     "promotedAt": "2026-04-02T14:00:00.000Z",
     "triggerProjects": [
@@ -491,7 +491,7 @@
   {
     "description": "Uses generic API GFM_Joystick.Create(uiCanvas, 180f) is fine, but the file also depends on undeclared partial-method-side symbols/methods for core compile path: HandleClickInteraction(), UpdateEnemySpawner(), UpdateEnemies(), UpdateProjectiles(), UpdateGoldDrops(). In the reviewed file, required gameplay logic is incomplete and cannot be verified as compiled/implemented. Tier-1 completeness requires all referenced trigger variables to be modified somewhere in Update() or helper method and all call chain to exist.",
     "rule": "c language  bridge.net hard limits",
-    "fix": "Remove all Instantiate(...) calls. Use only pre-existing pool objects found by explicit literal names. If extra entities are needed, map them to additional valid pool objects with explicit GameObject.Find(\"__Pool_...\") literals.",
+    "fix": "Remove all Instantiate(...) calls. Use only pre-existing pool objects through the approved entity-to-pool binding map. If extra entities are needed, extend the binding map or scene hydration data; do not add direct GameObject.Find(\"__Pool_*\") literals in gameplay code.",
     "severity": "critical",
     "promotedAt": "2026-04-18T15:58:34.949Z",
     "triggerProjects": [
@@ -756,7 +756,7 @@
   {
     "description": "Invalid GameObject.Find() pool names are used: __Pool_Sphere_Yellow_02, __Pool_Sphere_Yellow_03, __Pool_Sphere_Yellow_04, __Pool_Cube_Red_05, __Pool_Cube_Green_01, __Pool_Cube_Purple_02, __Pool_Cube_Purple_03, __Pool_Cube_Purple_04, and __Ground. The prompt provides exact valid assignments for this project, and only those names are allowed.",
     "rule": "object naming  pool objects",
-    "fix": "Only use the exact approved pool names from the project mapping. Do not find extra unnamed objects or __Ground unless explicitly provided by the blueprint.",
+    "fix": "Only use the approved entity-to-pool bindings from the project mapping. Do not look up extra unnamed objects or __Ground unless explicitly bound by the blueprint.",
     "severity": "critical",
     "promotedAt": "2026-04-18T15:58:34.951Z",
     "triggerProjects": [

@@ -194,6 +194,7 @@ function canvasYaml() {
 function writeRequiredScene(root) {
   var required = [
     { name: 'GMP_MainManager', rel: 'Assets/Scripts/Core/Modules/GMP_MainManager.cs' },
+    { name: 'GMP_EntityManager', rel: 'Assets/Scripts/Core/Modules/GMP_EntityManager.cs' },
     { name: 'GMP_PhaseController', rel: 'Assets/Scripts/Core/Modules/GMP_PhaseController.cs' },
     { name: 'GMP_Audio', rel: 'Assets/Scripts/Core/Modules/GMP_Audio.cs', audio: true },
     { name: 'GMP_UIManager', rel: 'Assets/Scripts/Core/Modules/GMP_UIManager.cs' },
@@ -243,6 +244,7 @@ function makeDeliverableRoot() {
   ].concat(sceneSingletonMembers('GMP_MainManager')).concat([
     '',
     '    public GMP_PhaseController mPhaseController;',
+    '    public GMP_EntityManager mEntityManager;',
     '    public GMP_UIManager mUIManager;',
     '    public GMP_HudController mHudController;',
     '    public GMP_EventModule mEventModule;',
@@ -260,9 +262,7 @@ function makeDeliverableRoot() {
     '        if (mChef != null)',
     '        {',
     '            mChef.Bind(null, "_chef", "Chef");',
-    '            mChef.ResetProgress();',
-    '            mChef.MoveToPosition(Vector3.zero, 0.25f);',
-    '            mChef.MarkCompleted();',
+    '            mChef.ResetServiceProgress();',
     '        }',
     '        if (mRules != null && mChef != null) mRules.TryServe(mChef);',
     '        if (mPhaseController != null) mPhaseController.StartFlow();',
@@ -278,6 +278,7 @@ function makeDeliverableRoot() {
     '        }',
     '        if (mAudio != null)',
     '        {',
+    '            mAudio.Init();',
     '            mAudio.PlayBGM(mPreviewClip);',
     '            mAudio.PlaySFX(mPreviewClip);',
     '            mAudio.StopLoop("bgm");',
@@ -293,6 +294,7 @@ function makeDeliverableRoot() {
     '    public void Start() { InitCoreModules(); }',
     '    public void Update()',
     '    {',
+    '        if (mEntityManager != null) mEntityManager.Tick(Time.deltaTime);',
     '        if (mPhaseController != null) mPhaseController.Tick(Time.deltaTime);',
     '        if (mPlayer != null) mPlayer.TickInput(Time.deltaTime);',
     '        if (mAutoPlayDriver != null) mAutoPlayDriver.Tick(Time.deltaTime);',
@@ -301,6 +303,15 @@ function makeDeliverableRoot() {
     ''
   ]).join('\n');
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_MainManager.cs'), main);
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EntityManager.cs'), [
+    'using UnityEngine;',
+    'public class GMP_EntityManager : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_EntityManager')).concat([
+    '    public void Tick(float dt) {}',
+    '}',
+    ''
+  ]).join('\n'));
   writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhaseController.cs'), [
     'using UnityEngine;',
     'public class GMP_PhaseController : MonoBehaviour',
@@ -318,6 +329,7 @@ function makeDeliverableRoot() {
   ].concat(sceneSingletonMembers('GMP_Audio')).concat([
     '    public AudioSource[] mLoopSources = new AudioSource[0];',
     '    public AudioSource[] mOneShotSources = new AudioSource[0];',
+    '    public void Init() { GetComponents<AudioSource>(); }',
     '    public void PlayLoop(string key, AudioClip clip) {}',
     '    public void StopLoop(string key) {}',
     '    public void PlayOneShot(AudioClip clip) {}',
@@ -378,16 +390,14 @@ function makeDeliverableRoot() {
     'public class GMP_BaseGameFlowEntity : MonoBehaviour',
     '{',
     '    public GameObject SourceObject;',
-    '    public GMP_EntityState mState = GMP_EntityState.Hidden;',
-    '    public int InteractionCount = 0;',
-    '    public bool IsCompleted = false;',
-    '    public Vector3 InitialPosition = Vector3.zero;',
-    '    public Vector3 LastKnownPosition = Vector3.zero;',
-    '    public virtual void Bind(GameObject source, string entityId, string displayName) { SourceObject = source; }',
-    '    public virtual void MarkInteracted() { InteractionCount += 1; }',
-    '    public virtual void MarkCompleted() { IsCompleted = true; mState = GMP_EntityState.Completed; }',
-    '    public virtual void ResetProgress() { InteractionCount = 0; IsCompleted = false; mState = GMP_EntityState.Hidden; }',
-    '    public virtual void MoveToPosition(Vector3 target, float duration = 0.25f) {}',
+    '    public string EntityId;',
+    '    public string DisplayName;',
+    '    public virtual void Bind(GameObject source, string entityId, string displayName)',
+    '    {',
+    '        SourceObject = source != null ? source : gameObject;',
+    '        EntityId = entityId;',
+    '        DisplayName = displayName;',
+    '    }',
     '}',
     ''
   ].join('\n'));
@@ -421,7 +431,12 @@ function makeDeliverableRoot() {
     '    public GMP_RestaurantEntityKind mKind = GMP_RestaurantEntityKind.Workstation;',
     '    public string mResourceId = "coin";',
     '    public int mRewardAmount = 1;',
+    '    public int ServedCount = 0;',
+    '    public bool IsCompleted = false;',
+    '    public GMP_EntityState mServiceState = GMP_EntityState.Hidden;',
     '    public bool HasReward { get { return !string.IsNullOrEmpty(mResourceId) && mRewardAmount > 0; } }',
+    '    public void RecordServed() { ServedCount += 1; mServiceState = GMP_EntityState.Active; }',
+    '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }',
     '}',
     ''
   ].join('\n'));
@@ -434,7 +449,7 @@ function makeDeliverableRoot() {
     '    public void TryServe(GMP_RestaurantEntity chef)',
     '    {',
     '        if (chef == null) return;',
-    '        chef.MarkInteracted();',
+    '        chef.RecordServed();',
     '        ServedCount += 1;',
     '    }',
     '}',
@@ -508,11 +523,39 @@ function makeDeliverableRoot() {
     if (/\.cs$/i.test(file)) ensureMeta(root, path.relative(root, file).split(path.sep).join('/'));
   });
   writeRequiredScene(root);
-  hydration.writeHydrationReport(root, path.join(root, 'MCP_HYDRATION_REPORT.json'));
+  var hydrationFile = path.join(root, 'MCP_HYDRATION_REPORT.json');
+  hydration.writeHydrationReport(root, hydrationFile, { mode: 'aibridge-editor' });
+  var hydrationJson = JSON.parse(fs.readFileSync(hydrationFile, 'utf8'));
+  hydrationJson.mode = 'aibridge-editor';
+  hydrationJson.toolLayer = 'aibridge-editor';
+  hydrationJson.editorConnected = true;
+  hydrationJson.summary = hydrationJson.summary || {};
+  hydrationJson.summary.editorConnected = true;
+  hydrationJson.aibridge = {
+    ran: true,
+    required: true,
+    cliPath: '/usr/local/bin/AIBridgeCLI',
+    editorConnected: true,
+    commandCount: 2,
+    failedCommandCount: 0
+  };
+  fs.writeFileSync(hydrationFile, JSON.stringify(hydrationJson, null, 2) + '\n');
   return root;
 }
 
 function addProgrammerFeature(root) {
+  var restaurantEntityFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_RestaurantEntity.cs');
+  var restaurantEntity = fs.readFileSync(restaurantEntityFile, 'utf8');
+  restaurantEntity = restaurantEntity.replace(
+    '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }\n',
+    [
+      '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }',
+      '    public bool HasServedAtLeast(int count) { return ServedCount >= count; }',
+      '    public void MarkComboCompleted() { IsCompleted = true; mServiceState = GMP_EntityState.Completed; }'
+    ].join('\n') + '\n'
+  );
+  fs.writeFileSync(restaurantEntityFile, restaurantEntity);
+
   var levelRuleFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_LevelRuleEngine.cs');
   var levelRule = fs.readFileSync(levelRuleFile, 'utf8');
   levelRule = levelRule.replace(
@@ -552,10 +595,9 @@ function addProgrammerFeature(root) {
     '    public bool TryGrant(GMP_RestaurantEntity chef, GMP_LevelRuleEngine rules)',
     '    {',
     '        if (chef == null || rules == null || IsBonusGranted) return false;',
-    '        chef.MarkInteracted();',
-    '        if (chef.InteractionCount < mRequiredInteractions) return false;',
+    '        if (!chef.HasServedAtLeast(mRequiredInteractions)) return false;',
     '        IsBonusGranted = true;',
-    '        chef.MarkCompleted();',
+    '        chef.MarkComboCompleted();',
     '        rules.AddBonusCoins(mBonusCoins);',
     '        if (GMP_SceneEntityRefs.instance != null)',
     '        {',
@@ -600,8 +642,10 @@ try {
   var featureFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_ChefComboBonusFeature.cs');
   var featureCode = fs.readFileSync(featureFile, 'utf8');
   assert.match(featureCode, /GMP_RestaurantEntity/);
-  assert.match(featureCode, /chef\.MarkInteracted\(\)/);
+  assert.match(featureCode, /chef\.HasServedAtLeast\(mRequiredInteractions\)/);
+  assert.match(featureCode, /chef\.MarkComboCompleted\(\)/);
   assert.match(featureCode, /rules\.AddBonusCoins\(mBonusCoins\)/);
+  assert.doesNotMatch(featureCode, /MarkInteracted|InteractionCount|MarkCompleted|ResetProgress|MoveToPosition/);
   assert.doesNotMatch(featureCode, /GameObject\.Find|FindObjectOfType/);
 
   var after = hardgate.validateProgrammerDelivery(root, summary);
