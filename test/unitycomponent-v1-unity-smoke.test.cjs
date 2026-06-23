@@ -13,6 +13,10 @@ fs.mkdirSync(path.join(root, 'Assets'), { recursive: true });
 fs.mkdirSync(path.join(root, 'Packages'), { recursive: true });
 fs.mkdirSync(path.join(root, 'ProjectSettings'), { recursive: true });
 
+var parsed = smoke.parseArgs([root, '--out', path.join(root, 'parsed.json'), '--log', path.join(root, 'unity.log')]);
+assert.strictEqual(parsed.projectPath, root);
+assert.strictEqual(parsed.log, path.join(root, 'unity.log'));
+
 var reportPath = path.join(root, 'smoke.json');
 var result = smoke.runSmoke({
   projectPath: root,

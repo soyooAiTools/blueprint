@@ -79,6 +79,7 @@ assert.ok(commandIds(unityComponentPlan).includes('unit:blueprint-skill-unitycom
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-emitter'), 'v1 files should route to emitter tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-synthetic-export-corpus'), 'v1 files should route to synthetic export corpus tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-accepted-artifact-corpus'), 'v1 files should route to accepted artifact corpus discovery tests');
+assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-cutover-gates'), 'v1 files should route to batch cutover gate tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-unity-smoke'), 'v1 files should route to Unity smoke script tests');
 
 const unityExportScriptPlan = router.buildValidationPlan({
@@ -90,6 +91,7 @@ assert.ok(commandIds(unityExportScriptPlan).includes('unit:export-unity-project-
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-profile-registry'), 'export script should validate profile registry contract');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-emitter'), 'export script should route to v1 emitter tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-synthetic-export-corpus'), 'export script should route to v1 synthetic corpus tests');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-cutover-gates'), 'export script should route to batch cutover gate tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-unity-smoke'), 'export script should route to Unity smoke script tests');
 
 const unknownPlan = router.buildValidationPlan({

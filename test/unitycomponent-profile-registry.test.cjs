@@ -29,6 +29,11 @@ assert.ok(v1.layers.component.indexOf('PickUpComponent') >= 0);
 assert.ok(v1.componentLifecycle.indexOf('OnEnable') >= 0);
 assert.ok(v1.entityLifecycle.indexOf('OnOpen') >= 0);
 assert.strictEqual(v1.cutoverGate.promptCutoverCorpus, 10);
+assert.strictEqual(v1.cutoverGate.acceptedArtifactCorpusMin, 5);
+assert.strictEqual(v1.cutoverGate.sourceEvidenceMetadataPolicy, 'optional-pair-validated');
+assert.strictEqual(v1.cutoverGate.requiresUnityImportCompileSmoke, true);
+assert.strictEqual(v1.cutoverGate.requiresUnitySmokeMode, 'required');
+assert.strictEqual(v1.cutoverGate.requiresLicenseEnabledUnityCiRunner, true);
 
 assert.throws(function() {
   profiles.resolveProfile('unknown-profile');

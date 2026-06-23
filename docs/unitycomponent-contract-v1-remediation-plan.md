@@ -314,8 +314,16 @@ Current executable coverage:
   `test/fixtures/unitycomponent-v1-accepted-corpus/` or an explicit
   `UNITYCOMPONENT_ACCEPTED_CORPUS_ROOT`. Each sample must include
   `source-ir.json`, `playable-scene-ir.json`, `asset-manifest.json`, and
-  `unity-asset-plan.json`; when source reports are present they must be
-  accepted/passed.
+  `unity-asset-plan.json` or `blueprint-unity-asset-plan.json`. The source
+  evidence metadata policy is `optional-pair-validated`: historical
+  `source-ir-report.json` / `source-ir-build-summary.json` files are not
+  fabricated when absent, but when either file is present both must be present
+  and accepted/passed. This keeps the `firstbatch-chef-restaurant-sourceir-20260612`
+  core artifact sample valid without pretending it has source build evidence
+  that is not in the accepted artifact history.
+- `lib/unitycomponent-v1-accepted-corpus.cjs` is the shared accepted corpus
+  discovery/evidence policy module. Tests and cutover scripts must use this
+  module instead of reimplementing corpus discovery with looser rules.
 - `test/unitycomponent-v1-hardgate.test.cjs` now fails on missing
   `source-ir.json`, modified template-owned SLGFrameWork files, missing
   `GameEntry.prefab` manager composition, old namespace/asmdef/layout leakage,
@@ -338,10 +346,19 @@ Current executable coverage:
   changes through both legacy programmer-delivery coverage and the
   unitycomponent-v1 profile/projector/emitter/hardgate/synthetic-corpus plus
   accepted-corpus gates.
-- `scripts/unitycomponent-v1-unity-smoke.cjs <project> --required` is the
-  cutover CI gate for Unity batchmode import/compile. Local environments may
-  run without `--required` to emit a skip report when Unity is unavailable, but
-  cutover/CI must fail if Unity is missing or compilation fails.
+- `scripts/unitycomponent-v1-cutover-gates.cjs --unity-required --limit 5 --out-dir <ci-artifacts>`
+  is the batch cutover CI gate. It discovers accepted corpus samples, emits a
+  Unity project per sample, writes per-sample v1 hardgate reports, then runs
+  required Unity batchmode import/compile smoke for each generated project and
+  stores the smoke reports plus Unity logs under the artifact directory.
+  Missing Unity, missing license, or C# compile/import failure must make this
+  gate fail. `--no-unity` is allowed only for local scaffold-only evidence and
+  always reports `cutoverReady=false`.
+- `scripts/unitycomponent-v1-unity-smoke.cjs <project> --required --log <unity.log>`
+  remains the low-level single-project Unity import/compile gate used by the
+  batch script. Local environments may run without `--required` to emit a skip
+  report when Unity is unavailable, but cutover/CI must fail if Unity is
+  missing or compilation fails.
 
 Corpus must come from already accepted storyboard2html / IR / WebGL artifacts and cannot be used as a reason to change upstream source contracts.
 

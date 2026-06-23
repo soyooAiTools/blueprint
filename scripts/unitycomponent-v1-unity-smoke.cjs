@@ -12,17 +12,19 @@ function parseArgs(argv) {
     projectPath: '',
     unity: process.env.UNITY_EDITOR || process.env.UNITY_PATH || '',
     required: false,
-    out: ''
+    out: '',
+    log: ''
   };
   for (var i = 0; i < args.length; i++) {
     var arg = args[i];
     if (arg === '--unity') out.unity = String(args[++i] || '');
     else if (arg === '--required') out.required = true;
     else if (arg === '--out') out.out = String(args[++i] || '');
+    else if (arg === '--log') out.log = String(args[++i] || '');
     else if (!out.projectPath) out.projectPath = arg;
     else throw new Error('Unexpected argument: ' + arg);
   }
-  if (!out.projectPath) throw new Error('Usage: node scripts/unitycomponent-v1-unity-smoke.cjs <unity-project-dir> [--unity /path/to/Unity] [--required] [--out report.json]');
+  if (!out.projectPath) throw new Error('Usage: node scripts/unitycomponent-v1-unity-smoke.cjs <unity-project-dir> [--unity /path/to/Unity] [--required] [--out report.json] [--log unity.log]');
   return out;
 }
 
@@ -74,7 +76,8 @@ function runSmoke(opts) {
     return skipped;
   }
 
-  var logPath = path.join(os.tmpdir(), 'unitycomponent-v1-unity-smoke-' + process.pid + '.log');
+  var logPath = opts.log ? path.resolve(opts.log) : path.join(os.tmpdir(), 'unitycomponent-v1-unity-smoke-' + process.pid + '.log');
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
   var args = ['-batchmode', '-quit', '-nographics', '-projectPath', projectPath, '-logFile', logPath];
   var exitCode = 0;
   try {
