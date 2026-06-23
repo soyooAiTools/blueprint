@@ -60,6 +60,7 @@ assertHas(skill, '新框架工作必须显式走 `unitycomponent-v1`', 'SKILL.md
 assertHas(skill, 'synthetic', 'SKILL.md');
 assertHas(skill, '默认切换必须另有显式 cutover 决策', 'SKILL.md');
 assertHas(skill, 'batch required Unity', 'SKILL.md');
+assertHas(skill, '只读 JSON self-report 不能算通过', 'SKILL.md');
 assertHas(readme, 'Unity delivery handoff (gmp-v14 legacy or explicit unitycomponent-v1)', 'README.md');
 assertHas(readme, '默认程序员 Unity 交付仍是冻结的 `gmp-v14` legacy', 'README.md');
 assertHas(architecture, 'gmp-v14 legacy Core / Tool / Game 口径', 'architecture.md');
@@ -71,6 +72,8 @@ assertHas(delivery, 'The default `gmp-v14`', 'delivery.md');
 assertHas(delivery, 'Do not apply `GMP_*` naming rules to', 'delivery.md');
 assertHas(delivery, 'optional-pair-validated', 'delivery.md');
 assertHas(delivery, 'unitycomponent-v1-cutover-gates.cjs --unity-required', 'delivery.md');
+assertHas(delivery, 'BatchMode: 0', 'delivery.md');
+assertHas(delivery, 'different project path invalidates the smoke evidence', 'delivery.md');
 
 [
   '程序员 Unity 交付必须严格按 `Assets/Scripts/Core` / `Tool` / `Game` 三层输出',

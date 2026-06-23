@@ -59,6 +59,50 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 }
 
+function normalizeForLogMatch(value) {
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .replace(/["']/g, '')
+    .replace(/\/+/g, '/')
+    .toLowerCase();
+}
+
+function auditUnityLog(logText, projectPath) {
+  var text = String(logText || '');
+  var normalizedText = normalizeForLogMatch(text);
+  var normalizedProject = normalizeForLogMatch(path.resolve(projectPath));
+  var batchModeMatch = text.match(/BatchMode:\s*([01]|true|false)/i);
+  var commandLinePresent = /COMMAND LINE ARGUMENTS:/i.test(text);
+  var hasBatchmodeArg = /(^|\s)-batchmode(\s|$)/i.test(text);
+  var hasOpenFileArg = /(^|\s)-openfile(\s|$)/i.test(text);
+  var projectPathReferenced = normalizedProject && normalizedText.indexOf(normalizedProject) >= 0;
+  var errors = [];
+
+  if (!text.trim()) {
+    errors.push('unity-log-empty');
+  }
+  if (batchModeMatch) {
+    var value = String(batchModeMatch[1]).toLowerCase();
+    if (value === '0' || value === 'false') errors.push('unity-log-not-batchmode');
+  }
+  if (hasOpenFileArg) errors.push('unity-log-openfile-mode');
+  if (!hasBatchmodeArg && !(batchModeMatch && /^(1|true)$/i.test(batchModeMatch[1]))) {
+    errors.push('unity-log-batchmode-argument-missing');
+  }
+  if (!projectPathReferenced) errors.push('unity-log-project-path-mismatch');
+
+  return {
+    commandLinePresent: commandLinePresent,
+    batchModeLine: batchModeMatch ? batchModeMatch[0] : '',
+    hasBatchmodeArg: hasBatchmodeArg,
+    hasOpenFileArg: hasOpenFileArg,
+    projectPathReferenced: projectPathReferenced,
+    normalizedProjectPath: normalizedProject,
+    errors: errors,
+    passed: errors.length === 0
+  };
+}
+
 function runSmoke(opts) {
   var projectPath = path.resolve(opts.projectPath);
   if (!fs.existsSync(projectPath)) throw new Error('Unity project path missing: ' + projectPath);
@@ -86,14 +130,18 @@ function runSmoke(opts) {
     exitCode = typeof err.status === 'number' ? err.status : 1;
   }
   var logText = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
-  var failed = exitCode !== 0 || /error CS\d+|Scripts have compiler errors|Compiler errors|Failed to compile/i.test(logText);
+  var logAudit = auditUnityLog(logText, projectPath);
+  var failed = exitCode !== 0 ||
+    /error CS\d+|Scripts have compiler errors|Compiler errors|Failed to compile/i.test(logText) ||
+    !logAudit.passed;
   var report = {
     kind: 'blueprint.unityComponentV1UnitySmoke',
     status: failed ? 'failed' : 'passed',
     unity: unity,
     projectPath: projectPath,
     exitCode: exitCode,
-    logPath: logPath
+    logPath: logPath,
+    logAudit: logAudit
   };
   writeJson(reportPath, report);
   if (failed) throw new Error('Unity batchmode import/compile smoke failed; see ' + logPath);
@@ -117,6 +165,7 @@ if (require.main === module) {
 
 module.exports = {
   parseArgs: parseArgs,
+  auditUnityLog: auditUnityLog,
   runSmoke: runSmoke,
   main: main
 };

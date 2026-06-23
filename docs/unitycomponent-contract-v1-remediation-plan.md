@@ -356,9 +356,13 @@ Current executable coverage:
   always reports `cutoverReady=false`.
 - `scripts/unitycomponent-v1-unity-smoke.cjs <project> --required --log <unity.log>`
   remains the low-level single-project Unity import/compile gate used by the
-  batch script. Local environments may run without `--required` to emit a skip
-  report when Unity is unavailable, but cutover/CI must fail if Unity is
-  missing or compilation fails.
+  batch script. The smoke report is valid only when the real Unity log confirms
+  batchmode execution for the same project path; `BatchMode: 0`, `-openfile`,
+  a missing `-batchmode` argument, or a project-path mismatch must fail even if
+  Unity exits with code 0. Local environments may run without `--required` to
+  emit a skip report when Unity is unavailable, but cutover/CI must fail if
+  Unity is missing, compilation fails, or the log/evidence chain does not point
+  at the current generated project.
 
 Corpus must come from already accepted storyboard2html / IR / WebGL artifacts and cannot be used as a reason to change upstream source contracts.
 
