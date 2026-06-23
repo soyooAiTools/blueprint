@@ -1,0 +1,786 @@
+{
+  "assets": [],
+  "diagnostics": {
+    "sourceSceneIrHash": "962a893a70c864fc2bb86b41b54baff47a566f8cd139b65bb5021a97aea53483"
+  },
+  "entities": [
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "player",
+      "label": "玩家",
+      "name": "Player",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "capsule"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "流水线",
+      "name": "Source",
+      "position": {
+        "x": -4.33,
+        "y": 0,
+        "z": -5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "汉堡",
+      "name": "Item",
+      "position": {
+        "x": 0.7,
+        "y": 0,
+        "z": -7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "收银台",
+      "name": "Target",
+      "position": {
+        "x": 5.24,
+        "y": 0,
+        "z": -4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "容器",
+      "name": "Container",
+      "position": {
+        "x": 7.42,
+        "y": 0,
+        "z": 0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "顾客",
+      "name": "Consumer",
+      "position": {
+        "x": 4.33,
+        "y": 0,
+        "z": 5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "制作台",
+      "name": "Producer",
+      "position": {
+        "x": -0.7,
+        "y": 0,
+        "z": 7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "制作台",
+      "name": "UpgradePoint",
+      "position": {
+        "x": -5.24,
+        "y": 0,
+        "z": 4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "金币",
+      "name": "Reward",
+      "position": {
+        "x": -7.42,
+        "y": 0,
+        "z": -0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "顾客",
+      "name": "Consumer__phase05_target",
+      "position": {
+        "x": -4.01,
+        "y": 0,
+        "z": -8.94
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "顾客",
+      "name": "Consumer__phase06_target",
+      "position": {
+        "x": 3.72,
+        "y": 0,
+        "z": -9.76
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "顾客",
+      "name": "Consumer__phase07_target",
+      "position": {
+        "x": 8.94,
+        "y": 0,
+        "z": -4.01
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "顾客",
+      "name": "Consumer__phase08_target",
+      "position": {
+        "x": 9.76,
+        "y": 0,
+        "z": 3.72
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    }
+  ],
+  "entityBindings": {},
+  "extractionSummary": {
+    "source": "source-scene-ir",
+    "sourceSceneIrHash": "962a893a70c864fc2bb86b41b54baff47a566f8cd139b65bb5021a97aea53483"
+  },
+  "generatedAt": "2026-06-11T11:57:58.027Z",
+  "kind": "blueprint.playableSceneIR",
+  "phases": [
+    {
+      "goalText": "",
+      "guideText": "把两个汉堡合在一起，升成更高级的汉堡。",
+      "hudText": null,
+      "id": "phase1",
+      "index": 0,
+      "name": "游戏整体玩法、节奏比较接近挂机合成类",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Source",
+        "Target",
+        "Consumer",
+        "Producer"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint",
+          "radius": 1.8,
+          "target": "UpgradePoint"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint",
+          "resource": "Item",
+          "setEntity": "UpgradePoint",
+          "state": 2,
+          "target": "UpgradePoint"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "把汉堡送到顾客处，完成订单。",
+      "hudText": null,
+      "id": "phase2",
+      "index": 1,
+      "name": "然后回到自己的收银台，把汉堡放到桌子 然后回到自",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Consumer",
+          "radius": 1.8,
+          "target": "Consumer"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "label": "Consumer",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Consumer",
+          "to": "Consumer"
+        }
+      ],
+      "trigger": {
+        "entity": "Consumer",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第3步：继续合成更高级的汉堡。",
+      "hudText": null,
+      "id": "phase3",
+      "index": 2,
+      "name": "售卖。卖空以后会再次循环以上步骤。3. 开局引导",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Target",
+        "Consumer",
+        "Producer"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint",
+          "radius": 1.8,
+          "target": "UpgradePoint"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint",
+          "resource": "Item",
+          "setEntity": "UpgradePoint",
+          "state": 2,
+          "target": "UpgradePoint"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "观察制作台自动产出汉堡。",
+      "hudText": null,
+      "id": "phase4",
+      "index": 3,
+      "name": "1阶制作台，产出效率1.5s/1个汉",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Item",
+          "index": 0,
+          "kind": "produce",
+          "label": "Item",
+          "resource": "Item",
+          "target": "Item"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Item",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第5步：继续把汉堡送到顾客处。",
+      "hudText": null,
+      "id": "phase5",
+      "index": 4,
+      "name": "3阶制作台，产出效率0.1s/1个汉",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer",
+        "Target",
+        "Producer",
+        "Consumer__phase05_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Consumer__phase05_target",
+          "radius": 1.8,
+          "target": "Consumer__phase05_target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "label": "Consumer__phase05_target",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Consumer__phase05_target",
+          "to": "Consumer__phase05_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Consumer__phase05_target",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第6步：继续把汉堡送到顾客处。",
+      "hudText": null,
+      "id": "phase6",
+      "index": 5,
+      "name": "2阶收银台，对应1个店员，店员移动速 2阶收银台",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer",
+        "Target",
+        "Consumer__phase06_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Consumer__phase06_target",
+          "radius": 1.8,
+          "target": "Consumer__phase06_target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "label": "Consumer__phase06_target",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Consumer__phase06_target",
+          "to": "Consumer__phase06_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Consumer__phase06_target",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第7步：继续把汉堡送到顾客处。",
+      "hudText": null,
+      "id": "phase7",
+      "index": 6,
+      "name": "3阶收银台，对应3个店员，店员移动速度5，货物卖",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer",
+        "Target",
+        "Consumer__phase07_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Consumer__phase07_target",
+          "radius": 1.8,
+          "target": "Consumer__phase07_target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "label": "Consumer__phase07_target",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Consumer__phase07_target",
+          "to": "Consumer__phase07_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Consumer__phase07_target",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第8步：继续把汉堡送到顾客处。",
+      "hudText": null,
+      "id": "phase8",
+      "index": 7,
+      "name": "每个空位上都会标注一个价格，表示购买1个新的1级",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer",
+        "Target",
+        "Consumer__phase08_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Consumer__phase08_target",
+          "radius": 1.8,
+          "target": "Consumer__phase08_target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "label": "Consumer__phase08_target",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Consumer__phase08_target",
+          "to": "Consumer__phase08_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Consumer__phase08_target",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第9步：继续合成更高级的汉堡。",
+      "hudText": null,
+      "id": "phase9",
+      "index": 8,
+      "name": "---a. 引导合成 （有可合成物件",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint",
+          "radius": 1.8,
+          "target": "UpgradePoint"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint",
+          "resource": "Item",
+          "setEntity": "UpgradePoint",
+          "state": 2,
+          "target": "UpgradePoint"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+      "hudText": null,
+      "id": "phase10",
+      "index": 9,
+      "name": "6. 每次售出汉堡时，产生的金币会直",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "cta_finish"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer",
+        "UpgradePoint",
+        "Target"
+      ],
+      "steps": [
+        {
+          "ctaEntity": "CtaButton",
+          "ctaId": "CtaButton",
+          "index": 0,
+          "kind": "cta_finish",
+          "label": "cta_finish"
+        }
+      ],
+      "trigger": {
+        "ctaId": "CtaButton",
+        "range": 2,
+        "type": "cta_arrival"
+      }
+    }
+  ],
+  "project": {
+    "name": "Nova原创_挂机合成汉堡店",
+    "theme": "default"
+  },
+  "scene": {
+    "backgroundColor": "#101820",
+    "camera": {
+      "far": 1000,
+      "follow": null,
+      "fov": 58,
+      "kind": "perspective",
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "position": [
+        0,
+        17.64,
+        24.36
+      ],
+      "source": null
+    },
+    "coordinateSystem": "three-xz-y-up",
+    "grid": null,
+    "ground": {
+      "color": "#203040",
+      "depth": 42,
+      "height": 42,
+      "kind": "plane",
+      "positionY": null,
+      "size": [
+        42,
+        42
+      ],
+      "width": 42
+    },
+    "guidance": null,
+    "lights": []
+  },
+  "schemaVersion": "1.0.0",
+  "semanticHash": "622225ee8611a182dd9b3899170f0acfb0e402ff7d4cb0854f27aa3c7ecdede3",
+  "source": {
+    "htmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-04/source-ir-preview.html",
+    "htmlSha256": "3433a18a03d860727c278fa7850005c110bca0253220d40e0de39b2628c2fed9"
+  },
+  "unsupported": []
+}

@@ -1,0 +1,861 @@
+{
+  "assets": [],
+  "diagnostics": {
+    "sourceSceneIrHash": "6fc92b3d796a04a85f8eaedd2775cbdb125df02fa61348eeb8e4d83bee4c41a4"
+  },
+  "entities": [
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "player",
+      "label": "玩家",
+      "name": "Player",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "capsule"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "流水线",
+      "name": "Source",
+      "position": {
+        "x": -4.33,
+        "y": 0,
+        "z": -5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "配菜",
+      "name": "Item",
+      "position": {
+        "x": 0.7,
+        "y": 0,
+        "z": -7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "订单小票",
+      "name": "Target",
+      "position": {
+        "x": 5.24,
+        "y": 0,
+        "z": -4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "面碗",
+      "name": "Container",
+      "position": {
+        "x": 7.42,
+        "y": 0,
+        "z": 0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "订单",
+      "name": "Consumer",
+      "position": {
+        "x": 4.33,
+        "y": 0,
+        "z": 5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "传送带",
+      "name": "Producer",
+      "position": {
+        "x": -0.7,
+        "y": 0,
+        "z": 7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "升级点",
+      "name": "UpgradePoint",
+      "position": {
+        "x": -5.24,
+        "y": 0,
+        "z": 4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "订单计数",
+      "name": "Reward",
+      "position": {
+        "x": -7.42,
+        "y": 0,
+        "z": -0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase01_target",
+      "position": {
+        "x": -4.01,
+        "y": 0,
+        "z": -8.94
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase02_target",
+      "position": {
+        "x": 3.72,
+        "y": 0,
+        "z": -9.76
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase04_target",
+      "position": {
+        "x": 8.94,
+        "y": 0,
+        "z": -4.01
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase05_target",
+      "position": {
+        "x": 9.76,
+        "y": 0,
+        "z": 3.72
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase07_target",
+      "position": {
+        "x": 4.01,
+        "y": 0,
+        "z": 8.94
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "配菜",
+      "name": "Item__phase08_target",
+      "position": {
+        "x": -3.72,
+        "y": 0,
+        "z": 9.76
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    }
+  ],
+  "entityBindings": {},
+  "extractionSummary": {
+    "source": "source-scene-ir",
+    "sourceSceneIrHash": "6fc92b3d796a04a85f8eaedd2775cbdb125df02fa61348eeb8e4d83bee4c41a4"
+  },
+  "generatedAt": "2026-06-11T11:57:57.932Z",
+  "kind": "blueprint.playableSceneIR",
+  "phases": [
+    {
+      "goalText": "",
+      "guideText": "观察传送带自动产出配菜。",
+      "hudText": null,
+      "id": "phase1",
+      "index": 0,
+      "name": "玩法逻辑核心流程（全自动面条 + 手",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item",
+        "Item__phase01_target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Item",
+          "index": 0,
+          "kind": "produce",
+          "label": "Item__phase01_target",
+          "resource": "Item",
+          "target": "Item__phase01_target"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Item",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第2步：继续观察自动产出配菜。",
+      "hudText": null,
+      "id": "phase2",
+      "index": 1,
+      "name": "锅，煮2秒后自动盛入面碗，整个过程完",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item",
+        "Item__phase02_target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Item",
+          "index": 0,
+          "kind": "produce",
+          "label": "Item__phase02_target",
+          "resource": "Item",
+          "target": "Item__phase02_target"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Item",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "查看订单小票，确认当前订单需要什么。",
+      "hudText": null,
+      "id": "phase3",
+      "index": 2,
+      "name": "3. 订单小票：屏幕顶部显示当前订单",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "entity": "Target",
+          "index": 0,
+          "kind": "show",
+          "label": "Target",
+          "setEntity": "Target",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "state": 1,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "移动到配菜旁，选中订单需要的配菜。",
+      "hudText": null,
+      "id": "phase4",
+      "index": 3,
+      "name": "4. 配菜传送带：下排传送带持续送来",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "player_input_tap"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Item__phase04_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Item__phase04_target",
+          "radius": 1.5,
+          "target": "Item__phase04_target"
+        },
+        {
+          "index": 1,
+          "kind": "select",
+          "label": "Item__phase04_target",
+          "setEntity": "Item__phase04_target",
+          "target": "Item__phase04_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Item__phase04_target",
+        "range": 1.5,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第5步：继续按订单选择正确内容。",
+      "hudText": null,
+      "id": "phase5",
+      "index": 4,
+      "name": "1. 点击正确（配菜是当前订单所需）",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "player_input_tap"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Target",
+        "Item__phase05_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Item__phase05_target",
+          "radius": 1.5,
+          "target": "Item__phase05_target"
+        },
+        {
+          "index": 1,
+          "kind": "select",
+          "label": "Item__phase05_target",
+          "setEntity": "Item__phase05_target",
+          "target": "Item__phase05_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Item__phase05_target",
+        "range": 1.5,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "避开错误配菜，只选订单里真正需要的内容。",
+      "hudText": null,
+      "id": "phase6",
+      "index": 5,
+      "name": "2. 点击错误（配菜不是当前订单所需",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Target",
+        "Producer"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Target",
+          "radius": 1.8,
+          "target": "Target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "transfer",
+          "label": "Target",
+          "resource": "Item",
+          "spend": "Item",
+          "target": "Target",
+          "to": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "range": 1.8,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第7步：继续按订单选择正确内容。",
+      "hudText": null,
+      "id": "phase7",
+      "index": 6,
+      "name": "5. 订单完成：当所有所需配菜都被正",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "player_input_tap"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Producer",
+        "Reward",
+        "Target",
+        "Item__phase07_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "Item__phase07_target",
+          "radius": 1.5,
+          "target": "Item__phase07_target"
+        },
+        {
+          "index": 1,
+          "kind": "select",
+          "label": "Item__phase07_target",
+          "setEntity": "Item__phase07_target",
+          "target": "Item__phase07_target"
+        }
+      ],
+      "trigger": {
+        "entity": "Item__phase07_target",
+        "range": 1.5,
+        "type": "near_entity"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第8步：继续观察自动产出配菜。",
+      "hudText": null,
+      "id": "phase8",
+      "index": 7,
+      "name": "条立即入碗，同时刷新新订单6. 订单",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item",
+        "Target",
+        "Item__phase08_target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Item",
+          "index": 0,
+          "kind": "produce",
+          "label": "Item__phase08_target",
+          "resource": "Item",
+          "target": "Item__phase08_target"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Item",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第9步：看奖励或计数继续增加。",
+      "hudText": null,
+      "id": "phase9",
+      "index": 8,
+      "name": "现，同时计数不变（惩罚只是浪费了时间",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Reward"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Reward",
+          "index": 0,
+          "kind": "reward",
+          "label": "Reward",
+          "resource": "Reward",
+          "target": "Reward"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Reward",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "注意倒计时，尽快按当前目标完成操作。",
+      "hudText": null,
+      "id": "phase10",
+      "index": 9,
+      "name": "UI 辅助订单小票上方的倒计时圆环（",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "entity": "Target",
+          "index": 0,
+          "kind": "show",
+          "label": "Target",
+          "setEntity": "Target",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "state": 1,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第11步：看奖励或计数继续增加。",
+      "hudText": null,
+      "id": "phase11",
+      "index": 10,
+      "name": "订单计数：左上角“拉面：X/8”错误",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Reward",
+        "Target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "gain": "Reward",
+          "index": 0,
+          "kind": "reward",
+          "label": "Reward",
+          "resource": "Reward",
+          "target": "Reward"
+        }
+      ],
+      "trigger": {
+        "amount": 1,
+        "resource": "Reward",
+        "type": "resource_collected"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "看到符合订单的配菜出现时，按订单选择它。",
+      "hudText": null,
+      "id": "phase12",
+      "index": 11,
+      "name": "引导：第一个符合订单的配菜出现时 ，",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "entity": "Target",
+          "index": 0,
+          "kind": "show",
+          "label": "Target",
+          "setEntity": "Target",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "state": 1,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+      "hudText": null,
+      "id": "phase13",
+      "index": 12,
+      "name": "成功跳转：完成8个订单 ---庆祝动",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "cta_finish"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Target",
+        "Source"
+      ],
+      "steps": [
+        {
+          "ctaEntity": "CtaButton",
+          "ctaId": "CtaButton",
+          "index": 0,
+          "kind": "cta_finish",
+          "label": "cta_finish"
+        }
+      ],
+      "trigger": {
+        "ctaId": "CtaButton",
+        "range": 2,
+        "type": "cta_arrival"
+      }
+    }
+  ],
+  "project": {
+    "name": "MC原创_3D流水线拉面",
+    "theme": "default"
+  },
+  "scene": {
+    "backgroundColor": "#101820",
+    "camera": {
+      "far": 1000,
+      "follow": null,
+      "fov": 58,
+      "kind": "perspective",
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "position": [
+        0,
+        17.64,
+        24.36
+      ],
+      "source": null
+    },
+    "coordinateSystem": "three-xz-y-up",
+    "grid": null,
+    "ground": {
+      "color": "#203040",
+      "depth": 42,
+      "height": 42,
+      "kind": "plane",
+      "positionY": null,
+      "size": [
+        42,
+        42
+      ],
+      "width": 42
+    },
+    "guidance": null,
+    "lights": []
+  },
+  "schemaVersion": "1.0.0",
+  "semanticHash": "ac496a1e96e98bfc5ba73a94613d78e5ecd8b9b7300c4ad6daa436e50a7f8f31",
+  "source": {
+    "htmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-02/source-ir-preview.html",
+    "htmlSha256": "b0980098a4a495d23d1492e7ea54ef14b4444177eab0304da42f6c9aa89ea4bd"
+  },
+  "unsupported": []
+}

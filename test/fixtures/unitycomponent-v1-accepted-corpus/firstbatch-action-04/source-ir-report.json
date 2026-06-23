@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.sourceSceneIR.preflightReport",
+  "generatedAt": "2026-06-11T16:43:10.837Z",
+  "sourceHtmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-04/source-ir-preview.html",
+  "sourceHtmlSha256": "3433a18a03d860727c278fa7850005c110bca0253220d40e0de39b2628c2fed9",
+  "passed": true,
+  "summary": {
+    "embeddedSourceIrPresent": true,
+    "legacyProjectionUsed": false,
+    "sourceSceneIrHash": "962a893a70c864fc2bb86b41b54baff47a566f8cd139b65bb5021a97aea53483",
+    "declaredHash": "962a893a70c864fc2bb86b41b54baff47a566f8cd139b65bb5021a97aea53483",
+    "hashMatches": true,
+    "phaseCount": 10,
+    "entityCount": 13,
+    "resourceCount": 2,
+    "requiresJoystick": true,
+    "joystickEvidencePresent": true,
+    "sourceIrRenderer": {
+      "version": "source-ir-preview-renderer.v1",
+      "present": true,
+      "ownsVisuals": true,
+      "ownsPhaseDriver": true,
+      "visualSourceIsSourceIr": true,
+      "hasDriveToSourcePhase": true,
+      "hasDriveToPhase": true,
+      "hasGameState": true,
+      "hasSetTip": true,
+      "initializesFidelityReadyFalse": true
+    },
+    "legacyProjection": {
+      "phases": 10,
+      "entityStyles": 13,
+      "entityPositions": 13,
+      "sceneConfig": true
+    },
+    "projectionParity": {
+      "PHASES": {
+        "present": true,
+        "parseable": true,
+        "derivedFromSourceIr": false
+      },
+      "ENTITY_STYLE": {
+        "present": true,
+        "parseable": true,
+        "derivedFromSourceIr": false
+      },
+      "ENTITY_POSITIONS": {
+        "present": true,
+        "parseable": true,
+        "derivedFromSourceIr": false
+      },
+      "SCENE_CONFIG": {
+        "present": true,
+        "parseable": true,
+        "derivedFromSourceIr": false
+      }
+    }
+  },
+  "warnings": [],
+  "violations": [],
+  "inputKind": "source-ir-html"
+}

@@ -194,6 +194,11 @@ It is read-only, not used at runtime, and should contain:
 - `uiRefs`: guide label, HUD root, CTA/button, dialog anchors
 - `assetBindings`: source asset key -> Unity asset/prefab/material/audio/animation path
 
+When `assetBindings[].source` is structured data, `GeneratedDeliveryData`
+stores a stable JSON string. JavaScript object coercion such as
+`"[object Object]"` is forbidden because Editor hydration/runtime consumers
+cannot recover provenance from it.
+
 Runtime bake rule:
 
 - Emitter must project `UnityDeliverySpec` into baked `GeneratedDeliveryData`,
@@ -277,6 +282,8 @@ Positive checks:
 - `UnityDeliverySpec` matches SourceIR semantics.
 - Runtime uses `Manager/BlueprintDelivery/GeneratedDeliveryData.cs`, not
   `UnityDeliverySpec.json`.
+- `GeneratedDeliveryData.AssetBindings.Source` preserves structured source
+  provenance as stable JSON/string data.
 
 Forbidden checks:
 
@@ -285,6 +292,7 @@ Forbidden checks:
 - Runtime non-whitelisted `AddComponent` or `new GameObject`.
 - Default optional components without feature evidence.
 - Projector semantic drift.
+- Asset binding source literals such as `"[object Object]"`.
 
 ## Corpus And Cutover
 
@@ -301,11 +309,13 @@ Current executable coverage:
 - `test/unitycomponent-v1-synthetic-export-corpus.test.cjs` covers N=10
   synthetic SourceIR fixtures -> UnityComponent v1 Unity export -> v1 hardgate.
   This is unit coverage, not cutover evidence.
-- `test/unitycomponent-v1-accepted-artifact-corpus.test.cjs` discovers accepted
-  SourceIR/WebGL artifact directories and runs the same export/hardgate flow
-  when repo-owned fixtures or `UNITYCOMPONENT_ACCEPTED_CORPUS_ROOT` are present.
-  If no accepted corpus is available locally, it skips explicitly instead of
-  claiming cutover evidence.
+- `test/unitycomponent-v1-accepted-artifact-corpus.test.cjs` requires at least
+  five accepted SourceIR/WebGL artifact directories from
+  `test/fixtures/unitycomponent-v1-accepted-corpus/` or an explicit
+  `UNITYCOMPONENT_ACCEPTED_CORPUS_ROOT`. Each sample must include
+  `source-ir.json`, `playable-scene-ir.json`, `asset-manifest.json`, and
+  `unity-asset-plan.json`; when source reports are present they must be
+  accepted/passed.
 - `test/unitycomponent-v1-hardgate.test.cjs` now fails on missing
   `source-ir.json`, modified template-owned SLGFrameWork files, missing
   `GameEntry.prefab` manager composition, old namespace/asmdef/layout leakage,
@@ -327,7 +337,11 @@ Current executable coverage:
 - `scripts/validation-router.cjs` routes `scripts/export-unity-project.sh`
   changes through both legacy programmer-delivery coverage and the
   unitycomponent-v1 profile/projector/emitter/hardgate/synthetic-corpus plus
-  accepted-corpus discovery gates.
+  accepted-corpus gates.
+- `scripts/unitycomponent-v1-unity-smoke.cjs <project> --required` is the
+  cutover CI gate for Unity batchmode import/compile. Local environments may
+  run without `--required` to emit a skip report when Unity is unavailable, but
+  cutover/CI must fail if Unity is missing or compilation fails.
 
 Corpus must come from already accepted storyboard2html / IR / WebGL artifacts and cannot be used as a reason to change upstream source contracts.
 

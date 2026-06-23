@@ -128,6 +128,7 @@ assert.ok(/Vector3\.MoveTowards/.test(text), 'MoveComponent must own movement up
 assert.ok(/IsCanPickUpable/.test(text), 'PickUpComponent must own pickup state');
 assert.ok(/UiRefs = new UiRefData\[\]/.test(text), 'GeneratedDeliveryData must bake UI refs');
 assert.ok(/AssetBindings = new AssetBindingData\[\]/.test(text), 'GeneratedDeliveryData must bake asset bindings');
+assert.strictEqual(text.indexOf('[object Object]'), -1, 'GeneratedDeliveryData must not coerce asset source objects to [object Object]');
 assert.strictEqual(/ExecuteMove\s*\(\)\s*\{\s*\}/.test(text), false, 'components must not be empty Execute shells');
 
 var prefabText = fs.readFileSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Prefab', 'GameEntry.prefab'), 'utf8');

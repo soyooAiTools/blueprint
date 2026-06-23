@@ -1,0 +1,1013 @@
+{
+  "assets": [],
+  "diagnostics": {
+    "sourceSceneIrHash": "3e4b4ba14d762a7a4be8ac504fa5c3f3614a77b29f3605b60577ffb300f2af80"
+  },
+  "entities": [
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "player",
+      "label": "玩家",
+      "name": "Player",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "capsule"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "生产点",
+      "name": "Source",
+      "position": {
+        "x": -4.33,
+        "y": 0,
+        "z": -5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "甜品",
+      "name": "Item",
+      "position": {
+        "x": 0.7,
+        "y": 0,
+        "z": -7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "餐厅",
+      "name": "Target",
+      "position": {
+        "x": 5.24,
+        "y": 0,
+        "z": -4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "容器",
+      "name": "Container",
+      "position": {
+        "x": 7.42,
+        "y": 0,
+        "z": 0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "顾客",
+      "name": "Consumer",
+      "position": {
+        "x": 4.33,
+        "y": 0,
+        "z": 5.24
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "生产点",
+      "name": "Producer",
+      "position": {
+        "x": -0.7,
+        "y": 0,
+        "z": 7.42
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "prop",
+      "label": "合成链",
+      "name": "UpgradePoint",
+      "position": {
+        "x": -5.24,
+        "y": 0,
+        "z": 4.33
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#ffd34d",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "resource",
+      "label": "奖励",
+      "name": "Reward",
+      "position": {
+        "x": -7.42,
+        "y": 0,
+        "z": -0.7
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase03_target",
+      "position": {
+        "x": -4.01,
+        "y": 0,
+        "z": -8.94
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase04_target",
+      "position": {
+        "x": 3.72,
+        "y": 0,
+        "z": -9.76
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase05_target",
+      "position": {
+        "x": 8.94,
+        "y": 0,
+        "z": -4.01
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase06_target",
+      "position": {
+        "x": 9.76,
+        "y": 0,
+        "z": 3.72
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase07_target",
+      "position": {
+        "x": 4.01,
+        "y": 0,
+        "z": 8.94
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase08_target",
+      "position": {
+        "x": -3.72,
+        "y": 0,
+        "z": 9.76
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase09_target",
+      "position": {
+        "x": -8.94,
+        "y": 0,
+        "z": 4.01
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase10_target",
+      "position": {
+        "x": -9.76,
+        "y": 0,
+        "z": -3.72
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    },
+    {
+      "assetIds": [],
+      "color": "#5db7ff",
+      "composite": null,
+      "fidelityTarget": null,
+      "kind": "phase_target",
+      "label": "合成链",
+      "name": "UpgradePoint__phase11_target",
+      "position": {
+        "x": -1.93,
+        "y": 0,
+        "z": -12.65
+      },
+      "primaryAssetId": null,
+      "style": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      },
+      "visualFallback": "source-scene-ir-procedural"
+    }
+  ],
+  "entityBindings": {},
+  "extractionSummary": {
+    "source": "source-scene-ir",
+    "sourceSceneIrHash": "3e4b4ba14d762a7a4be8ac504fa5c3f3614a77b29f3605b60577ffb300f2af80"
+  },
+  "generatedAt": "2026-06-11T11:57:57.986Z",
+  "kind": "blueprint.playableSceneIR",
+  "phases": [
+    {
+      "goalText": "",
+      "guideText": "把两个甜品合在一起，升成更高级的甜品。",
+      "hudText": null,
+      "id": "phase1",
+      "index": 0,
+      "name": "玩法逻辑核心玩法物品直接拖动合成无棋",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint",
+          "radius": 1.8,
+          "target": "UpgradePoint"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint",
+          "resource": "Item",
+          "setEntity": "UpgradePoint",
+          "state": 2,
+          "target": "UpgradePoint"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "观察当前场景，确认接下来要处理的目标。",
+      "hudText": null,
+      "id": "phase2",
+      "index": 1,
+      "name": "画面整体呈现：低饱和 + 多巴胺甜品",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "entity": "Target",
+          "index": 0,
+          "kind": "show",
+          "label": "Target",
+          "setEntity": "Target",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "state": 1,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第3步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase3",
+      "index": 2,
+      "name": "桌面物件（椅子/花瓶等）：轻微3s周",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Target",
+        "UpgradePoint__phase03_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase03_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase03_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase03_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase03_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase03_target",
+          "state": 2,
+          "target": "UpgradePoint__phase03_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase03_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第4步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase4",
+      "index": 3,
+      "name": "碰撞瞬间升级为【Lv2 咖啡杯】咖啡",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase04_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase04_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase04_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase04_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase04_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase04_target",
+          "state": 2,
+          "target": "UpgradePoint__phase04_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase04_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第5步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase5",
+      "index": 4,
+      "name": "STEP 3：自由合成阶段进入自由操",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Target",
+        "UpgradePoint__phase05_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase05_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase05_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase05_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase05_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase05_target",
+          "state": 2,
+          "target": "UpgradePoint__phase05_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase05_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第6步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase6",
+      "index": 5,
+      "name": "玩家行为引导：3秒无操作 → 再次手",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase06_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase06_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase06_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase06_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase06_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase06_target",
+          "state": 2,
+          "target": "UpgradePoint__phase06_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase06_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第7步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase7",
+      "index": 6,
+      "name": "升级链设计链路1：咖啡体系咖啡豆 →",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase07_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase07_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase07_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase07_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase07_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase07_target",
+          "state": 2,
+          "target": "UpgradePoint__phase07_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase07_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第8步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase8",
+      "index": 7,
+      "name": "桌花 → 花束 → 高级花瓶装饰花束",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase08_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase08_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase08_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase08_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase08_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase08_target",
+          "state": 2,
+          "target": "UpgradePoint__phase08_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase08_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第9步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase9",
+      "index": 8,
+      "name": "链路4：清爽饮品柠檬片 → 苏打气泡",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase09_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase09_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase09_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase09_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase09_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase09_target",
+          "state": 2,
+          "target": "UpgradePoint__phase09_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase09_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第10步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase10",
+      "index": 9,
+      "name": "面团 → 可颂 → 水果舒芙蕾STE",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "Target",
+        "UpgradePoint__phase10_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase10_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase10_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase10_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase10_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase10_target",
+          "state": 2,
+          "target": "UpgradePoint__phase10_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase10_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "第11步：继续合成更高级的甜品。",
+      "hudText": null,
+      "id": "phase11",
+      "index": 10,
+      "name": "任意 5 条合成链达到 Lv.3结束",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase11_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "label": "UpgradePoint__phase11_target",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase11_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase11_target",
+          "index": 1,
+          "kind": "combine",
+          "label": "UpgradePoint__phase11_target",
+          "resource": "Item",
+          "setEntity": "UpgradePoint__phase11_target",
+          "state": 2,
+          "target": "UpgradePoint__phase11_target"
+        }
+      ],
+      "trigger": {
+        "entity": "UpgradePoint__phase11_target",
+        "state": 2,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "观察目标发光和镜头变化，准备进入下一步。",
+      "hudText": null,
+      "id": "phase12",
+      "index": 11,
+      "name": "全场物品轻微发光 + 摇摆镜头表现：",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "entity": "Target",
+          "index": 0,
+          "kind": "show",
+          "label": "Target",
+          "setEntity": "Target",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "trigger": {
+        "entity": "Target",
+        "state": 1,
+        "type": "entity_state_reached"
+      }
+    },
+    {
+      "goalText": "",
+      "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+      "hudText": null,
+      "id": "phase13",
+      "index": 12,
+      "name": "CTA弹窗：文案：“Unlock m",
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "cta_finish"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Producer"
+      ],
+      "steps": [
+        {
+          "ctaEntity": "CtaButton",
+          "ctaId": "CtaButton",
+          "index": 0,
+          "kind": "cta_finish",
+          "label": "cta_finish"
+        }
+      ],
+      "trigger": {
+        "ctaId": "CtaButton",
+        "range": 2,
+        "type": "cta_arrival"
+      }
+    }
+  ],
+  "project": {
+    "name": "MC原创_甜品餐厅物品二合试玩",
+    "theme": "default"
+  },
+  "scene": {
+    "backgroundColor": "#101820",
+    "camera": {
+      "far": 1000,
+      "follow": null,
+      "fov": 58,
+      "kind": "perspective",
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "position": [
+        0,
+        17.64,
+        24.36
+      ],
+      "source": null
+    },
+    "coordinateSystem": "three-xz-y-up",
+    "grid": null,
+    "ground": {
+      "color": "#203040",
+      "depth": 42,
+      "height": 42,
+      "kind": "plane",
+      "positionY": null,
+      "size": [
+        42,
+        42
+      ],
+      "width": 42
+    },
+    "guidance": null,
+    "lights": []
+  },
+  "schemaVersion": "1.0.0",
+  "semanticHash": "b81b0e6759164f6d65bfddbe38b988c2ff926c0b216b828518f1761024905339",
+  "source": {
+    "htmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-03/source-ir-preview.html",
+    "htmlSha256": "e6f16c745e534fe72fbecb0d27bcc2c8d4a8ce4756efb91307ff1b6953ece60a"
+  },
+  "unsupported": []
+}

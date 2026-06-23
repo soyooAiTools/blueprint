@@ -1,0 +1,6835 @@
+{
+  "visualAssetsSchemaVersion": "va.1.0.0",
+  "kind": "blueprint.sourceIr.visualAssetManifest",
+  "assetLicenseContractVersion": "val.1.0.0",
+  "generatedAt": "2026-06-11T11:57:57.867Z",
+  "source": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-01/source-ir-preview.html",
+  "sourceHtmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-01/source-ir-preview.html",
+  "sourceHtmlSha256": "adca0c0752f1fef7022f7f9dd49d8203396d590acb8bf100379238aa2f0845d1",
+  "playableSceneIrHash": "24b48e2c14575eedbc22d57c75bf438c0d4e8fd00aeac2a5941667a82be9912b",
+  "sourceVisualIrHash": "ad600ccb0788c606e77170d56fe24e6080e93fa8e05b4110ecac0c8be33775b6",
+  "project": "firstbatch-action-01",
+  "fidelityTarget": "geometry_color_material",
+  "assetMetadata": {
+    "contractVersion": "val.1.0.0",
+    "carrier": "source-scene-ir",
+    "entryCount": 17,
+    "diagnostics": []
+  },
+  "sourceEntityContract": {
+    "styleEntityCount": 17,
+    "sourceEntityCount": 17,
+    "renderableEntityCount": 17,
+    "entities": [
+      "Player",
+      "Source",
+      "Item",
+      "Target",
+      "Container",
+      "Consumer",
+      "Producer",
+      "UpgradePoint",
+      "Reward",
+      "Target__phase01_target",
+      "Target__phase02_target",
+      "Target__phase03_target",
+      "Target__phase04_target",
+      "UpgradePoint__phase06_target",
+      "UpgradePoint__phase07_target",
+      "Item__phase09_target",
+      "Item__phase10_target"
+    ],
+    "hudOnlyEntities": [],
+    "entityStyles": {
+      "Player": {
+        "label": "玩家",
+        "kind": "player",
+        "color": "#5db7ff",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Source": {
+        "label": "流水线",
+        "kind": "resource",
+        "color": "#ffd34d",
+        "position": {
+          "x": -4.33,
+          "y": 0,
+          "z": -5.24
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Item": {
+        "label": "食物",
+        "kind": "resource",
+        "color": "#ffd34d",
+        "position": {
+          "x": 0.7,
+          "y": 0,
+          "z": -7.42
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Target": {
+        "label": "餐厅",
+        "kind": "prop",
+        "color": "#5db7ff",
+        "position": {
+          "x": 5.24,
+          "y": 0,
+          "z": -4.33
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Container": {
+        "label": "容器",
+        "kind": "prop",
+        "color": "#5db7ff",
+        "position": {
+          "x": 7.42,
+          "y": 0,
+          "z": 0.7
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Consumer": {
+        "label": "顾客",
+        "kind": "prop",
+        "color": "#5db7ff",
+        "position": {
+          "x": 4.33,
+          "y": 0,
+          "z": 5.24
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Producer": {
+        "label": "生产点",
+        "kind": "prop",
+        "color": "#5db7ff",
+        "position": {
+          "x": -0.7,
+          "y": 0,
+          "z": 7.42
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "UpgradePoint": {
+        "label": "升级点",
+        "kind": "prop",
+        "color": "#5db7ff",
+        "position": {
+          "x": -5.24,
+          "y": 0,
+          "z": 4.33
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Reward": {
+        "label": "奖励",
+        "kind": "resource",
+        "color": "#ffd34d",
+        "position": {
+          "x": -7.42,
+          "y": 0,
+          "z": -0.7
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Target__phase01_target": {
+        "label": "餐厅",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": -4.01,
+          "y": 0,
+          "z": -8.94
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Target__phase02_target": {
+        "label": "餐厅",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": 3.72,
+          "y": 0,
+          "z": -9.76
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Target__phase03_target": {
+        "label": "餐厅",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": 8.94,
+          "y": 0,
+          "z": -4.01
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Target__phase04_target": {
+        "label": "餐厅",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": 9.76,
+          "y": 0,
+          "z": 3.72
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "UpgradePoint__phase06_target": {
+        "label": "升级点",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": 4.01,
+          "y": 0,
+          "z": 8.94
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "UpgradePoint__phase07_target": {
+        "label": "升级点",
+        "kind": "phase_target",
+        "color": "#5db7ff",
+        "position": {
+          "x": -3.72,
+          "y": 0,
+          "z": 9.76
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Item__phase09_target": {
+        "label": "食物",
+        "kind": "phase_target",
+        "color": "#ffd34d",
+        "position": {
+          "x": -8.94,
+          "y": 0,
+          "z": 4.01
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      },
+      "Item__phase10_target": {
+        "label": "食物",
+        "kind": "phase_target",
+        "color": "#ffd34d",
+        "position": {
+          "x": -9.76,
+          "y": 0,
+          "z": -3.72
+        },
+        "styleSource": "SourceSceneIR.entities[].visual",
+        "positionSource": "SourceSceneIR.entities[].position"
+      }
+    },
+    "entityComposites": {
+      "Player": {
+        "entityName": "Player",
+        "kind": "player",
+        "label": "玩家",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "primaryAssetId": "asset_source_ir_Player_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Player_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Player\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "CylinderGeometry",
+              "argsRaw": "0.38,0.44,1.15,20",
+              "args": [
+                0.38,
+                0.44,
+                1.15,
+                20
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.62,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Source": {
+        "entityName": "Source",
+        "kind": "resource",
+        "label": "流水线",
+        "color": "#FFD34D",
+        "position": {
+          "x": -4.33,
+          "y": 0,
+          "z": -5.24
+        },
+        "primaryAssetId": "asset_source_ir_Source_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Source_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Source\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "SphereGeometry",
+              "argsRaw": "0.52,20,14",
+              "args": [
+                0.52,
+                20,
+                14
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#FFD34D",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.56,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Item": {
+        "entityName": "Item",
+        "kind": "resource",
+        "label": "食物",
+        "color": "#FFD34D",
+        "position": {
+          "x": 0.7,
+          "y": 0,
+          "z": -7.42
+        },
+        "primaryAssetId": "asset_source_ir_Item_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Item_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Item\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "SphereGeometry",
+              "argsRaw": "0.52,20,14",
+              "args": [
+                0.52,
+                20,
+                14
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#FFD34D",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.56,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Target": {
+        "entityName": "Target",
+        "kind": "prop",
+        "label": "餐厅",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 5.24,
+          "y": 0,
+          "z": -4.33
+        },
+        "primaryAssetId": "asset_source_ir_Target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Container": {
+        "entityName": "Container",
+        "kind": "prop",
+        "label": "容器",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 7.42,
+          "y": 0,
+          "z": 0.7
+        },
+        "primaryAssetId": "asset_source_ir_Container_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Container_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Container\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Consumer": {
+        "entityName": "Consumer",
+        "kind": "prop",
+        "label": "顾客",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 4.33,
+          "y": 0,
+          "z": 5.24
+        },
+        "primaryAssetId": "asset_source_ir_Consumer_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Consumer_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Consumer\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Producer": {
+        "entityName": "Producer",
+        "kind": "prop",
+        "label": "生产点",
+        "color": "#5DB7FF",
+        "position": {
+          "x": -0.7,
+          "y": 0,
+          "z": 7.42
+        },
+        "primaryAssetId": "asset_source_ir_Producer_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Producer_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Producer\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "UpgradePoint": {
+        "entityName": "UpgradePoint",
+        "kind": "prop",
+        "label": "升级点",
+        "color": "#5DB7FF",
+        "position": {
+          "x": -5.24,
+          "y": 0,
+          "z": 4.33
+        },
+        "primaryAssetId": "asset_source_ir_UpgradePoint_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_UpgradePoint_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Reward": {
+        "entityName": "Reward",
+        "kind": "resource",
+        "label": "奖励",
+        "color": "#FFD34D",
+        "position": {
+          "x": -7.42,
+          "y": 0,
+          "z": -0.7
+        },
+        "primaryAssetId": "asset_source_ir_Reward_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Reward_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Reward\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "SphereGeometry",
+              "argsRaw": "0.52,20,14",
+              "args": [
+                0.52,
+                20,
+                14
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#FFD34D",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.56,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Target__phase01_target": {
+        "entityName": "Target__phase01_target",
+        "kind": "phase_target",
+        "label": "餐厅",
+        "color": "#5DB7FF",
+        "position": {
+          "x": -4.01,
+          "y": 0,
+          "z": -8.94
+        },
+        "primaryAssetId": "asset_source_ir_Target__phase01_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Target__phase01_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase01_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Target__phase02_target": {
+        "entityName": "Target__phase02_target",
+        "kind": "phase_target",
+        "label": "餐厅",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 3.72,
+          "y": 0,
+          "z": -9.76
+        },
+        "primaryAssetId": "asset_source_ir_Target__phase02_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Target__phase02_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase02_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Target__phase03_target": {
+        "entityName": "Target__phase03_target",
+        "kind": "phase_target",
+        "label": "餐厅",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 8.94,
+          "y": 0,
+          "z": -4.01
+        },
+        "primaryAssetId": "asset_source_ir_Target__phase03_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Target__phase03_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase03_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Target__phase04_target": {
+        "entityName": "Target__phase04_target",
+        "kind": "phase_target",
+        "label": "餐厅",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 9.76,
+          "y": 0,
+          "z": 3.72
+        },
+        "primaryAssetId": "asset_source_ir_Target__phase04_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Target__phase04_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase04_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "UpgradePoint__phase06_target": {
+        "entityName": "UpgradePoint__phase06_target",
+        "kind": "phase_target",
+        "label": "升级点",
+        "color": "#5DB7FF",
+        "position": {
+          "x": 4.01,
+          "y": 0,
+          "z": 8.94
+        },
+        "primaryAssetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase06_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "UpgradePoint__phase07_target": {
+        "entityName": "UpgradePoint__phase07_target",
+        "kind": "phase_target",
+        "label": "升级点",
+        "color": "#5DB7FF",
+        "position": {
+          "x": -3.72,
+          "y": 0,
+          "z": 9.76
+        },
+        "primaryAssetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase07_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "BoxGeometry",
+              "argsRaw": "1,0.9,1",
+              "args": [
+                1,
+                0.9,
+                1
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#5DB7FF",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.48,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Item__phase09_target": {
+        "entityName": "Item__phase09_target",
+        "kind": "phase_target",
+        "label": "食物",
+        "color": "#FFD34D",
+        "position": {
+          "x": -8.94,
+          "y": 0,
+          "z": 4.01
+        },
+        "primaryAssetId": "asset_source_ir_Item__phase09_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Item__phase09_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Item__phase09_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "SphereGeometry",
+              "argsRaw": "0.52,20,14",
+              "args": [
+                0.52,
+                20,
+                14
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#FFD34D",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.56,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      },
+      "Item__phase10_target": {
+        "entityName": "Item__phase10_target",
+        "kind": "phase_target",
+        "label": "食物",
+        "color": "#FFD34D",
+        "position": {
+          "x": -9.76,
+          "y": 0,
+          "z": -3.72
+        },
+        "primaryAssetId": "asset_source_ir_Item__phase10_target_0",
+        "compositeAssetId": null,
+        "compositeSource": "source-visual-ir",
+        "primitiveCount": 1,
+        "primitives": [
+          {
+            "assetId": "asset_source_ir_Item__phase10_target_0",
+            "sourceVariable": "SourceVisualIR.visual.entities[\"Item__phase10_target\"].meshOps[0]",
+            "sourcePattern": "source-visual-ir:entity-primitive",
+            "geometry": {
+              "type": "SphereGeometry",
+              "argsRaw": "0.52,20,14",
+              "args": [
+                0.52,
+                20,
+                14
+              ],
+              "source": "SourceSceneIR.entities[].visual"
+            },
+            "material": {
+              "type": "MeshStandardMaterial",
+              "diffuseColor": "#FFD34D",
+              "emissiveColor": null,
+              "opacity": 1,
+              "transparent": false,
+              "roughness": 0.65,
+              "metalness": 0.05
+            },
+            "transform": {
+              "position": [
+                0,
+                0.56,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "fidelityTarget": "geometry_color_only",
+            "visualFallback": "source-scene-ir-procedural"
+          }
+        ],
+        "fidelityTarget": "geometry_color_only",
+        "visualFallback": "source-scene-ir-procedural"
+      }
+    },
+    "domHudContract": {
+      "present": true,
+      "ids": {
+        "tip": "tip",
+        "targetHint": "targetHint",
+        "goldBox": "resourceBar",
+        "phaseBadge": "phaseLabel",
+        "joystick": "joystick",
+        "stickThumb": "joystick-knob",
+        "victory": "source-ir-cta-overlay",
+        "victoryTitle": "source-ir-cta-title",
+        "ctaDom": "source-ir-cta-btn"
+      },
+      "initialText": {
+        "tip": "",
+        "targetHint": "",
+        "goldBox": "食物: 0   奖励: 0",
+        "phaseBadge": "Phase 1/13",
+        "ctaDom": "安装完整游戏",
+        "victory": "立即下载，解锁更多内容！"
+      },
+      "css": {
+        "tip": "position:absolute;top:16px;left:50%;transform:translateX(-50%);max-width:min(760px,88vw);padding:10px 16px;border-radius:8px;background:rgba(5,16,28,.72);z-index:20;color:#fff;font:700 18px/1.35 system-ui,sans-serif;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)",
+        "targetHint": "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#ffe45c;font:700 15px/1.3 system-ui,sans-serif",
+        "goldBox": "position:absolute;right:16px;top:16px;padding:9px 14px;border-radius:7px;background:rgba(10,24,36,.82);z-index:20;color:#fff;font:800 16px/1.3 system-ui,sans-serif",
+        "phaseBadge": "position:absolute;left:16px;top:18px;padding:8px 10px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#cbd5e1;font:700 14px/1.3 system-ui,sans-serif",
+        "joystick": "position:fixed;left:24px;bottom:24px;width:96px;height:96px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(8,16,32,.38);z-index:30;opacity:.86",
+        "stickThumb": "position:absolute;left:31px;top:31px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.85)",
+        "victory": "position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.58);z-index:25;color:#fff;text-align:center",
+        "victoryTitle": "font:900 34px/1.18 system-ui,sans-serif;text-shadow:0 3px 14px rgba(0,0,0,.45)",
+        "ctaDom": "display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font:900 22px/1.1 system-ui,sans-serif;box-shadow:0 10px 28px rgba(38,214,123,.35)"
+      }
+    },
+    "uiOverlayContract": null,
+    "worldLabelContract": {
+      "present": true,
+      "source": "source-scene-ir",
+      "carrier": "window.__BP_SOURCE_IR__.entities[].label",
+      "labelCount": 17,
+      "labels": [
+        {
+          "id": "Player",
+          "label": "玩家",
+          "kind": "player",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Source",
+          "label": "流水线",
+          "kind": "resource",
+          "position": {
+            "x": -4.33,
+            "y": 0,
+            "z": -5.24
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Item",
+          "label": "食物",
+          "kind": "resource",
+          "position": {
+            "x": 0.7,
+            "y": 0,
+            "z": -7.42
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Target",
+          "label": "餐厅",
+          "kind": "prop",
+          "position": {
+            "x": 5.24,
+            "y": 0,
+            "z": -4.33
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Container",
+          "label": "容器",
+          "kind": "prop",
+          "position": {
+            "x": 7.42,
+            "y": 0,
+            "z": 0.7
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Consumer",
+          "label": "顾客",
+          "kind": "prop",
+          "position": {
+            "x": 4.33,
+            "y": 0,
+            "z": 5.24
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Producer",
+          "label": "生产点",
+          "kind": "prop",
+          "position": {
+            "x": -0.7,
+            "y": 0,
+            "z": 7.42
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "UpgradePoint",
+          "label": "升级点",
+          "kind": "prop",
+          "position": {
+            "x": -5.24,
+            "y": 0,
+            "z": 4.33
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Reward",
+          "label": "奖励",
+          "kind": "resource",
+          "position": {
+            "x": -7.42,
+            "y": 0,
+            "z": -0.7
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Target__phase01_target",
+          "label": "餐厅",
+          "kind": "phase_target",
+          "position": {
+            "x": -4.01,
+            "y": 0,
+            "z": -8.94
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Target__phase02_target",
+          "label": "餐厅",
+          "kind": "phase_target",
+          "position": {
+            "x": 3.72,
+            "y": 0,
+            "z": -9.76
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Target__phase03_target",
+          "label": "餐厅",
+          "kind": "phase_target",
+          "position": {
+            "x": 8.94,
+            "y": 0,
+            "z": -4.01
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Target__phase04_target",
+          "label": "餐厅",
+          "kind": "phase_target",
+          "position": {
+            "x": 9.76,
+            "y": 0,
+            "z": 3.72
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "UpgradePoint__phase06_target",
+          "label": "升级点",
+          "kind": "phase_target",
+          "position": {
+            "x": 4.01,
+            "y": 0,
+            "z": 8.94
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "UpgradePoint__phase07_target",
+          "label": "升级点",
+          "kind": "phase_target",
+          "position": {
+            "x": -3.72,
+            "y": 0,
+            "z": 9.76
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Item__phase09_target",
+          "label": "食物",
+          "kind": "phase_target",
+          "position": {
+            "x": -8.94,
+            "y": 0,
+            "z": 4.01
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        },
+        {
+          "id": "Item__phase10_target",
+          "label": "食物",
+          "kind": "phase_target",
+          "position": {
+            "x": -9.76,
+            "y": 0,
+            "z": -3.72
+          },
+          "yOffset": 1.85,
+          "source": "SourceSceneIR.entities[].label"
+        }
+      ]
+    }
+  },
+  "sourceMeshOps": {
+    "Player": [
+      {
+        "kind": "cylinder",
+        "position": [
+          0,
+          0.62,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.38,
+          0.44,
+          1.15
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Source": [
+      {
+        "kind": "sphere",
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.52
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 16765773,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Item": [
+      {
+        "kind": "sphere",
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.52
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 16765773,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Container": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Consumer": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Producer": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "UpgradePoint": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Reward": [
+      {
+        "kind": "sphere",
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.52
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 16765773,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Target__phase01_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Target__phase02_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Target__phase03_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Target__phase04_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "UpgradePoint__phase06_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "UpgradePoint__phase07_target": [
+      {
+        "kind": "box",
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          0.9,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 6141951,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Item__phase09_target": [
+      {
+        "kind": "sphere",
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.52
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 16765773,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ],
+    "Item__phase10_target": [
+      {
+        "kind": "sphere",
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.52
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "color": 16765773,
+        "opacity": 1,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "emissive": 0,
+        "emissiveIntensity": 0,
+        "source": "SourceSceneIR.entities[].visual"
+      }
+    ]
+  },
+  "sourceSceneContract": {
+    "coordinateSystem": "three-xz-y-up",
+    "backgroundColor": "#101820",
+    "camera": {
+      "present": true,
+      "source": null,
+      "kind": "perspective",
+      "fov": 58,
+      "near": 0.1,
+      "far": 1000,
+      "position": [
+        0,
+        17.64,
+        24.36
+      ],
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "follow": null
+    },
+    "ground": {
+      "kind": "plane",
+      "size": [
+        42,
+        42
+      ],
+      "width": 42,
+      "depth": 42,
+      "color": "#203040",
+      "positionY": null,
+      "height": 42
+    },
+    "lights": [],
+    "grid": null,
+    "guidance": null,
+    "present": true,
+    "carrier": "window.__BP_SOURCE_IR__.scene"
+  },
+  "sourcePhaseContract": {
+    "present": true,
+    "carrier": "window.__BP_SOURCE_IR__.phases",
+    "phaseCount": 13,
+    "phases": [
+      {
+        "index": 0,
+        "id": "phase1",
+        "name": "玩法逻辑 整个试玩采用斜俯视角（45",
+        "guideText": "先选中食物，再合成升级，解锁餐厅后收集产出的食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "UpgradePoint",
+          "Producer",
+          "Source",
+          "Target__phase01_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "player_input_tap",
+          "upgrade_progress",
+          "build_progress",
+          "inventory_wallet",
+          "collect_on_near"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target__phase01_target",
+            "label": "Target__phase01_target",
+            "kind": "move_to",
+            "radius": 1.6
+          },
+          {
+            "index": 1,
+            "target": "Item",
+            "label": "Item",
+            "kind": "move_to",
+            "radius": 1.5
+          },
+          {
+            "index": 2,
+            "target": "Item",
+            "label": "Item",
+            "kind": "select",
+            "setEntity": "Item"
+          },
+          {
+            "index": 3,
+            "target": "UpgradePoint",
+            "label": "UpgradePoint",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 4,
+            "target": "UpgradePoint",
+            "label": "UpgradePoint",
+            "kind": "combine",
+            "resource": "Item",
+            "entity": "UpgradePoint",
+            "state": 2,
+            "setEntity": "UpgradePoint",
+            "amount": 1
+          },
+          {
+            "index": 5,
+            "target": "Target__phase01_target",
+            "label": "Target__phase01_target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 6,
+            "target": "Target__phase01_target",
+            "label": "Target__phase01_target",
+            "kind": "unlock",
+            "entity": "Target__phase01_target",
+            "state": 1,
+            "setEntity": "Target__phase01_target"
+          },
+          {
+            "index": 7,
+            "target": "",
+            "label": "",
+            "kind": "wait",
+            "seconds": 1
+          },
+          {
+            "index": 8,
+            "target": "Item",
+            "label": "Item",
+            "kind": "produce",
+            "resource": "Item",
+            "gain": "Item",
+            "amount": 1
+          },
+          {
+            "index": 9,
+            "target": "Item",
+            "label": "Item",
+            "kind": "move_to",
+            "radius": 1.6
+          },
+          {
+            "index": 10,
+            "target": "Item",
+            "label": "Item",
+            "kind": "collect",
+            "resource": "Item",
+            "from": "Item",
+            "gain": "Item",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target__phase01_target",
+          "Item",
+          "UpgradePoint"
+        ],
+        "runtimeTargetSequence": [
+          "Target__phase01_target",
+          "Item",
+          "UpgradePoint"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "UpgradePoint",
+          "Producer",
+          "Source",
+          "Target__phase01_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 1,
+        "id": "phase2",
+        "name": "【区域二：海鲜烧烤区域】---4个顾",
+        "guideText": "移动到餐厅，解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Target__phase02_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target__phase02_target",
+            "label": "Target__phase02_target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "Target__phase02_target",
+            "label": "Target__phase02_target",
+            "kind": "unlock",
+            "entity": "Target__phase02_target",
+            "state": 1,
+            "setEntity": "Target__phase02_target"
+          },
+          {
+            "index": 2,
+            "target": "",
+            "label": "",
+            "kind": "wait",
+            "seconds": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target__phase02_target"
+        ],
+        "runtimeTargetSequence": [
+          "Target__phase02_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Target__phase02_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 2,
+        "id": "phase3",
+        "name": "剩余所需金额（如剩余150 ），资产",
+        "guideText": "查看剩余金额，确认还差多少才能解锁。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Target__phase03_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "spawn_once"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target__phase03_target",
+            "label": "Target__phase03_target",
+            "kind": "show",
+            "entity": "Target__phase03_target",
+            "state": 1,
+            "setEntity": "Target__phase03_target"
+          },
+          {
+            "index": 1,
+            "target": "",
+            "label": "",
+            "kind": "wait",
+            "seconds": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target__phase03_target"
+        ],
+        "runtimeTargetSequence": [
+          "Target__phase03_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Target__phase03_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 3,
+        "id": "phase4",
+        "name": "爽感），现在可以放入4位排队的顾客，",
+        "guideText": "把食物放到餐厅处，完成这一步。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "Target",
+          "Target__phase04_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "inventory_wallet"
+        ],
+        "trigger": {
+          "type": "near_entity",
+          "entity": "Target__phase04_target",
+          "range": 1.8
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target__phase04_target",
+            "label": "Target__phase04_target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "Target__phase04_target",
+            "label": "Target__phase04_target",
+            "kind": "transfer",
+            "resource": "Item",
+            "to": "Target",
+            "spend": "Item",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target__phase04_target"
+        ],
+        "runtimeTargetSequence": [
+          "Target__phase04_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "Target",
+          "Target__phase04_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 4,
+        "id": "phase5",
+        "name": "收益： 4 名新食客进来坐满。烧烤台",
+        "guideText": "观察生产点自动产出食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Reward"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "inventory_wallet"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Item",
+            "label": "Item",
+            "kind": "produce",
+            "resource": "Item",
+            "gain": "Item",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Item"
+        ],
+        "runtimeTargetSequence": [
+          "Item"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Reward"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 5,
+        "id": "phase6",
+        "name": "一吸，右上角资金飙升至600+主厨进",
+        "guideText": "移动到升级点，把它升级到下一档。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "UpgradePoint",
+          "Target",
+          "UpgradePoint__phase06_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "upgrade_progress"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "UpgradePoint__phase06_target",
+          "state": 2
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "UpgradePoint__phase06_target",
+            "label": "UpgradePoint__phase06_target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "UpgradePoint__phase06_target",
+            "label": "UpgradePoint__phase06_target",
+            "kind": "upgrade",
+            "entity": "UpgradePoint__phase06_target",
+            "level": 2
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "UpgradePoint__phase06_target"
+        ],
+        "runtimeTargetSequence": [
+          "UpgradePoint__phase06_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "UpgradePoint",
+          "Target",
+          "UpgradePoint__phase06_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 6,
+        "id": "phase7",
+        "name": "托盘变大： 托盘体积明显变大，食物盛",
+        "guideText": "把两个食物合在一起，升成更高级的食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "UpgradePoint",
+          "UpgradePoint__phase07_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "upgrade_progress"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "UpgradePoint__phase07_target",
+          "state": 2
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "UpgradePoint__phase07_target",
+            "label": "UpgradePoint__phase07_target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "UpgradePoint__phase07_target",
+            "label": "UpgradePoint__phase07_target",
+            "kind": "combine",
+            "resource": "Item",
+            "entity": "UpgradePoint__phase07_target",
+            "state": 2,
+            "setEntity": "UpgradePoint__phase07_target",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "UpgradePoint__phase07_target"
+        ],
+        "runtimeTargetSequence": [
+          "UpgradePoint__phase07_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "UpgradePoint",
+          "UpgradePoint__phase07_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 7,
+        "id": "phase8",
+        "name": "【区域三：外卖区域】（终极爽感解锁）",
+        "guideText": "第8步：继续解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target",
+            "label": "Target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "Target",
+            "label": "Target",
+            "kind": "unlock",
+            "entity": "Target",
+            "state": 1,
+            "setEntity": "Target"
+          },
+          {
+            "index": 2,
+            "target": "",
+            "label": "",
+            "kind": "wait",
+            "seconds": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target"
+        ],
+        "runtimeTargetSequence": [
+          "Target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 8,
+        "id": "phase9",
+        "name": "台】，屏幕中央弹出半透明文字：Col",
+        "guideText": "第9步：继续观察自动产出食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Item__phase09_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "inventory_wallet"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Item__phase09_target",
+            "label": "Item__phase09_target",
+            "kind": "produce",
+            "resource": "Item",
+            "gain": "Item",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Item__phase09_target"
+        ],
+        "runtimeTargetSequence": [
+          "Item__phase09_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Item__phase09_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 9,
+        "id": "phase10",
+        "name": "步骤 2（指引送货）： 主厨吸入食物",
+        "guideText": "移动到食物旁，收集食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Source",
+          "Item",
+          "Producer",
+          "Item__phase10_target"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "collect_on_near",
+          "inventory_wallet"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Item__phase10_target",
+            "label": "Item__phase10_target",
+            "kind": "move_to",
+            "radius": 1.6
+          },
+          {
+            "index": 1,
+            "target": "Item",
+            "label": "Item",
+            "kind": "collect",
+            "resource": "Item",
+            "from": "Item",
+            "gain": "Item",
+            "amount": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Item__phase10_target",
+          "Item"
+        ],
+        "runtimeTargetSequence": [
+          "Item__phase10_target",
+          "Item"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Source",
+          "Item",
+          "Producer",
+          "Item__phase10_target"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 10,
+        "id": "phase11",
+        "name": "字：Pack Orders！爽感大收",
+        "guideText": "把食物送到顾客处，完成订单。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "Consumer"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "inventory_wallet"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Consumer",
+            "label": "Consumer",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "Consumer",
+            "label": "Consumer",
+            "kind": "deliver",
+            "resource": "Item",
+            "to": "Consumer",
+            "spend": "Item",
+            "amount": 1
+          },
+          {
+            "index": 2,
+            "target": "",
+            "label": "",
+            "kind": "wait",
+            "seconds": 1
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Consumer"
+        ],
+        "runtimeTargetSequence": [
+          "Consumer"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "Consumer"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 11,
+        "id": "phase12",
+        "name": "【结尾高潮：未知新区域解锁选择中en",
+        "guideText": "第12步：继续解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "Target",
+          "state": 1
+        },
+        "steps": [
+          {
+            "index": 0,
+            "target": "Target",
+            "label": "Target",
+            "kind": "move_to",
+            "radius": 1.8
+          },
+          {
+            "index": 1,
+            "target": "Target",
+            "label": "Target",
+            "kind": "unlock",
+            "entity": "Target",
+            "state": 1,
+            "setEntity": "Target"
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target"
+        ],
+        "runtimeTargetSequence": [
+          "Target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      },
+      {
+        "index": 12,
+        "id": "phase13",
+        "name": "定格： 两个解锁圈上方同时亮起巨大的",
+        "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "Producer"
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "cta_finish",
+          "spawn_once"
+        ],
+        "trigger": {
+          "type": "cta_arrival",
+          "ctaId": "CtaButton",
+          "range": 2
+        },
+        "steps": [
+          {
+            "index": 0,
+            "kind": "cta_finish",
+            "label": "cta_finish",
+            "ctaEntity": "CtaButton",
+            "ctaId": "CtaButton"
+          }
+        ],
+        "stepSource": "SourceSceneIR.phases[].steps",
+        "targetSequence": [
+          "Target"
+        ],
+        "runtimeTargetSequence": [
+          "Target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "Producer"
+        ],
+        "runtimeResources": {},
+        "hudText": null,
+        "diagnostics": []
+      }
+    ],
+    "visibilityRules": {},
+    "resourceRules": [],
+    "diagnostics": []
+  },
+  "fidelityContract": null,
+  "extractionSummary": {
+    "source": "source-scene-ir",
+    "assetCount": 17,
+    "proceduralAssetCount": 17,
+    "externalAssetCount": 0,
+    "entityCount": 17,
+    "renderableEntityCount": 17,
+    "entityBindingRate": 1,
+    "assetBindingRate": 1,
+    "unsupportedCount": 0
+  },
+  "assets": [
+    {
+      "assetId": "asset_source_ir_Player_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Player\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "CylinderGeometry",
+        "argsRaw": "0.38,0.44,1.15,20",
+        "args": [
+          0.38,
+          0.44,
+          1.15,
+          20
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.62,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Player",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Source_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Source\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Source",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Item_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Item",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Container_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Container\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Container",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Consumer_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Consumer\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Consumer",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Producer_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Producer\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Producer",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_UpgradePoint_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "UpgradePoint",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Reward_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Reward\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Reward",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Target__phase01_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase01_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Target__phase01_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Target__phase02_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase02_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Target__phase02_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Target__phase03_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase03_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Target__phase03_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Target__phase04_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase04_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Target__phase04_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase06_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "UpgradePoint__phase06_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase07_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "UpgradePoint__phase07_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Item__phase09_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item__phase09_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Item__phase09_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    },
+    {
+      "assetId": "asset_source_ir_Item__phase10_target_0",
+      "kind": "procedural_primitive",
+      "license": "unknown",
+      "attribution": null,
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item__phase10_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "diffuseColor": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "unityImport": {
+        "mode": "procedural-primitive",
+        "supported": true
+      },
+      "entityBinding": {
+        "entityName": "Item__phase10_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": []
+    }
+  ],
+  "entityBindings": {
+    "Player": {
+      "entityName": "Player",
+      "assetIds": [
+        "asset_source_ir_Player_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Player_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Source": {
+      "entityName": "Source",
+      "assetIds": [
+        "asset_source_ir_Source_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Source_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Item": {
+      "entityName": "Item",
+      "assetIds": [
+        "asset_source_ir_Item_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Item_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Target": {
+      "entityName": "Target",
+      "assetIds": [
+        "asset_source_ir_Target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Container": {
+      "entityName": "Container",
+      "assetIds": [
+        "asset_source_ir_Container_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Container_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Consumer": {
+      "entityName": "Consumer",
+      "assetIds": [
+        "asset_source_ir_Consumer_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Consumer_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Producer": {
+      "entityName": "Producer",
+      "assetIds": [
+        "asset_source_ir_Producer_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Producer_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "UpgradePoint": {
+      "entityName": "UpgradePoint",
+      "assetIds": [
+        "asset_source_ir_UpgradePoint_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_UpgradePoint_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Reward": {
+      "entityName": "Reward",
+      "assetIds": [
+        "asset_source_ir_Reward_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Reward_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Target__phase01_target": {
+      "entityName": "Target__phase01_target",
+      "assetIds": [
+        "asset_source_ir_Target__phase01_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Target__phase01_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Target__phase02_target": {
+      "entityName": "Target__phase02_target",
+      "assetIds": [
+        "asset_source_ir_Target__phase02_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Target__phase02_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Target__phase03_target": {
+      "entityName": "Target__phase03_target",
+      "assetIds": [
+        "asset_source_ir_Target__phase03_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Target__phase03_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Target__phase04_target": {
+      "entityName": "Target__phase04_target",
+      "assetIds": [
+        "asset_source_ir_Target__phase04_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Target__phase04_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "UpgradePoint__phase06_target": {
+      "entityName": "UpgradePoint__phase06_target",
+      "assetIds": [
+        "asset_source_ir_UpgradePoint__phase06_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "UpgradePoint__phase07_target": {
+      "entityName": "UpgradePoint__phase07_target",
+      "assetIds": [
+        "asset_source_ir_UpgradePoint__phase07_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Item__phase09_target": {
+      "entityName": "Item__phase09_target",
+      "assetIds": [
+        "asset_source_ir_Item__phase09_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Item__phase09_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    },
+    "Item__phase10_target": {
+      "entityName": "Item__phase10_target",
+      "assetIds": [
+        "asset_source_ir_Item__phase10_target_0"
+      ],
+      "textureAssetIds": [],
+      "primaryAssetId": "asset_source_ir_Item__phase10_target_0",
+      "visualFallback": "source-scene-ir-procedural",
+      "visualFallbacks": [
+        "source-scene-ir-procedural"
+      ],
+      "fidelityTarget": "geometry_color_only"
+    }
+  },
+  "unsupported": [],
+  "visualRuntimeContract": {
+    "schemaVersion": "vrc.1.0.0",
+    "kind": "blueprint.sourceIr.visualRuntimeContract",
+    "generatedAt": "2026-06-11T11:57:57.867Z",
+    "source": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-01/source-ir-preview.html",
+    "sourceHtmlSha256": "adca0c0752f1fef7022f7f9dd49d8203396d590acb8bf100379238aa2f0845d1",
+    "playableSceneIrHash": "24b48e2c14575eedbc22d57c75bf438c0d4e8fd00aeac2a5941667a82be9912b",
+    "project": "firstbatch-action-01",
+    "phaseDriver": {
+      "sourceFunction": "__driveToSourcePhase",
+      "webglFunction": "__driveToPhase",
+      "phaseCount": 13,
+      "selectedBy": "phaseNumber"
+    },
+    "scene": {
+      "camera": {
+        "present": true,
+        "source": null,
+        "kind": "perspective",
+        "fov": 58,
+        "near": 0.1,
+        "far": 1000,
+        "position": [
+          0,
+          17.64,
+          24.36
+        ],
+        "lookAt": [
+          0,
+          0,
+          0
+        ],
+        "follow": null
+      },
+      "grid": null,
+      "ground": {
+        "kind": "plane",
+        "size": [
+          42,
+          42
+        ],
+        "width": 42,
+        "depth": 42,
+        "color": "#203040",
+        "positionY": null,
+        "height": 42
+      },
+      "decor": null,
+      "guidance": null
+    },
+    "dom": {
+      "hud": {
+        "present": true,
+        "ids": {
+          "tip": "tip",
+          "targetHint": "targetHint",
+          "goldBox": "resourceBar",
+          "phaseBadge": "phaseLabel",
+          "joystick": "joystick",
+          "stickThumb": "joystick-knob",
+          "victory": "source-ir-cta-overlay",
+          "victoryTitle": "source-ir-cta-title",
+          "ctaDom": "source-ir-cta-btn"
+        },
+        "initialText": {
+          "tip": "",
+          "targetHint": "",
+          "goldBox": "食物: 0   奖励: 0",
+          "phaseBadge": "Phase 1/13",
+          "ctaDom": "安装完整游戏",
+          "victory": "立即下载，解锁更多内容！"
+        },
+        "css": {
+          "tip": "position:absolute;top:16px;left:50%;transform:translateX(-50%);max-width:min(760px,88vw);padding:10px 16px;border-radius:8px;background:rgba(5,16,28,.72);z-index:20;color:#fff;font:700 18px/1.35 system-ui,sans-serif;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)",
+          "targetHint": "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#ffe45c;font:700 15px/1.3 system-ui,sans-serif",
+          "goldBox": "position:absolute;right:16px;top:16px;padding:9px 14px;border-radius:7px;background:rgba(10,24,36,.82);z-index:20;color:#fff;font:800 16px/1.3 system-ui,sans-serif",
+          "phaseBadge": "position:absolute;left:16px;top:18px;padding:8px 10px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#cbd5e1;font:700 14px/1.3 system-ui,sans-serif",
+          "joystick": "position:fixed;left:24px;bottom:24px;width:96px;height:96px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(8,16,32,.38);z-index:30;opacity:.86",
+          "stickThumb": "position:absolute;left:31px;top:31px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.85)",
+          "victory": "position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.58);z-index:25;color:#fff;text-align:center",
+          "victoryTitle": "font:900 34px/1.18 system-ui,sans-serif;text-shadow:0 3px 14px rgba(0,0,0,.45)",
+          "ctaDom": "display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font:900 22px/1.1 system-ui,sans-serif;box-shadow:0 10px 28px rgba(38,214,123,.35)"
+        }
+      },
+      "uiOverlay": null,
+      "worldLabels": {
+        "present": true,
+        "source": "source-scene-ir",
+        "carrier": "window.__BP_SOURCE_IR__.entities[].label",
+        "labelCount": 17,
+        "labels": [
+          {
+            "id": "Player",
+            "label": "玩家",
+            "kind": "player",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Source",
+            "label": "流水线",
+            "kind": "resource",
+            "position": {
+              "x": -4.33,
+              "y": 0,
+              "z": -5.24
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Item",
+            "label": "食物",
+            "kind": "resource",
+            "position": {
+              "x": 0.7,
+              "y": 0,
+              "z": -7.42
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Target",
+            "label": "餐厅",
+            "kind": "prop",
+            "position": {
+              "x": 5.24,
+              "y": 0,
+              "z": -4.33
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Container",
+            "label": "容器",
+            "kind": "prop",
+            "position": {
+              "x": 7.42,
+              "y": 0,
+              "z": 0.7
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Consumer",
+            "label": "顾客",
+            "kind": "prop",
+            "position": {
+              "x": 4.33,
+              "y": 0,
+              "z": 5.24
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Producer",
+            "label": "生产点",
+            "kind": "prop",
+            "position": {
+              "x": -0.7,
+              "y": 0,
+              "z": 7.42
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "UpgradePoint",
+            "label": "升级点",
+            "kind": "prop",
+            "position": {
+              "x": -5.24,
+              "y": 0,
+              "z": 4.33
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Reward",
+            "label": "奖励",
+            "kind": "resource",
+            "position": {
+              "x": -7.42,
+              "y": 0,
+              "z": -0.7
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Target__phase01_target",
+            "label": "餐厅",
+            "kind": "phase_target",
+            "position": {
+              "x": -4.01,
+              "y": 0,
+              "z": -8.94
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Target__phase02_target",
+            "label": "餐厅",
+            "kind": "phase_target",
+            "position": {
+              "x": 3.72,
+              "y": 0,
+              "z": -9.76
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Target__phase03_target",
+            "label": "餐厅",
+            "kind": "phase_target",
+            "position": {
+              "x": 8.94,
+              "y": 0,
+              "z": -4.01
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Target__phase04_target",
+            "label": "餐厅",
+            "kind": "phase_target",
+            "position": {
+              "x": 9.76,
+              "y": 0,
+              "z": 3.72
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "UpgradePoint__phase06_target",
+            "label": "升级点",
+            "kind": "phase_target",
+            "position": {
+              "x": 4.01,
+              "y": 0,
+              "z": 8.94
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "UpgradePoint__phase07_target",
+            "label": "升级点",
+            "kind": "phase_target",
+            "position": {
+              "x": -3.72,
+              "y": 0,
+              "z": 9.76
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Item__phase09_target",
+            "label": "食物",
+            "kind": "phase_target",
+            "position": {
+              "x": -8.94,
+              "y": 0,
+              "z": 4.01
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          },
+          {
+            "id": "Item__phase10_target",
+            "label": "食物",
+            "kind": "phase_target",
+            "position": {
+              "x": -9.76,
+              "y": 0,
+              "z": -3.72
+            },
+            "yOffset": 1.85,
+            "source": "SourceSceneIR.entities[].label"
+          }
+        ]
+      }
+    },
+    "entities": [
+      {
+        "name": "Player",
+        "style": {
+          "label": "玩家",
+          "kind": "player",
+          "color": "#5db7ff",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Player_0",
+          "assetIds": [
+            "asset_source_ir_Player_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Player",
+          "kind": "player",
+          "label": "玩家",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "primaryAssetId": "asset_source_ir_Player_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Player_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Player\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "CylinderGeometry",
+                "argsRaw": "0.38,0.44,1.15,20",
+                "args": [
+                  0.38,
+                  0.44,
+                  1.15,
+                  20
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.62,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase2",
+          "phase3",
+          "phase4",
+          "phase5",
+          "phase6",
+          "phase7",
+          "phase8",
+          "phase9",
+          "phase10",
+          "phase11",
+          "phase12",
+          "phase13"
+        ]
+      },
+      {
+        "name": "Source",
+        "style": {
+          "label": "流水线",
+          "kind": "resource",
+          "color": "#ffd34d",
+          "position": {
+            "x": -4.33,
+            "y": 0,
+            "z": -5.24
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Source_0",
+          "assetIds": [
+            "asset_source_ir_Source_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Source",
+          "kind": "resource",
+          "label": "流水线",
+          "color": "#FFD34D",
+          "position": {
+            "x": -4.33,
+            "y": 0,
+            "z": -5.24
+          },
+          "primaryAssetId": "asset_source_ir_Source_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Source_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Source\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "SphereGeometry",
+                "argsRaw": "0.52,20,14",
+                "args": [
+                  0.52,
+                  20,
+                  14
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#FFD34D",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.56,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase10"
+        ]
+      },
+      {
+        "name": "Item",
+        "style": {
+          "label": "食物",
+          "kind": "resource",
+          "color": "#ffd34d",
+          "position": {
+            "x": 0.7,
+            "y": 0,
+            "z": -7.42
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Item_0",
+          "assetIds": [
+            "asset_source_ir_Item_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Item",
+          "kind": "resource",
+          "label": "食物",
+          "color": "#FFD34D",
+          "position": {
+            "x": 0.7,
+            "y": 0,
+            "z": -7.42
+          },
+          "primaryAssetId": "asset_source_ir_Item_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Item_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Item\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "SphereGeometry",
+                "argsRaw": "0.52,20,14",
+                "args": [
+                  0.52,
+                  20,
+                  14
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#FFD34D",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.56,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase4",
+          "phase5",
+          "phase7",
+          "phase9",
+          "phase10",
+          "phase11",
+          "phase12",
+          "phase13"
+        ]
+      },
+      {
+        "name": "Target",
+        "style": {
+          "label": "餐厅",
+          "kind": "prop",
+          "color": "#5db7ff",
+          "position": {
+            "x": 5.24,
+            "y": 0,
+            "z": -4.33
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Target_0",
+          "assetIds": [
+            "asset_source_ir_Target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Target",
+          "kind": "prop",
+          "label": "餐厅",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 5.24,
+            "y": 0,
+            "z": -4.33
+          },
+          "primaryAssetId": "asset_source_ir_Target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase2",
+          "phase3",
+          "phase4",
+          "phase6",
+          "phase8",
+          "phase12",
+          "phase13"
+        ]
+      },
+      {
+        "name": "Container",
+        "style": {
+          "label": "容器",
+          "kind": "prop",
+          "color": "#5db7ff",
+          "position": {
+            "x": 7.42,
+            "y": 0,
+            "z": 0.7
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Container_0",
+          "assetIds": [
+            "asset_source_ir_Container_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Container",
+          "kind": "prop",
+          "label": "容器",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 7.42,
+            "y": 0,
+            "z": 0.7
+          },
+          "primaryAssetId": "asset_source_ir_Container_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Container_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Container\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": []
+      },
+      {
+        "name": "Consumer",
+        "style": {
+          "label": "顾客",
+          "kind": "prop",
+          "color": "#5db7ff",
+          "position": {
+            "x": 4.33,
+            "y": 0,
+            "z": 5.24
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Consumer_0",
+          "assetIds": [
+            "asset_source_ir_Consumer_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Consumer",
+          "kind": "prop",
+          "label": "顾客",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 4.33,
+            "y": 0,
+            "z": 5.24
+          },
+          "primaryAssetId": "asset_source_ir_Consumer_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Consumer_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Consumer\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase11"
+        ]
+      },
+      {
+        "name": "Producer",
+        "style": {
+          "label": "生产点",
+          "kind": "prop",
+          "color": "#5db7ff",
+          "position": {
+            "x": -0.7,
+            "y": 0,
+            "z": 7.42
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Producer_0",
+          "assetIds": [
+            "asset_source_ir_Producer_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Producer",
+          "kind": "prop",
+          "label": "生产点",
+          "color": "#5DB7FF",
+          "position": {
+            "x": -0.7,
+            "y": 0,
+            "z": 7.42
+          },
+          "primaryAssetId": "asset_source_ir_Producer_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Producer_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Producer\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase5",
+          "phase9",
+          "phase10",
+          "phase13"
+        ]
+      },
+      {
+        "name": "UpgradePoint",
+        "style": {
+          "label": "升级点",
+          "kind": "prop",
+          "color": "#5db7ff",
+          "position": {
+            "x": -5.24,
+            "y": 0,
+            "z": 4.33
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_UpgradePoint_0",
+          "assetIds": [
+            "asset_source_ir_UpgradePoint_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "UpgradePoint",
+          "kind": "prop",
+          "label": "升级点",
+          "color": "#5DB7FF",
+          "position": {
+            "x": -5.24,
+            "y": 0,
+            "z": 4.33
+          },
+          "primaryAssetId": "asset_source_ir_UpgradePoint_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_UpgradePoint_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1",
+          "phase6",
+          "phase7"
+        ]
+      },
+      {
+        "name": "Reward",
+        "style": {
+          "label": "奖励",
+          "kind": "resource",
+          "color": "#ffd34d",
+          "position": {
+            "x": -7.42,
+            "y": 0,
+            "z": -0.7
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Reward_0",
+          "assetIds": [
+            "asset_source_ir_Reward_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Reward",
+          "kind": "resource",
+          "label": "奖励",
+          "color": "#FFD34D",
+          "position": {
+            "x": -7.42,
+            "y": 0,
+            "z": -0.7
+          },
+          "primaryAssetId": "asset_source_ir_Reward_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Reward_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Reward\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "SphereGeometry",
+                "argsRaw": "0.52,20,14",
+                "args": [
+                  0.52,
+                  20,
+                  14
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#FFD34D",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.56,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase5"
+        ]
+      },
+      {
+        "name": "Target__phase01_target",
+        "style": {
+          "label": "餐厅",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": -4.01,
+            "y": 0,
+            "z": -8.94
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Target__phase01_target_0",
+          "assetIds": [
+            "asset_source_ir_Target__phase01_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Target__phase01_target",
+          "kind": "phase_target",
+          "label": "餐厅",
+          "color": "#5DB7FF",
+          "position": {
+            "x": -4.01,
+            "y": 0,
+            "z": -8.94
+          },
+          "primaryAssetId": "asset_source_ir_Target__phase01_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Target__phase01_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase01_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase1"
+        ]
+      },
+      {
+        "name": "Target__phase02_target",
+        "style": {
+          "label": "餐厅",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": 3.72,
+            "y": 0,
+            "z": -9.76
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Target__phase02_target_0",
+          "assetIds": [
+            "asset_source_ir_Target__phase02_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Target__phase02_target",
+          "kind": "phase_target",
+          "label": "餐厅",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 3.72,
+            "y": 0,
+            "z": -9.76
+          },
+          "primaryAssetId": "asset_source_ir_Target__phase02_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Target__phase02_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase02_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase2"
+        ]
+      },
+      {
+        "name": "Target__phase03_target",
+        "style": {
+          "label": "餐厅",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": 8.94,
+            "y": 0,
+            "z": -4.01
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Target__phase03_target_0",
+          "assetIds": [
+            "asset_source_ir_Target__phase03_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Target__phase03_target",
+          "kind": "phase_target",
+          "label": "餐厅",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 8.94,
+            "y": 0,
+            "z": -4.01
+          },
+          "primaryAssetId": "asset_source_ir_Target__phase03_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Target__phase03_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase03_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase3"
+        ]
+      },
+      {
+        "name": "Target__phase04_target",
+        "style": {
+          "label": "餐厅",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": 9.76,
+            "y": 0,
+            "z": 3.72
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Target__phase04_target_0",
+          "assetIds": [
+            "asset_source_ir_Target__phase04_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Target__phase04_target",
+          "kind": "phase_target",
+          "label": "餐厅",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 9.76,
+            "y": 0,
+            "z": 3.72
+          },
+          "primaryAssetId": "asset_source_ir_Target__phase04_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Target__phase04_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Target__phase04_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase4"
+        ]
+      },
+      {
+        "name": "UpgradePoint__phase06_target",
+        "style": {
+          "label": "升级点",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": 4.01,
+            "y": 0,
+            "z": 8.94
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+          "assetIds": [
+            "asset_source_ir_UpgradePoint__phase06_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "UpgradePoint__phase06_target",
+          "kind": "phase_target",
+          "label": "升级点",
+          "color": "#5DB7FF",
+          "position": {
+            "x": 4.01,
+            "y": 0,
+            "z": 8.94
+          },
+          "primaryAssetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase06_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase6"
+        ]
+      },
+      {
+        "name": "UpgradePoint__phase07_target",
+        "style": {
+          "label": "升级点",
+          "kind": "phase_target",
+          "color": "#5db7ff",
+          "position": {
+            "x": -3.72,
+            "y": 0,
+            "z": 9.76
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+          "assetIds": [
+            "asset_source_ir_UpgradePoint__phase07_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "UpgradePoint__phase07_target",
+          "kind": "phase_target",
+          "label": "升级点",
+          "color": "#5DB7FF",
+          "position": {
+            "x": -3.72,
+            "y": 0,
+            "z": 9.76
+          },
+          "primaryAssetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase07_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "BoxGeometry",
+                "argsRaw": "1,0.9,1",
+                "args": [
+                  1,
+                  0.9,
+                  1
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#5DB7FF",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.48,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase7"
+        ]
+      },
+      {
+        "name": "Item__phase09_target",
+        "style": {
+          "label": "食物",
+          "kind": "phase_target",
+          "color": "#ffd34d",
+          "position": {
+            "x": -8.94,
+            "y": 0,
+            "z": 4.01
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Item__phase09_target_0",
+          "assetIds": [
+            "asset_source_ir_Item__phase09_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Item__phase09_target",
+          "kind": "phase_target",
+          "label": "食物",
+          "color": "#FFD34D",
+          "position": {
+            "x": -8.94,
+            "y": 0,
+            "z": 4.01
+          },
+          "primaryAssetId": "asset_source_ir_Item__phase09_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Item__phase09_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Item__phase09_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "SphereGeometry",
+                "argsRaw": "0.52,20,14",
+                "args": [
+                  0.52,
+                  20,
+                  14
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#FFD34D",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.56,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase9"
+        ]
+      },
+      {
+        "name": "Item__phase10_target",
+        "style": {
+          "label": "食物",
+          "kind": "phase_target",
+          "color": "#ffd34d",
+          "position": {
+            "x": -9.76,
+            "y": 0,
+            "z": -3.72
+          }
+        },
+        "binding": {
+          "primaryAssetId": "asset_source_ir_Item__phase10_target_0",
+          "assetIds": [
+            "asset_source_ir_Item__phase10_target_0"
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "composite": {
+          "entityName": "Item__phase10_target",
+          "kind": "phase_target",
+          "label": "食物",
+          "color": "#FFD34D",
+          "position": {
+            "x": -9.76,
+            "y": 0,
+            "z": -3.72
+          },
+          "primaryAssetId": "asset_source_ir_Item__phase10_target_0",
+          "compositeAssetId": null,
+          "compositeSource": "source-visual-ir",
+          "primitiveCount": 1,
+          "primitives": [
+            {
+              "assetId": "asset_source_ir_Item__phase10_target_0",
+              "sourceVariable": "SourceVisualIR.visual.entities[\"Item__phase10_target\"].meshOps[0]",
+              "sourcePattern": "source-visual-ir:entity-primitive",
+              "geometry": {
+                "type": "SphereGeometry",
+                "argsRaw": "0.52,20,14",
+                "args": [
+                  0.52,
+                  20,
+                  14
+                ],
+                "source": "SourceSceneIR.entities[].visual"
+              },
+              "material": {
+                "type": "MeshStandardMaterial",
+                "diffuseColor": "#FFD34D",
+                "emissiveColor": null,
+                "opacity": 1,
+                "transparent": false,
+                "roughness": 0.65,
+                "metalness": 0.05
+              },
+              "transform": {
+                "position": [
+                  0,
+                  0.56,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "fidelityTarget": "geometry_color_only",
+              "visualFallback": "source-scene-ir-procedural"
+            }
+          ],
+          "fidelityTarget": "geometry_color_only",
+          "visualFallback": "source-scene-ir-procedural"
+        },
+        "visibleInPhases": [
+          "phase10"
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "index": 0,
+        "id": "phase1",
+        "name": "玩法逻辑 整个试玩采用斜俯视角（45",
+        "guideText": "先选中食物，再合成升级，解锁餐厅后收集产出的食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "UpgradePoint",
+          "Producer",
+          "Source",
+          "Target__phase01_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "UpgradePoint",
+          "Producer",
+          "Source",
+          "Target__phase01_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target__phase01_target",
+          "Item",
+          "UpgradePoint"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target__phase01_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target__phase01_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          },
+          {
+            "entity": "Item",
+            "source": "PHASES.steps",
+            "stepIndex": 1,
+            "label": "Item",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          },
+          {
+            "entity": "UpgradePoint",
+            "source": "PHASES.steps",
+            "stepIndex": 3,
+            "label": "UpgradePoint",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "player_input_tap",
+          "upgrade_progress",
+          "build_progress",
+          "inventory_wallet",
+          "collect_on_near"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built",
+          "resource_incremented",
+          "score_text_changed",
+          "source_hidden_or_moved"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        }
+      },
+      {
+        "index": 1,
+        "id": "phase2",
+        "name": "【区域二：海鲜烧烤区域】---4个顾",
+        "guideText": "移动到餐厅，解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Target__phase02_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Target__phase02_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target__phase02_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target__phase02_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target__phase02_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        }
+      },
+      {
+        "index": 2,
+        "id": "phase3",
+        "name": "剩余所需金额（如剩余150 ），资产",
+        "guideText": "查看剩余金额，确认还差多少才能解锁。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Target__phase03_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Target__phase03_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target__phase03_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target__phase03_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target__phase03_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "spawn_once"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        }
+      },
+      {
+        "index": 3,
+        "id": "phase4",
+        "name": "爽感），现在可以放入4位排队的顾客，",
+        "guideText": "把食物放到餐厅处，完成这一步。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "Target",
+          "Target__phase04_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "Target",
+          "Target__phase04_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target__phase04_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target__phase04_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target__phase04_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "inventory_wallet"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "resource_decremented"
+        ],
+        "trigger": {
+          "type": "near_entity",
+          "entity": "Target__phase04_target",
+          "range": 1.8
+        }
+      },
+      {
+        "index": 4,
+        "id": "phase5",
+        "name": "收益： 4 名新食客进来坐满。烧烤台",
+        "guideText": "观察生产点自动产出食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Reward"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Reward"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Item"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Item",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Item",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "inventory_wallet"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "resource_incremented",
+          "score_text_changed",
+          "source_hidden_or_moved"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        }
+      },
+      {
+        "index": 5,
+        "id": "phase6",
+        "name": "一吸，右上角资金飙升至600+主厨进",
+        "guideText": "移动到升级点，把它升级到下一档。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "UpgradePoint",
+          "Target",
+          "UpgradePoint__phase06_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "UpgradePoint",
+          "Target",
+          "UpgradePoint__phase06_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "UpgradePoint__phase06_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "UpgradePoint__phase06_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "UpgradePoint__phase06_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "upgrade_progress"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "UpgradePoint__phase06_target",
+          "state": 2
+        }
+      },
+      {
+        "index": 6,
+        "id": "phase7",
+        "name": "托盘变大： 托盘体积明显变大，食物盛",
+        "guideText": "把两个食物合在一起，升成更高级的食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "UpgradePoint",
+          "UpgradePoint__phase07_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "UpgradePoint",
+          "UpgradePoint__phase07_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "UpgradePoint__phase07_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "UpgradePoint__phase07_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "UpgradePoint__phase07_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "upgrade_progress"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "UpgradePoint__phase07_target",
+          "state": 2
+        }
+      },
+      {
+        "index": 7,
+        "id": "phase8",
+        "name": "【区域三：外卖区域】（终极爽感解锁）",
+        "guideText": "第8步：继续解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        }
+      },
+      {
+        "index": 8,
+        "id": "phase9",
+        "name": "台】，屏幕中央弹出半透明文字：Col",
+        "guideText": "第9步：继续观察自动产出食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Item__phase09_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Producer",
+          "Item",
+          "Item__phase09_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Item__phase09_target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Item__phase09_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Item__phase09_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "inventory_wallet"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "resource_incremented",
+          "score_text_changed",
+          "source_hidden_or_moved"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        }
+      },
+      {
+        "index": 9,
+        "id": "phase10",
+        "name": "步骤 2（指引送货）： 主厨吸入食物",
+        "guideText": "移动到食物旁，收集食物。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Source",
+          "Item",
+          "Producer",
+          "Item__phase10_target"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Source",
+          "Item",
+          "Producer",
+          "Item__phase10_target"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Item__phase10_target",
+          "Item"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Item__phase10_target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Item__phase10_target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          },
+          {
+            "entity": "Item",
+            "source": "PHASES.steps",
+            "stepIndex": 1,
+            "label": "Item",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "collect_on_near",
+          "inventory_wallet"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "resource_incremented",
+          "score_text_changed",
+          "source_hidden_or_moved"
+        ],
+        "trigger": {
+          "type": "resource_collected",
+          "resource": "Item",
+          "amount": 1
+        }
+      },
+      {
+        "index": 10,
+        "id": "phase11",
+        "name": "字：Pack Orders！爽感大收",
+        "guideText": "把食物送到顾客处，完成订单。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Item",
+          "Consumer"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Item",
+          "Consumer"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Consumer"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Consumer",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Consumer",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "inventory_wallet"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "resource_decremented"
+        ],
+        "trigger": {
+          "type": "timer",
+          "seconds": 1
+        }
+      },
+      {
+        "index": 11,
+        "id": "phase12",
+        "name": "【结尾高潮：未知新区域解锁选择中en",
+        "guideText": "第12步：继续解锁新的区域或功能。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target"
+        ],
+        "targetAffordances": [
+          {
+            "entity": "Target",
+            "source": "PHASES.steps",
+            "stepIndex": 0,
+            "label": "Target",
+            "input": "joystick_proximity",
+            "arrivalGated": true,
+            "evidence": [
+              "player_input_joystick",
+              "move_to_target",
+              "proximity_trigger"
+            ]
+          }
+        ],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "build_progress"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "entity_state_changed",
+          "visual_variant_changed",
+          "entity_state_equals_built"
+        ],
+        "trigger": {
+          "type": "entity_state_reached",
+          "entity": "Target",
+          "state": 1
+        }
+      },
+      {
+        "index": 12,
+        "id": "phase13",
+        "name": "定格： 两个解锁圈上方同时亮起巨大的",
+        "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+        "goalText": "",
+        "showEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "Producer"
+        ],
+        "runtimeVisibleEntities": [
+          "Player",
+          "Target",
+          "Item",
+          "Producer"
+        ],
+        "runtimeResources": {},
+        "targetSequence": [
+          "Target"
+        ],
+        "targetAffordances": [],
+        "plannedModuleIds": [
+          "guide_ui",
+          "visual_binding",
+          "cta_finish",
+          "spawn_once"
+        ],
+        "expectedEvidence": [
+          "guide_text_visible",
+          "player_input_joystick",
+          "move_to_target",
+          "proximity_trigger",
+          "phase_advanced",
+          "cta_finish"
+        ],
+        "trigger": {
+          "type": "cta_arrival",
+          "ctaId": "CtaButton",
+          "range": 2
+        }
+      }
+    ],
+    "summary": {
+      "entityCount": 17,
+      "boundEntityCount": 17,
+      "phaseCount": 13,
+      "hasCamera": true,
+      "hasDomHud": true,
+      "hasGuidance": false,
+      "phasesWithTargets": 12
+    }
+  }
+}

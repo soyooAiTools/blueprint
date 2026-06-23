@@ -1,0 +1,1480 @@
+{
+  "unityAssetPlanSchemaVersion": "uap.1.0.0",
+  "kind": "blueprint.sourceIr.unityAssetPlan",
+  "generatedAt": "2026-06-11T16:42:05.077Z",
+  "source": "/opt/blueprint-editor/server-data/webgl/firstbatch-action-01/spec.json",
+  "project": "firstbatch-action-01",
+  "sourceManifest": {
+    "visualAssetsSchemaVersion": "va.1.0.0",
+    "kind": "blueprint.sourceIr.visualAssetManifest",
+    "extractionSummary": {
+      "source": "source-scene-ir",
+      "assetCount": 17,
+      "proceduralAssetCount": 17,
+      "externalAssetCount": 0,
+      "entityCount": 17,
+      "renderableEntityCount": 17,
+      "entityBindingRate": 1,
+      "assetBindingRate": 1,
+      "unsupportedCount": 0
+    }
+  },
+  "target": {
+    "engine": "unity",
+    "mode": "editor-prefab-baking",
+    "root": "Assets/SourceIR",
+    "sourceFetchCommand": "node fetch-source-assets.js <unity-asset-plan.json> <unity-project-root>"
+  },
+  "summary": {
+    "actionCount": 17,
+    "externalImportCount": 0,
+    "textureImportCount": 0,
+    "proceduralPrefabCount": 17,
+    "compositePrefabCount": 0,
+    "unsupportedActionCount": 0,
+    "pendingSourceAssetCount": 0,
+    "sourceFetchReadyCount": 0,
+    "sourceAssetLocalCount": 0,
+    "missingSourceMetadataCount": 0,
+    "dataUriDecodeCount": 0,
+    "unknownLicenseCount": 17,
+    "editorBakeReadyCount": 17
+  },
+  "readiness": {
+    "passed": true,
+    "violations": [],
+    "warnings": [
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Player_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Source_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Item_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Container_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Consumer_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Producer_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_UpgradePoint_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Reward_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Target__phase01_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Target__phase02_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Target__phase03_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Target__phase04_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_UpgradePoint__phase06_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_UpgradePoint__phase07_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Item__phase09_target_0"
+      },
+      {
+        "code": "unity_asset_license_unknown",
+        "assetId": "asset_source_ir_Item__phase10_target_0"
+      }
+    ],
+    "summary": {
+      "actionCount": 17,
+      "externalImportCount": 0,
+      "textureImportCount": 0,
+      "proceduralPrefabCount": 17,
+      "compositePrefabCount": 0,
+      "unsupportedActionCount": 0,
+      "pendingSourceAssetCount": 0,
+      "sourceFetchReadyCount": 0,
+      "sourceAssetLocalCount": 0,
+      "missingSourceMetadataCount": 0,
+      "dataUriDecodeCount": 0,
+      "unknownLicenseCount": 17,
+      "editorBakeReadyCount": 17
+    }
+  },
+  "actions": [
+    {
+      "actionId": "uap_asset_source_ir_Player_0",
+      "assetId": "asset_source_ir_Player_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Player\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Player",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Player_0.prefab",
+      "unityPrimitive": "Cylinder",
+      "geometry": {
+        "type": "CylinderGeometry",
+        "argsRaw": "0.38,0.44,1.15,20",
+        "args": [
+          0.38,
+          0.44,
+          1.15,
+          20
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Player_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.62,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Source_0",
+      "assetId": "asset_source_ir_Source_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Source\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Source",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Source_0.prefab",
+      "unityPrimitive": "Sphere",
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Source_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Item_0",
+      "assetId": "asset_source_ir_Item_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Item",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item_0.prefab",
+      "unityPrimitive": "Sphere",
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Item_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Target_0",
+      "assetId": "asset_source_ir_Target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Container_0",
+      "assetId": "asset_source_ir_Container_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Container\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Container",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Container_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Container_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Consumer_0",
+      "assetId": "asset_source_ir_Consumer_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Consumer\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Consumer",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Consumer_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Consumer_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Producer_0",
+      "assetId": "asset_source_ir_Producer_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Producer\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Producer",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Producer_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Producer_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_UpgradePoint_0",
+      "assetId": "asset_source_ir_UpgradePoint_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "UpgradePoint",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_UpgradePoint_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Reward_0",
+      "assetId": "asset_source_ir_Reward_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Reward\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Reward",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Reward_0.prefab",
+      "unityPrimitive": "Sphere",
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Reward_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Target__phase01_target_0",
+      "assetId": "asset_source_ir_Target__phase01_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase01_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Target__phase01_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase01_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Target__phase01_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Target__phase02_target_0",
+      "assetId": "asset_source_ir_Target__phase02_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase02_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Target__phase02_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase02_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Target__phase02_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Target__phase03_target_0",
+      "assetId": "asset_source_ir_Target__phase03_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase03_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Target__phase03_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase03_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Target__phase03_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Target__phase04_target_0",
+      "assetId": "asset_source_ir_Target__phase04_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Target__phase04_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Target__phase04_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase04_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Target__phase04_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_UpgradePoint__phase06_target_0",
+      "assetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase06_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "UpgradePoint__phase06_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint__phase06_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_UpgradePoint__phase06_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_UpgradePoint__phase07_target_0",
+      "assetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"UpgradePoint__phase07_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "UpgradePoint__phase07_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint__phase07_target_0.prefab",
+      "unityPrimitive": "Cube",
+      "geometry": {
+        "type": "BoxGeometry",
+        "argsRaw": "1,0.9,1",
+        "args": [
+          1,
+          0.9,
+          1
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#5DB7FF",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_UpgradePoint__phase07_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.48,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Item__phase09_target_0",
+      "assetId": "asset_source_ir_Item__phase09_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item__phase09_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Item__phase09_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item__phase09_target_0.prefab",
+      "unityPrimitive": "Sphere",
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Item__phase09_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    },
+    {
+      "actionId": "uap_asset_source_ir_Item__phase10_target_0",
+      "assetId": "asset_source_ir_Item__phase10_target_0",
+      "kind": "procedural_primitive",
+      "source": {
+        "type": "source-scene-ir",
+        "variable": "SourceVisualIR.visual.entities[\"Item__phase10_target\"].meshOps[0]",
+        "pattern": "source-visual-ir:entity-primitive"
+      },
+      "sourceAsset": null,
+      "license": "unknown",
+      "attribution": null,
+      "entityBinding": {
+        "entityName": "Item__phase10_target",
+        "confidence": 1,
+        "evidence": "source-visual-ir"
+      },
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "unsupported": [],
+      "action": "generate_primitive_prefab",
+      "status": "ready",
+      "supported": true,
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item__phase10_target_0.prefab",
+      "unityPrimitive": "Sphere",
+      "geometry": {
+        "type": "SphereGeometry",
+        "argsRaw": "0.52,20,14",
+        "args": [
+          0.52,
+          20,
+          14
+        ],
+        "source": "SourceSceneIR.entities[].visual"
+      },
+      "material": {
+        "type": "MeshStandardMaterial",
+        "color": "#FFD34D",
+        "emissiveColor": null,
+        "opacity": 1,
+        "transparent": false,
+        "roughness": 0.65,
+        "metalness": 0.05,
+        "materialPath": "Assets/SourceIR/Materials/source_ir_Item__phase10_target_0.mat"
+      },
+      "transform": {
+        "position": [
+          0,
+          0.56,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "requiresEditor": true,
+      "warnings": []
+    }
+  ],
+  "entityBindings": {
+    "Player": {
+      "entityName": "Player",
+      "actionIds": [
+        "uap_asset_source_ir_Player_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Player_0",
+      "primaryActionId": "uap_asset_source_ir_Player_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Player_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Source": {
+      "entityName": "Source",
+      "actionIds": [
+        "uap_asset_source_ir_Source_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Source_0",
+      "primaryActionId": "uap_asset_source_ir_Source_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Source_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Item": {
+      "entityName": "Item",
+      "actionIds": [
+        "uap_asset_source_ir_Item_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Item_0",
+      "primaryActionId": "uap_asset_source_ir_Item_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Target": {
+      "entityName": "Target",
+      "actionIds": [
+        "uap_asset_source_ir_Target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Target_0",
+      "primaryActionId": "uap_asset_source_ir_Target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Container": {
+      "entityName": "Container",
+      "actionIds": [
+        "uap_asset_source_ir_Container_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Container_0",
+      "primaryActionId": "uap_asset_source_ir_Container_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Container_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Consumer": {
+      "entityName": "Consumer",
+      "actionIds": [
+        "uap_asset_source_ir_Consumer_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Consumer_0",
+      "primaryActionId": "uap_asset_source_ir_Consumer_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Consumer_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Producer": {
+      "entityName": "Producer",
+      "actionIds": [
+        "uap_asset_source_ir_Producer_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Producer_0",
+      "primaryActionId": "uap_asset_source_ir_Producer_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Producer_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "UpgradePoint": {
+      "entityName": "UpgradePoint",
+      "actionIds": [
+        "uap_asset_source_ir_UpgradePoint_0"
+      ],
+      "primaryAssetId": "asset_source_ir_UpgradePoint_0",
+      "primaryActionId": "uap_asset_source_ir_UpgradePoint_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Reward": {
+      "entityName": "Reward",
+      "actionIds": [
+        "uap_asset_source_ir_Reward_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Reward_0",
+      "primaryActionId": "uap_asset_source_ir_Reward_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Reward_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Target__phase01_target": {
+      "entityName": "Target__phase01_target",
+      "actionIds": [
+        "uap_asset_source_ir_Target__phase01_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Target__phase01_target_0",
+      "primaryActionId": "uap_asset_source_ir_Target__phase01_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase01_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Target__phase02_target": {
+      "entityName": "Target__phase02_target",
+      "actionIds": [
+        "uap_asset_source_ir_Target__phase02_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Target__phase02_target_0",
+      "primaryActionId": "uap_asset_source_ir_Target__phase02_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase02_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Target__phase03_target": {
+      "entityName": "Target__phase03_target",
+      "actionIds": [
+        "uap_asset_source_ir_Target__phase03_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Target__phase03_target_0",
+      "primaryActionId": "uap_asset_source_ir_Target__phase03_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase03_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Target__phase04_target": {
+      "entityName": "Target__phase04_target",
+      "actionIds": [
+        "uap_asset_source_ir_Target__phase04_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Target__phase04_target_0",
+      "primaryActionId": "uap_asset_source_ir_Target__phase04_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Target__phase04_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "UpgradePoint__phase06_target": {
+      "entityName": "UpgradePoint__phase06_target",
+      "actionIds": [
+        "uap_asset_source_ir_UpgradePoint__phase06_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_UpgradePoint__phase06_target_0",
+      "primaryActionId": "uap_asset_source_ir_UpgradePoint__phase06_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint__phase06_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "UpgradePoint__phase07_target": {
+      "entityName": "UpgradePoint__phase07_target",
+      "actionIds": [
+        "uap_asset_source_ir_UpgradePoint__phase07_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_UpgradePoint__phase07_target_0",
+      "primaryActionId": "uap_asset_source_ir_UpgradePoint__phase07_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_UpgradePoint__phase07_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Item__phase09_target": {
+      "entityName": "Item__phase09_target",
+      "actionIds": [
+        "uap_asset_source_ir_Item__phase09_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Item__phase09_target_0",
+      "primaryActionId": "uap_asset_source_ir_Item__phase09_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item__phase09_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    },
+    "Item__phase10_target": {
+      "entityName": "Item__phase10_target",
+      "actionIds": [
+        "uap_asset_source_ir_Item__phase10_target_0"
+      ],
+      "primaryAssetId": "asset_source_ir_Item__phase10_target_0",
+      "primaryActionId": "uap_asset_source_ir_Item__phase10_target_0",
+      "prefabPath": "Assets/SourceIR/Prefabs/source_ir_Item__phase10_target_0.prefab",
+      "textureAssetIds": [],
+      "textureActionIds": [],
+      "fidelityTarget": "geometry_color_only",
+      "visualFallback": "source-scene-ir-procedural",
+      "bakingMode": "generate_primitive_prefab"
+    }
+  }
+}

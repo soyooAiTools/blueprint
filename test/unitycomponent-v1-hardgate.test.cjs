@@ -156,6 +156,12 @@ var toolBoundaryReport = hardgate.validateUnityComponentV1(toolBoundaryRoot);
 assert.strictEqual(toolBoundaryReport.passed, false);
 assert.ok(toolBoundaryReport.errors.some(function(error) { return error.id === 'logical-tool-boundary-violation'; }));
 
+var assetSourceRoot = makeRoot();
+fs.appendFileSync(path.join(assetSourceRoot, 'Assets', 'SLGFrameWork', 'Scripts', 'Manager', 'BlueprintDelivery', 'GeneratedDeliveryData.cs'), '\n// Source = "[object Object]"\n');
+var assetSourceReport = hardgate.validateUnityComponentV1(assetSourceRoot);
+assert.strictEqual(assetSourceReport.passed, false);
+assert.ok(assetSourceReport.errors.some(function(error) { return error.id === 'assetbindings-source-invalid'; }));
+
 var prefabRoot = makeRoot();
 var prefabPath = path.join(prefabRoot, 'Assets', 'SLGFrameWork', 'Scripts', 'Prefab', 'GameEntry.prefab');
 write(prefabPath, fs.readFileSync(prefabPath, 'utf8').replace(/guid: [0-9a-f]{32}, type: 3/, 'guid: 00000000000000000000000000000000, type: 3'));

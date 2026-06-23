@@ -1,0 +1,3953 @@
+{
+  "diagnostics": {
+    "authoring": {
+      "issues": [
+        {
+          "code": "storyboard_flow_visual_merge_cue_ignored",
+          "message": "Merge/collision cue appears only in notes; converter will not create combine without explicit requiredInteractions.",
+          "phaseId": "phase7",
+          "phaseOrder": 7,
+          "severity": "info"
+        }
+      ],
+      "preflight": {
+        "issueCounts": {
+          "blocker": 0,
+          "info": 1,
+          "warn": 0
+        },
+        "passed": true
+      },
+      "warnings": []
+    },
+    "normalizationRepairs": [
+      {
+        "code": "source_ir_cta_entity_reclassified",
+        "entityIds": [
+          "CtaButton"
+        ],
+        "target": "hud.cta.ctaId"
+      },
+      {
+        "after": "cta_finish",
+        "beforeStepKinds": [
+          "show",
+          "show",
+          "cta_finish"
+        ],
+        "code": "source_ir_final_cta_steps_reduced",
+        "ctaId": "CtaButton",
+        "phaseId": "phase13"
+      },
+      {
+        "code": "source_ir_cta_visibility_repaired",
+        "phaseId": "phase13",
+        "removed": [
+          "CtaButton"
+        ]
+      },
+      {
+        "anchorTarget": "SeafoodGrill__phase03_target",
+        "baseTarget": "SeafoodGrill",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase3",
+        "phaseIndex": 3,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "SeafoodGrill__phase04_target",
+        "baseTarget": "SeafoodGrill",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase4",
+        "phaseIndex": 4,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "SeafoodGrill__phase05_target",
+        "baseTarget": "SeafoodGrill",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase5",
+        "phaseIndex": 5,
+        "reason": "adjacent_phases_shared_primary_target"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "binding": null,
+      "id": "Player",
+      "kind": "player",
+      "label": "小主厨",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "chef",
+        "color": "#53a8ff",
+        "labelYOffset": 1.75,
+        "meshOps": [
+          {
+            "color": "#2563eb",
+            "kind": "cylinder",
+            "position": [
+              0,
+              0.52,
+              0
+            ],
+            "size": [
+              0.24,
+              0.3,
+              0.82
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#ffd7a8",
+            "kind": "sphere",
+            "position": [
+              0,
+              1.08,
+              0
+            ],
+            "size": [
+              0.24
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#ffffff",
+            "kind": "cylinder",
+            "position": [
+              0,
+              1.36,
+              0
+            ],
+            "size": [
+              0.18,
+              0.22,
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#d97706",
+            "kind": "box",
+            "position": [
+              0.34,
+              0.72,
+              -0.08
+            ],
+            "size": [
+              0.44,
+              0.08,
+              0.32
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "capsule"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Awning",
+      "kind": "prop",
+      "label": "遮阳棚",
+      "position": [
+        -16.14,
+        0,
+        15.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "awning",
+        "color": "#f87171",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#ef4444",
+            "kind": "box",
+            "position": [
+              -0.42,
+              1.05,
+              0
+            ],
+            "size": [
+              0.44,
+              0.14,
+              1.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fef3c7",
+            "kind": "box",
+            "position": [
+              0,
+              1.05,
+              0
+            ],
+            "size": [
+              0.44,
+              0.14,
+              1.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#ef4444",
+            "kind": "box",
+            "position": [
+              0.42,
+              1.05,
+              0
+            ],
+            "size": [
+              0.44,
+              0.14,
+              1.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "BlueSofaSeats",
+      "kind": "seat_group",
+      "label": "蓝色沙发座",
+      "position": [
+        -5.67,
+        0,
+        -0.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "sofa_seats",
+        "color": "#2563eb",
+        "labelYOffset": 1.75,
+        "meshOps": [
+          {
+            "color": "#2563eb",
+            "kind": "box",
+            "position": [
+              -0.42,
+              0.36,
+              0
+            ],
+            "size": [
+              0.76,
+              0.32,
+              0.68
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#3b82f6",
+            "kind": "box",
+            "position": [
+              0.42,
+              0.36,
+              0
+            ],
+            "size": [
+              0.76,
+              0.32,
+              0.68
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#1d4ed8",
+            "kind": "box",
+            "position": [
+              0,
+              0.72,
+              0.28
+            ],
+            "size": [
+              1.72,
+              0.7,
+              0.18
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#1e40af",
+            "kind": "box",
+            "position": [
+              -0.94,
+              0.52,
+              0
+            ],
+            "size": [
+              0.18,
+              0.54,
+              0.72
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#1e40af",
+            "kind": "box",
+            "position": [
+              0.94,
+              0.52,
+              0
+            ],
+            "size": [
+              0.18,
+              0.54,
+              0.72
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "BottomFogWall",
+      "kind": "fog",
+      "label": "下方迷雾边界",
+      "position": [
+        -17,
+        0,
+        13.8
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "fog",
+        "color": "#94a3b8",
+        "labelYOffset": 1.55,
+        "meshOps": [
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "opacity": 0.42,
+            "position": [
+              0,
+              0.55,
+              0
+            ],
+            "size": [
+              1.9,
+              1.1,
+              0.18
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "plane"
+      }
+    },
+    {
+      "binding": null,
+      "id": "CartoonSmoke",
+      "kind": "effect",
+      "label": "卡通烟雾",
+      "position": [
+        -12.47,
+        0,
+        -7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "smoke",
+        "color": "#cbd5e1",
+        "labelYOffset": 1.55,
+        "meshOps": [
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.55,
+            "position": [
+              -0.2,
+              0.72,
+              0
+            ],
+            "size": [
+              0.28
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "sphere",
+            "opacity": 0.46,
+            "position": [
+              0.05,
+              0.98,
+              0.06
+            ],
+            "size": [
+              0.35
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.52,
+            "position": [
+              0.35,
+              0.8,
+              -0.04
+            ],
+            "size": [
+              0.24
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "CheerEffect",
+      "kind": "effect",
+      "label": "全场欢呼特效",
+      "position": [
+        0.86,
+        0,
+        11.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": null,
+        "color": "#fde68a",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "ChefTray",
+      "kind": "prop",
+      "label": "主厨托盘",
+      "position": [
+        11.33,
+        0,
+        -4.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "tray",
+        "color": "#a3e635",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#a16207",
+            "kind": "box",
+            "position": [
+              0,
+              0.55,
+              0
+            ],
+            "size": [
+              1.15,
+              0.1,
+              0.62
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#d97706",
+            "kind": "box",
+            "position": [
+              0,
+              0.64,
+              0.28
+            ],
+            "size": [
+              1.2,
+              0.12,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#d97706",
+            "kind": "box",
+            "position": [
+              0,
+              0.64,
+              -0.28
+            ],
+            "size": [
+              1.2,
+              0.12,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "ChefTrayLarge",
+      "kind": "prop",
+      "label": "大托盘",
+      "position": [
+        21.81,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "tray",
+        "color": "#bef264",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#a16207",
+            "kind": "box",
+            "position": [
+              0,
+              0.55,
+              0
+            ],
+            "size": [
+              1.15,
+              0.1,
+              0.62
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#d97706",
+            "kind": "box",
+            "position": [
+              0,
+              0.64,
+              0.28
+            ],
+            "size": [
+              1.2,
+              0.12,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#d97706",
+            "kind": "box",
+            "position": [
+              0,
+              0.64,
+              -0.28
+            ],
+            "size": [
+              1.2,
+              0.12,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "ChefUpgradeCircle",
+      "kind": "upgrade_point",
+      "label": "主厨升级圈",
+      "position": [
+        16.14,
+        0,
+        -6.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#facc15",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#53a8ff",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "CustomerQueue",
+      "kind": "npc_group",
+      "label": "排队顾客",
+      "position": [
+        -21.81,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "npc_group",
+        "color": "#8b5cf6",
+        "groupCount": 6,
+        "labelYOffset": 1.55,
+        "meshOps": [],
+        "primitive": "cylinder",
+        "queueSpacing": 0.84
+      }
+    },
+    {
+      "binding": null,
+      "id": "Donut",
+      "kind": "resource",
+      "label": "甜甜圈",
+      "position": [
+        -10.47,
+        0,
+        11.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "donut",
+        "color": "#fbbf24",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#f59e0b",
+            "kind": "torus",
+            "position": [
+              0,
+              0.52,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.36,
+              0.11
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f472b6",
+            "kind": "sphere",
+            "position": [
+              -0.12,
+              0.64,
+              -0.08
+            ],
+            "size": [
+              0.035
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#a78bfa",
+            "kind": "sphere",
+            "position": [
+              0.13,
+              0.64,
+              0.04
+            ],
+            "size": [
+              0.035
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fef08a",
+            "kind": "sphere",
+            "position": [
+              0.03,
+              0.64,
+              0.14
+            ],
+            "size": [
+              0.035
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "DonutOven",
+      "kind": "producer",
+      "label": "甜甜圈烤箱",
+      "position": [
+        -12.19,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "donut_oven",
+        "color": "#38bdf8",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#f2c94c",
+            "kind": "box",
+            "position": [
+              0,
+              0.55,
+              0
+            ],
+            "size": [
+              1.28,
+              0.96,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.58,
+              -0.47
+            ],
+            "size": [
+              0.82,
+              0.48,
+              0.05
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0,
+              0.25,
+              -0.53
+            ],
+            "size": [
+              1.02,
+              0.08,
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f59e0b",
+            "kind": "torus",
+            "position": [
+              0,
+              0.58,
+              -0.58
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.22,
+              0.06
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "box",
+            "position": [
+              -0.35,
+              1.08,
+              0.1
+            ],
+            "size": [
+              0.18,
+              0.08,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "box",
+            "position": [
+              0,
+              1.08,
+              0.1
+            ],
+            "size": [
+              0.18,
+              0.08,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "box",
+            "position": [
+              0.35,
+              1.08,
+              0.1
+            ],
+            "size": [
+              0.18,
+              0.08,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "DonutTable",
+      "kind": "table",
+      "label": "木质餐桌",
+      "position": [
+        -17,
+        0,
+        -0.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "table",
+        "color": "#22c55e",
+        "labelYOffset": 1.55,
+        "meshOps": [
+          {
+            "color": "#8b5a2b",
+            "kind": "box",
+            "position": [
+              0,
+              0.72,
+              0
+            ],
+            "size": [
+              1.5,
+              0.16,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#6b3f1d",
+            "kind": "box",
+            "position": [
+              -0.55,
+              0.36,
+              -0.3
+            ],
+            "size": [
+              0.12,
+              0.66,
+              0.12
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#6b3f1d",
+            "kind": "box",
+            "position": [
+              0.55,
+              0.36,
+              -0.3
+            ],
+            "size": [
+              0.12,
+              0.66,
+              0.12
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#6b3f1d",
+            "kind": "box",
+            "position": [
+              -0.55,
+              0.36,
+              0.3
+            ],
+            "size": [
+              0.12,
+              0.66,
+              0.12
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#6b3f1d",
+            "kind": "box",
+            "position": [
+              0.55,
+              0.36,
+              0.3
+            ],
+            "size": [
+              0.12,
+              0.66,
+              0.12
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "FoodStations",
+      "kind": "producer_group",
+      "label": "取餐点",
+      "position": [
+        -5.67,
+        0,
+        0.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "service_window",
+        "color": "#38bdf8",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#ef4444",
+            "kind": "box",
+            "position": [
+              0,
+              0.78,
+              0
+            ],
+            "size": [
+              1.5,
+              1.2,
+              0.24
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.9,
+              -0.14
+            ],
+            "size": [
+              0.95,
+              0.48,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f97316",
+            "kind": "box",
+            "position": [
+              0,
+              0.38,
+              -0.28
+            ],
+            "size": [
+              1.65,
+              0.18,
+              0.48
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde68a",
+            "kind": "box",
+            "position": [
+              -0.66,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f87171",
+            "kind": "box",
+            "position": [
+              -0.22,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde68a",
+            "kind": "box",
+            "position": [
+              0.22,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f87171",
+            "kind": "box",
+            "position": [
+              0.66,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "GrilledShrimp",
+      "kind": "resource",
+      "label": "烤大虾",
+      "position": [
+        0,
+        0,
+        -4.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "shrimp",
+        "color": "#f97316",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#fb923c",
+            "kind": "sphere",
+            "position": [
+              -0.24,
+              0.52,
+              0
+            ],
+            "size": [
+              0.18
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f97316",
+            "kind": "sphere",
+            "position": [
+              -0.04,
+              0.58,
+              0
+            ],
+            "size": [
+              0.2
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fb923c",
+            "kind": "sphere",
+            "position": [
+              0.18,
+              0.54,
+              0
+            ],
+            "size": [
+              0.17
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fed7aa",
+            "kind": "cone",
+            "position": [
+              0.42,
+              0.55,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              -1.5708
+            ],
+            "size": [
+              0.16,
+              0,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#111827",
+            "kind": "sphere",
+            "position": [
+              -0.4,
+              0.68,
+              0.07
+            ],
+            "size": [
+              0.04
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "GuideHand",
+      "kind": "ui_marker",
+      "label": "引导手势",
+      "position": [
+        -10.47,
+        0,
+        2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": null,
+        "color": "#fef3c7",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "IceCreamRestaurantUnlock",
+      "kind": "unlock_point",
+      "label": "冰激凌餐厅解锁圈",
+      "position": [
+        11.33,
+        0,
+        17.8
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#f9a8d4",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#f59e0b",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "LargeMoneyPile",
+      "kind": "resource",
+      "label": "巨额钞票山",
+      "position": [
+        0.86,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "money_pile",
+        "color": "#16a34a",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#16a34a",
+            "kind": "box",
+            "position": [
+              -0.28,
+              0.2,
+              -0.16
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#22c55e",
+            "kind": "box",
+            "position": [
+              0.24,
+              0.3,
+              0.02
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#4ade80",
+            "kind": "box",
+            "position": [
+              -0.04,
+              0.42,
+              0.18
+            ],
+            "size": [
+              0.72,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#86efac",
+            "kind": "box",
+            "position": [
+              0.04,
+              0.55,
+              -0.02
+            ],
+            "size": [
+              0.58,
+              0.08,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "MegaMoneyPile",
+      "kind": "resource",
+      "label": "全场钞票堆",
+      "position": [
+        10.47,
+        0,
+        11.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "money_pile",
+        "color": "#22c55e",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#16a34a",
+            "kind": "box",
+            "position": [
+              -0.28,
+              0.2,
+              -0.16
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#22c55e",
+            "kind": "box",
+            "position": [
+              0.24,
+              0.3,
+              0.02
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#4ade80",
+            "kind": "box",
+            "position": [
+              -0.04,
+              0.42,
+              0.18
+            ],
+            "size": [
+              0.72,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#86efac",
+            "kind": "box",
+            "position": [
+              0.04,
+              0.55,
+              -0.02
+            ],
+            "size": [
+              0.58,
+              0.08,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Money",
+      "kind": "resource",
+      "label": "钞票",
+      "position": [
+        -17,
+        0,
+        -7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "money_pile",
+        "color": "#22c55e",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#16a34a",
+            "kind": "box",
+            "position": [
+              -0.28,
+              0.2,
+              -0.16
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#22c55e",
+            "kind": "box",
+            "position": [
+              0.24,
+              0.3,
+              0.02
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#4ade80",
+            "kind": "box",
+            "position": [
+              -0.04,
+              0.42,
+              0.18
+            ],
+            "size": [
+              0.72,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#86efac",
+            "kind": "box",
+            "position": [
+              0.04,
+              0.55,
+              -0.02
+            ],
+            "size": [
+              0.58,
+              0.08,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "MoneyMagnetRange",
+      "kind": "effect",
+      "label": "吸钱范围",
+      "position": [
+        17,
+        0,
+        -0.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#facc15",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#34c759",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "MoneyPile",
+      "kind": "resource",
+      "label": "钞票山",
+      "position": [
+        -23.8,
+        0,
+        -7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "money_pile",
+        "color": "#34c759",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#16a34a",
+            "kind": "box",
+            "position": [
+              -0.28,
+              0.2,
+              -0.16
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#22c55e",
+            "kind": "box",
+            "position": [
+              0.24,
+              0.3,
+              0.02
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#4ade80",
+            "kind": "box",
+            "position": [
+              -0.04,
+              0.42,
+              0.18
+            ],
+            "size": [
+              0.72,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#86efac",
+            "kind": "box",
+            "position": [
+              0.04,
+              0.55,
+              -0.02
+            ],
+            "size": [
+              0.58,
+              0.08,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "MoneyStack",
+      "kind": "resource",
+      "label": "钞票柱",
+      "position": [
+        -6.53,
+        0,
+        -6.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "money_pile",
+        "color": "#34c759",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#16a34a",
+            "kind": "box",
+            "position": [
+              -0.28,
+              0.2,
+              -0.16
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#22c55e",
+            "kind": "box",
+            "position": [
+              0.24,
+              0.3,
+              0.02
+            ],
+            "size": [
+              0.68,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#4ade80",
+            "kind": "box",
+            "position": [
+              -0.04,
+              0.42,
+              0.18
+            ],
+            "size": [
+              0.72,
+              0.08,
+              0.38
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#86efac",
+            "kind": "box",
+            "position": [
+              0.04,
+              0.55,
+              -0.02
+            ],
+            "size": [
+              0.58,
+              0.08,
+              0.34
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "PizzaRestaurantUnlock",
+      "kind": "unlock_point",
+      "label": "披萨餐厅解锁圈",
+      "position": [
+        16.14,
+        0,
+        15.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#fb923c",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#f59e0b",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "PlayerSpeed",
+      "kind": "stat",
+      "label": "主厨速度",
+      "position": [
+        -11.33,
+        0,
+        -11
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#fde047",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#53a8ff",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "QuestionMarks",
+      "kind": "effect",
+      "label": "金色问号",
+      "position": [
+        6.53,
+        0,
+        15.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "question_marks",
+        "color": "#facc15",
+        "labelYOffset": 1.75,
+        "meshOps": [
+          {
+            "color": "#facc15",
+            "kind": "torus",
+            "position": [
+              -0.22,
+              0.72,
+              0
+            ],
+            "size": [
+              0.16,
+              0.04
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#facc15",
+            "kind": "box",
+            "position": [
+              -0.22,
+              0.42,
+              0
+            ],
+            "size": [
+              0.08,
+              0.2,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#facc15",
+            "kind": "sphere",
+            "position": [
+              -0.22,
+              0.22,
+              0
+            ],
+            "size": [
+              0.05
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde047",
+            "kind": "torus",
+            "position": [
+              0.26,
+              0.82,
+              0
+            ],
+            "size": [
+              0.18,
+              0.04
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde047",
+            "kind": "box",
+            "position": [
+              0.26,
+              0.48,
+              0
+            ],
+            "size": [
+              0.08,
+              0.24,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde047",
+            "kind": "sphere",
+            "position": [
+              0.26,
+              0.22,
+              0
+            ],
+            "size": [
+              0.05
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "RightFogWall",
+      "kind": "fog",
+      "label": "右侧迷雾边界",
+      "position": [
+        -16.14,
+        0,
+        -6.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "fog",
+        "color": "#94a3b8",
+        "labelYOffset": 1.55,
+        "meshOps": [
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "opacity": 0.42,
+            "position": [
+              0,
+              0.55,
+              0
+            ],
+            "size": [
+              1.9,
+              1.1,
+              0.18
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "plane"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Road",
+      "kind": "prop",
+      "label": "马路",
+      "position": [
+        -18.13,
+        0,
+        11
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "road",
+        "color": "#475569",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#475569",
+            "kind": "plane",
+            "position": [
+              0,
+              0.02,
+              0
+            ],
+            "rotation": [
+              -1.5708,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              1.2
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "plane"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodArea",
+      "kind": "area",
+      "label": "海鲜烧烤区域",
+      "position": [
+        -10.47,
+        0,
+        -11.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "floor_zone",
+        "color": "#0f766e",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#f2c94c",
+            "kind": "plane",
+            "opacity": 0.48,
+            "position": [
+              0,
+              0.03,
+              0
+            ],
+            "rotation": [
+              -1.5708,
+              0,
+              0
+            ],
+            "size": [
+              2.2,
+              1.4
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "plane"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodCustomers",
+      "kind": "npc_group",
+      "label": "海鲜区顾客",
+      "position": [
+        -10.47,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "npc_group",
+        "color": "#8b5cf6",
+        "groupCount": 4,
+        "labelYOffset": 1.55,
+        "meshOps": [],
+        "primitive": "cylinder",
+        "queueSpacing": 0.84
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodGrill",
+      "kind": "producer",
+      "label": "铁板海鲜烧烤台",
+      "position": [
+        -0.86,
+        0,
+        -2.19
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "grill",
+        "color": "#0ea5e9",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#334155",
+            "kind": "box",
+            "position": [
+              0,
+              0.46,
+              0
+            ],
+            "size": [
+              1.5,
+              0.48,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.75,
+              0
+            ],
+            "size": [
+              1.62,
+              0.12,
+              0.98
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              -0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.65,
+            "position": [
+              -0.25,
+              1.2,
+              -0.05
+            ],
+            "size": [
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "sphere",
+            "opacity": 0.52,
+            "position": [
+              0.05,
+              1.42,
+              0.1
+            ],
+            "size": [
+              0.2
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.6,
+            "position": [
+              0.34,
+              1.22,
+              0
+            ],
+            "size": [
+              0.15
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodUnlockCircle",
+      "kind": "unlock_point",
+      "label": "海鲜区解锁圈",
+      "position": [
+        -11.33,
+        0,
+        -4.2
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#f59e0b",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#f2c94c",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "TakeawayOrders",
+      "kind": "prop",
+      "label": "Takeaway Orders",
+      "position": [
+        -5.67,
+        0,
+        -7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "order_stack",
+        "color": "#7dd3fc",
+        "labelYOffset": 1.15,
+        "meshOps": [
+          {
+            "color": "#f8fafc",
+            "kind": "box",
+            "position": [
+              -0.18,
+              0.24,
+              0
+            ],
+            "size": [
+              0.46,
+              0.09,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#bae6fd",
+            "kind": "box",
+            "position": [
+              0.08,
+              0.38,
+              0.04
+            ],
+            "size": [
+              0.46,
+              0.09,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f8fafc",
+            "kind": "box",
+            "position": [
+              0.25,
+              0.52,
+              -0.02
+            ],
+            "size": [
+              0.42,
+              0.09,
+              0.32
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "TakeawayQueue",
+      "kind": "npc_group",
+      "label": "外卖排队人群",
+      "position": [
+        -11.33,
+        0,
+        17.8
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "npc_group",
+        "color": "#8b5cf6",
+        "groupCount": 6,
+        "labelYOffset": 1.55,
+        "meshOps": [],
+        "primitive": "cylinder",
+        "queueSpacing": 0.84
+      }
+    },
+    {
+      "binding": null,
+      "id": "TakeawayUnlockCircle",
+      "kind": "unlock_point",
+      "label": "外卖解锁圈",
+      "position": [
+        -12.19,
+        0,
+        11.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "ring_marker",
+        "color": "#f59e0b",
+        "labelYOffset": 0.8,
+        "meshOps": [
+          {
+            "color": "#f59e0b",
+            "kind": "torus",
+            "position": [
+              0,
+              0.12,
+              0
+            ],
+            "rotation": [
+              1.5708,
+              0,
+              0
+            ],
+            "size": [
+              0.72,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "torus"
+      }
+    },
+    {
+      "binding": null,
+      "id": "TakeawayWindow",
+      "kind": "station",
+      "label": "外卖窗口",
+      "position": [
+        -6.53,
+        0,
+        15.81
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "archetype": "service_window",
+        "color": "#ef4444",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#ef4444",
+            "kind": "box",
+            "position": [
+              0,
+              0.78,
+              0
+            ],
+            "size": [
+              1.5,
+              1.2,
+              0.24
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.9,
+              -0.14
+            ],
+            "size": [
+              0.95,
+              0.48,
+              0.08
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f97316",
+            "kind": "box",
+            "position": [
+              0,
+              0.38,
+              -0.28
+            ],
+            "size": [
+              1.65,
+              0.18,
+              0.48
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde68a",
+            "kind": "box",
+            "position": [
+              -0.66,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f87171",
+            "kind": "box",
+            "position": [
+              -0.22,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#fde68a",
+            "kind": "box",
+            "position": [
+              0.22,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#f87171",
+            "kind": "box",
+            "position": [
+              0.66,
+              1.52,
+              -0.06
+            ],
+            "size": [
+              0.28,
+              0.18,
+              0.36
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodGrill__phase03_target",
+      "kind": "phase_target",
+      "label": "铁板海鲜烧烤台",
+      "position": [
+        -4.31,
+        0,
+        -3.21
+      ],
+      "scale": [
+        0.68,
+        0.68,
+        0.68
+      ],
+      "visibleFromPhase": "phase3",
+      "visual": {
+        "archetype": "grill",
+        "color": "#0ea5e9",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#334155",
+            "kind": "box",
+            "position": [
+              0,
+              0.46,
+              0
+            ],
+            "size": [
+              1.5,
+              0.48,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.75,
+              0
+            ],
+            "size": [
+              1.62,
+              0.12,
+              0.98
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              -0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.65,
+            "position": [
+              -0.25,
+              1.2,
+              -0.05
+            ],
+            "size": [
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "sphere",
+            "opacity": 0.52,
+            "position": [
+              0.05,
+              1.42,
+              0.1
+            ],
+            "size": [
+              0.2
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.6,
+            "position": [
+              0.34,
+              1.22,
+              0
+            ],
+            "size": [
+              0.15
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodGrill__phase04_target",
+      "kind": "phase_target",
+      "label": "铁板海鲜烧烤台",
+      "position": [
+        -2.19,
+        0,
+        -7.08
+      ],
+      "scale": [
+        0.68,
+        0.68,
+        0.68
+      ],
+      "visibleFromPhase": "phase4",
+      "visual": {
+        "archetype": "grill",
+        "color": "#0ea5e9",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#334155",
+            "kind": "box",
+            "position": [
+              0,
+              0.46,
+              0
+            ],
+            "size": [
+              1.5,
+              0.48,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.75,
+              0
+            ],
+            "size": [
+              1.62,
+              0.12,
+              0.98
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              -0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.65,
+            "position": [
+              -0.25,
+              1.2,
+              -0.05
+            ],
+            "size": [
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "sphere",
+            "opacity": 0.52,
+            "position": [
+              0.05,
+              1.42,
+              0.1
+            ],
+            "size": [
+              0.2
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.6,
+            "position": [
+              0.34,
+              1.22,
+              0
+            ],
+            "size": [
+              0.15
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "SeafoodGrill__phase05_target",
+      "kind": "phase_target",
+      "label": "铁板海鲜烧烤台",
+      "position": [
+        0.18,
+        0,
+        3.3
+      ],
+      "scale": [
+        0.68,
+        0.68,
+        0.68
+      ],
+      "visibleFromPhase": "phase5",
+      "visual": {
+        "archetype": "grill",
+        "color": "#0ea5e9",
+        "labelYOffset": 2,
+        "meshOps": [
+          {
+            "color": "#334155",
+            "kind": "box",
+            "position": [
+              0,
+              0.46,
+              0
+            ],
+            "size": [
+              1.5,
+              0.48,
+              0.9
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#0f172a",
+            "kind": "box",
+            "position": [
+              0,
+              0.75,
+              0
+            ],
+            "size": [
+              1.62,
+              0.12,
+              0.98
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              -0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#94a3b8",
+            "kind": "box",
+            "position": [
+              0.38,
+              0.84,
+              0
+            ],
+            "size": [
+              0.08,
+              0.08,
+              0.86
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.65,
+            "position": [
+              -0.25,
+              1.2,
+              -0.05
+            ],
+            "size": [
+              0.16
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#e2e8f0",
+            "kind": "sphere",
+            "opacity": 0.52,
+            "position": [
+              0.05,
+              1.42,
+              0.1
+            ],
+            "size": [
+              0.2
+            ],
+            "source": "storyboard-flow-archetype"
+          },
+          {
+            "color": "#cbd5e1",
+            "kind": "sphere",
+            "opacity": 0.6,
+            "position": [
+              0.34,
+              1.22,
+              0
+            ],
+            "size": [
+              0.15
+            ],
+            "source": "storyboard-flow-archetype"
+          }
+        ],
+        "primitive": "box"
+      }
+    }
+  ],
+  "extraction": {
+    "carrier": "window.__BP_SOURCE_IR__",
+    "declaredHash": "ba3cb9238f0917d8d0c03ed2dd7fa2c4a22e3f0dab2ae62ee5689950793a4654",
+    "embeddedSourceIrPresent": true,
+    "legacyProjectionUsed": false
+  },
+  "generatedAt": "2026-06-12T11:16:24.358Z",
+  "hud": {
+    "cta": {
+      "arrivalGated": true,
+      "ctaId": "CtaButton"
+    },
+    "resourceBar": [
+      "Donut",
+      "GrilledShrimp",
+      "Money"
+    ],
+    "tip": {
+      "source": "phase.guideText"
+    }
+  },
+  "kind": "blueprint.sourceSceneIR",
+  "phases": [
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Money",
+        "threshold": 300
+      },
+      "goalText": "",
+      "guideText": "滑动控制小主厨去烤箱取甜甜圈，再送到餐桌赚到 300。",
+      "hudText": null,
+      "id": "phase1",
+      "index": 0,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "DonutOven",
+        "DonutTable",
+        "CustomerQueue",
+        "MoneyPile"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "DonutOven"
+        },
+        {
+          "amount": 1,
+          "from": "DonutOven",
+          "index": 1,
+          "kind": "collect",
+          "resource": "Donut",
+          "target": "DonutOven"
+        },
+        {
+          "index": 2,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "DonutTable"
+        },
+        {
+          "amount": 1,
+          "index": 3,
+          "kind": "deliver",
+          "resource": "Donut",
+          "target": "DonutTable",
+          "to": "DonutTable"
+        },
+        {
+          "index": 4,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "MoneyPile"
+        },
+        {
+          "amount": 300,
+          "from": "MoneyPile",
+          "index": 5,
+          "kind": "collect",
+          "resource": "Money",
+          "target": "MoneyPile"
+        }
+      ],
+      "targetSequence": [
+        "DonutOven",
+        "DonutTable",
+        "MoneyPile"
+      ],
+      "title": "区域一：甜甜圈取餐与爆钱"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "entity": "SeafoodArea",
+        "kind": "entity_state",
+        "state": 1
+      },
+      "goalText": "",
+      "guideText": "带着钞票进入右侧绿色解锁圈，解锁海鲜烧烤区域。",
+      "hudText": null,
+      "id": "phase2",
+      "index": 1,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet",
+        "build_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "MoneyStack",
+        "SeafoodUnlockCircle",
+        "RightFogWall",
+        "SeafoodArea"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "SeafoodUnlockCircle"
+        },
+        {
+          "amount": 250,
+          "index": 1,
+          "kind": "transfer",
+          "purpose": "cost",
+          "resource": "Money",
+          "target": "SeafoodUnlockCircle",
+          "to": "SeafoodUnlockCircle"
+        },
+        {
+          "entity": "SeafoodArea",
+          "index": 2,
+          "kind": "unlock",
+          "state": 1,
+          "target": "SeafoodUnlockCircle"
+        }
+      ],
+      "targetSequence": [
+        "SeafoodUnlockCircle",
+        "SeafoodArea"
+      ],
+      "title": "解锁海鲜烧烤区域"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "gates": [
+          {
+            "entity": "SeafoodGrill__phase03_target",
+            "kind": "entity_state",
+            "state": 1
+          },
+          {
+            "entity": "BlueSofaSeats",
+            "kind": "entity_state",
+            "state": 1
+          }
+        ],
+        "kind": "compound_all"
+      },
+      "goalText": "",
+      "guideText": "确认迷雾消散，海鲜烧烤台和 4 个新座位出现。",
+      "hudText": null,
+      "id": "phase3",
+      "index": 2,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "SeafoodGrill",
+        "BlueSofaSeats",
+        "SeafoodCustomers",
+        "CartoonSmoke",
+        "SeafoodGrill__phase03_target"
+      ],
+      "steps": [
+        {
+          "entity": "SeafoodGrill__phase03_target",
+          "index": 0,
+          "kind": "show",
+          "state": 1,
+          "target": "SeafoodGrill__phase03_target"
+        },
+        {
+          "entity": "BlueSofaSeats",
+          "index": 1,
+          "kind": "show",
+          "state": 1,
+          "target": "BlueSofaSeats"
+        },
+        {
+          "entity": "SeafoodCustomers",
+          "index": 2,
+          "kind": "show",
+          "state": 1,
+          "target": "SeafoodCustomers"
+        }
+      ],
+      "targetSequence": [
+        "SeafoodGrill__phase03_target",
+        "BlueSofaSeats",
+        "SeafoodCustomers"
+      ],
+      "title": "海鲜区拔起与新顾客入座"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "GrilledShrimp",
+        "threshold": 1
+      },
+      "goalText": "",
+      "guideText": "观察海鲜烧烤台产出烤大虾，准备端给新顾客。",
+      "hudText": null,
+      "id": "phase4",
+      "index": 3,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "SeafoodGrill",
+        "GrilledShrimp",
+        "SeafoodCustomers",
+        "SeafoodGrill__phase04_target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "index": 0,
+          "kind": "produce",
+          "resource": "GrilledShrimp",
+          "target": "SeafoodGrill__phase04_target"
+        }
+      ],
+      "targetSequence": [
+        "SeafoodGrill__phase04_target"
+      ],
+      "title": "海鲜烧烤台自动产虾"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Money",
+        "threshold": 600
+      },
+      "goalText": "",
+      "guideText": "把烤大虾送给 4 名顾客，吸取 3 倍体积钞票山。",
+      "hudText": null,
+      "id": "phase5",
+      "index": 4,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "GrilledShrimp",
+        "SeafoodCustomers",
+        "LargeMoneyPile",
+        "SeafoodGrill",
+        "MoneyPile",
+        "SeafoodGrill__phase05_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "SeafoodGrill__phase05_target"
+        },
+        {
+          "amount": 4,
+          "from": "SeafoodGrill",
+          "index": 1,
+          "kind": "collect",
+          "resource": "GrilledShrimp",
+          "target": "SeafoodGrill"
+        },
+        {
+          "index": 2,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "SeafoodCustomers"
+        },
+        {
+          "amount": 4,
+          "index": 3,
+          "kind": "deliver",
+          "resource": "GrilledShrimp",
+          "target": "SeafoodCustomers",
+          "to": "SeafoodCustomers"
+        },
+        {
+          "index": 4,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "MoneyPile"
+        },
+        {
+          "amount": 600,
+          "from": "MoneyPile",
+          "index": 5,
+          "kind": "collect",
+          "resource": "Money",
+          "target": "MoneyPile"
+        }
+      ],
+      "targetSequence": [
+        "SeafoodGrill__phase05_target",
+        "SeafoodCustomers",
+        "MoneyPile",
+        "SeafoodGrill"
+      ],
+      "title": "给四名顾客端虾爆钱"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "gates": [
+          {
+            "entity": "ChefTray",
+            "kind": "entity_state",
+            "state": 2
+          },
+          {
+            "entity": "PlayerSpeed",
+            "kind": "entity_state",
+            "state": 2
+          }
+        ],
+        "kind": "compound_all"
+      },
+      "goalText": "",
+      "guideText": "进入中央金色升级圈，升级速度、托盘容量和吸钱范围。",
+      "hudText": null,
+      "id": "phase6",
+      "index": 5,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "ChefUpgradeCircle",
+        "ChefTray",
+        "MoneyStack",
+        "PlayerSpeed"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "ChefUpgradeCircle"
+        },
+        {
+          "amount": 300,
+          "index": 1,
+          "kind": "transfer",
+          "purpose": "cost",
+          "resource": "Money",
+          "target": "ChefUpgradeCircle",
+          "to": "ChefUpgradeCircle"
+        },
+        {
+          "entity": "ChefTray",
+          "index": 2,
+          "kind": "upgrade",
+          "level": 2,
+          "target": "ChefUpgradeCircle"
+        },
+        {
+          "entity": "PlayerSpeed",
+          "index": 3,
+          "kind": "upgrade",
+          "level": 2,
+          "target": "ChefUpgradeCircle"
+        }
+      ],
+      "targetSequence": [
+        "ChefUpgradeCircle",
+        "ChefTray",
+        "PlayerSpeed"
+      ],
+      "title": "主厨容量升级"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "entity": "MoneyMagnetRange",
+        "kind": "entity_state",
+        "state": 1
+      },
+      "goalText": "",
+      "guideText": "确认托盘变大，主厨一靠近就吸干地面钞票。",
+      "hudText": null,
+      "id": "phase7",
+      "index": 6,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "spawn_once",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "ChefTrayLarge",
+        "MoneyMagnetRange",
+        "MoneyPile"
+      ],
+      "steps": [
+        {
+          "entity": "ChefTrayLarge",
+          "index": 0,
+          "kind": "show",
+          "state": 1,
+          "target": "ChefTrayLarge"
+        },
+        {
+          "entity": "MoneyMagnetRange",
+          "index": 1,
+          "kind": "show",
+          "state": 1,
+          "target": "MoneyMagnetRange"
+        },
+        {
+          "index": 2,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "MoneyPile"
+        },
+        {
+          "amount": 100,
+          "from": "MoneyPile",
+          "index": 3,
+          "kind": "collect",
+          "resource": "Money",
+          "target": "MoneyPile"
+        }
+      ],
+      "targetSequence": [
+        "ChefTrayLarge",
+        "MoneyMagnetRange",
+        "MoneyPile"
+      ],
+      "title": "展示大托盘与吸钱范围"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "entity": "TakeawayWindow",
+        "kind": "entity_state",
+        "state": 1
+      },
+      "goalText": "",
+      "guideText": "移动到下方最终解锁圈，解锁外卖窗口。",
+      "hudText": null,
+      "id": "phase8",
+      "index": 7,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet",
+        "build_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "TakeawayUnlockCircle",
+        "BottomFogWall",
+        "MoneyStack",
+        "TakeawayWindow"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "TakeawayUnlockCircle"
+        },
+        {
+          "amount": 400,
+          "index": 1,
+          "kind": "transfer",
+          "purpose": "cost",
+          "resource": "Money",
+          "target": "TakeawayUnlockCircle",
+          "to": "TakeawayUnlockCircle"
+        },
+        {
+          "entity": "TakeawayWindow",
+          "index": 2,
+          "kind": "unlock",
+          "state": 1,
+          "target": "TakeawayUnlockCircle"
+        }
+      ],
+      "targetSequence": [
+        "TakeawayUnlockCircle",
+        "TakeawayWindow"
+      ],
+      "title": "解锁外卖窗口"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "gates": [
+          {
+            "entity": "TakeawayWindow",
+            "kind": "entity_state",
+            "state": 1
+          },
+          {
+            "entity": "TakeawayQueue",
+            "kind": "entity_state",
+            "state": 1
+          }
+        ],
+        "kind": "compound_all"
+      },
+      "goalText": "",
+      "guideText": "确认外卖窗口出现，窗外人群开始排队。",
+      "hudText": null,
+      "id": "phase9",
+      "index": 8,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "TakeawayWindow",
+        "TakeawayQueue",
+        "Awning",
+        "Road"
+      ],
+      "steps": [
+        {
+          "entity": "TakeawayWindow",
+          "index": 0,
+          "kind": "show",
+          "state": 1,
+          "target": "TakeawayWindow"
+        },
+        {
+          "entity": "TakeawayQueue",
+          "index": 1,
+          "kind": "show",
+          "state": 1,
+          "target": "TakeawayQueue"
+        }
+      ],
+      "targetSequence": [
+        "TakeawayWindow",
+        "TakeawayQueue"
+      ],
+      "title": "外卖窗口出现与人群排队"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "gates": [
+          {
+            "kind": "resource",
+            "resource": "Donut",
+            "threshold": 1
+          },
+          {
+            "kind": "resource",
+            "resource": "GrilledShrimp",
+            "threshold": 1
+          }
+        ],
+        "kind": "compound_all"
+      },
+      "goalText": "",
+      "guideText": "按手势去烤箱和烧烤台，把两种食物都吸进托盘。",
+      "hudText": null,
+      "id": "phase10",
+      "index": 9,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "DonutOven",
+        "SeafoodGrill",
+        "Donut",
+        "GrilledShrimp",
+        "GuideHand"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "DonutOven"
+        },
+        {
+          "amount": 1,
+          "from": "DonutOven",
+          "index": 1,
+          "kind": "collect",
+          "resource": "Donut",
+          "target": "DonutOven"
+        },
+        {
+          "index": 2,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "SeafoodGrill"
+        },
+        {
+          "amount": 1,
+          "from": "SeafoodGrill",
+          "index": 3,
+          "kind": "collect",
+          "resource": "GrilledShrimp",
+          "target": "SeafoodGrill"
+        }
+      ],
+      "targetSequence": [
+        "DonutOven",
+        "SeafoodGrill"
+      ],
+      "title": "Collect Food：收集两种食物"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "entity": "TakeawayOrders",
+        "kind": "entity_state",
+        "state": 1
+      },
+      "goalText": "",
+      "guideText": "把收集好的食物送到外卖窗口，完成打包订单。",
+      "hudText": null,
+      "id": "phase11",
+      "index": 10,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Donut",
+        "GrilledShrimp",
+        "TakeawayWindow",
+        "TakeawayQueue",
+        "TakeawayOrders"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "TakeawayWindow"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "resource": "Donut",
+          "target": "TakeawayWindow",
+          "to": "TakeawayWindow"
+        },
+        {
+          "amount": 1,
+          "index": 2,
+          "kind": "deliver",
+          "resource": "GrilledShrimp",
+          "target": "TakeawayWindow",
+          "to": "TakeawayWindow"
+        },
+        {
+          "entity": "TakeawayOrders",
+          "index": 3,
+          "kind": "set_entity_state",
+          "state": 1
+        }
+      ],
+      "targetSequence": [
+        "TakeawayWindow",
+        "TakeawayOrders"
+      ],
+      "title": "Pack Orders：送到外卖窗口"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Money",
+        "threshold": 99999
+      },
+      "goalText": "",
+      "guideText": "靠近全场钞票堆，吸取奖励并把资金推到 99999+。",
+      "hudText": null,
+      "id": "phase12",
+      "index": 11,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "spawn_once",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "MegaMoneyPile",
+        "TakeawayQueue",
+        "CheerEffect",
+        "MoneyPile"
+      ],
+      "steps": [
+        {
+          "entity": "MegaMoneyPile",
+          "index": 0,
+          "kind": "show",
+          "state": 1,
+          "target": "MegaMoneyPile"
+        },
+        {
+          "index": 1,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "MoneyPile"
+        },
+        {
+          "amount": 99999,
+          "from": "MoneyPile",
+          "index": 2,
+          "kind": "collect",
+          "resource": "Money",
+          "target": "MoneyPile"
+        }
+      ],
+      "targetSequence": [
+        "MegaMoneyPile",
+        "MoneyPile"
+      ],
+      "title": "全场吸钱与资金 99999+"
+    },
+    {
+      "duration": {
+        "max": 16,
+        "min": 8
+      },
+      "gate": {
+        "ctaId": "CtaButton",
+        "kind": "cta_arrival",
+        "radius": 2
+      },
+      "goalText": "展示披萨和冰激凌两个新区域悬念，点击下载继续体验。",
+      "guideText": "展示披萨和冰激凌两个新区域悬念，点击下载继续体验。",
+      "hudText": null,
+      "id": "phase13",
+      "index": 12,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "spawn_once",
+        "cta_finish"
+      ],
+      "showEntities": [
+        "Player",
+        "PizzaRestaurantUnlock",
+        "IceCreamRestaurantUnlock",
+        "QuestionMarks"
+      ],
+      "steps": [
+        {
+          "ctaId": "CtaButton",
+          "index": 0,
+          "kind": "cta_finish"
+        }
+      ],
+      "targetSequence": [
+        "PizzaRestaurantUnlock",
+        "IceCreamRestaurantUnlock"
+      ],
+      "title": "新区域悬念与 End Card"
+    }
+  ],
+  "project": {
+    "name": "MC原创_3D流水线小主厨解锁餐厅",
+    "theme": "restaurant"
+  },
+  "resources": [
+    {
+      "carrierEntity": "DonutOven",
+      "id": "Donut",
+      "initial": 0,
+      "kind": "resource",
+      "label": "甜甜圈"
+    },
+    {
+      "carrierEntity": "SeafoodGrill",
+      "id": "GrilledShrimp",
+      "initial": 0,
+      "kind": "resource",
+      "label": "烤大虾"
+    },
+    {
+      "carrierEntity": "MoneyPile",
+      "id": "Money",
+      "initial": 0,
+      "kind": "resource",
+      "label": "钞票"
+    }
+  ],
+  "runtimeContract": {
+    "forbidAutoplayProgress": true,
+    "joystickEvidence": {
+      "present": true,
+      "source": "source-html"
+    },
+    "phaseCount": 13,
+    "requiresArrivalGate": true,
+    "requiresJoystick": true,
+    "visualRuntimeContractHash": null
+  },
+  "scene": {
+    "backgroundColor": "#10231f",
+    "camera": {
+      "far": 1000,
+      "follow": null,
+      "fov": 58,
+      "kind": "perspective",
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "position": [
+        0,
+        28,
+        38
+      ],
+      "source": null
+    },
+    "coordinateSystem": "three-xz-y-up",
+    "grid": null,
+    "ground": {
+      "color": "#20433a",
+      "depth": 40,
+      "height": 40,
+      "kind": "plane",
+      "positionY": null,
+      "size": [
+        58,
+        40
+      ],
+      "width": 58
+    },
+    "guidance": null,
+    "lights": []
+  },
+  "schemaVersion": "source-scene-ir.v1",
+  "semanticHash": "ba3cb9238f0917d8d0c03ed2dd7fa2c4a22e3f0dab2ae62ee5689950793a4654",
+  "source": {
+    "htmlPath": "/nickTemp/第一批需求/MC原创_3D流水线小主厨解锁餐厅_archetype_20260612_191616/generated.html",
+    "htmlSha256": "ee213ce89ac332a290be04036c97e38802ad7078aa5f790dc8bf3f059c1838f3"
+  }
+}

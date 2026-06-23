@@ -1,0 +1,1283 @@
+{
+  "diagnostics": {
+    "normalizationRepairs": [
+      {
+        "code": "source_ir_cta_entity_reclassified",
+        "entityIds": [
+          "CtaButton"
+        ],
+        "target": "hud.cta.ctaId"
+      },
+      {
+        "after": "cta_finish",
+        "beforeStepKinds": [
+          "cta_finish",
+          "show"
+        ],
+        "code": "source_ir_final_cta_steps_reduced",
+        "ctaId": "CtaButton",
+        "phaseId": "phase13"
+      },
+      {
+        "code": "source_ir_cta_visibility_repaired",
+        "phaseId": "phase13",
+        "removed": [
+          "CtaButton"
+        ]
+      },
+      {
+        "anchorTarget": "Target__phase01_target",
+        "baseTarget": "Target",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase1",
+        "phaseIndex": 1,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "Target__phase02_target",
+        "baseTarget": "Target",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase2",
+        "phaseIndex": 2,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "Target__phase03_target",
+        "baseTarget": "Target",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase3",
+        "phaseIndex": 3,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "Target__phase04_target",
+        "baseTarget": "Target",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase4",
+        "phaseIndex": 4,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "UpgradePoint__phase06_target",
+        "baseTarget": "UpgradePoint",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase6",
+        "phaseIndex": 6,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "UpgradePoint__phase07_target",
+        "baseTarget": "UpgradePoint",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase7",
+        "phaseIndex": 7,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "Item__phase09_target",
+        "baseTarget": "Item",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase9",
+        "phaseIndex": 9,
+        "reason": "adjacent_phases_shared_primary_target"
+      },
+      {
+        "anchorTarget": "Item__phase10_target",
+        "baseTarget": "Item",
+        "code": "source_ir_consecutive_phase_target_anchor_materialized",
+        "phaseId": "phase10",
+        "phaseIndex": 10,
+        "reason": "adjacent_phases_shared_primary_target"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "binding": null,
+      "id": "Player",
+      "kind": "player",
+      "label": "玩家",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "capsule"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Source",
+      "kind": "resource",
+      "label": "流水线",
+      "position": [
+        -4.33,
+        0,
+        -5.24
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Item",
+      "kind": "resource",
+      "label": "食物",
+      "position": [
+        0.7,
+        0,
+        -7.42
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Target",
+      "kind": "prop",
+      "label": "餐厅",
+      "position": [
+        5.24,
+        0,
+        -4.33
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Container",
+      "kind": "prop",
+      "label": "容器",
+      "position": [
+        7.42,
+        0,
+        0.7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Consumer",
+      "kind": "prop",
+      "label": "顾客",
+      "position": [
+        4.33,
+        0,
+        5.24
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Producer",
+      "kind": "prop",
+      "label": "生产点",
+      "position": [
+        -0.7,
+        0,
+        7.42
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "UpgradePoint",
+      "kind": "prop",
+      "label": "升级点",
+      "position": [
+        -5.24,
+        0,
+        4.33
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Reward",
+      "kind": "resource",
+      "label": "奖励",
+      "position": [
+        -7.42,
+        0,
+        -0.7
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Target__phase01_target",
+      "kind": "phase_target",
+      "label": "餐厅",
+      "position": [
+        -4.01,
+        0,
+        -8.94
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Target__phase02_target",
+      "kind": "phase_target",
+      "label": "餐厅",
+      "position": [
+        3.72,
+        0,
+        -9.76
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Target__phase03_target",
+      "kind": "phase_target",
+      "label": "餐厅",
+      "position": [
+        8.94,
+        0,
+        -4.01
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Target__phase04_target",
+      "kind": "phase_target",
+      "label": "餐厅",
+      "position": [
+        9.76,
+        0,
+        3.72
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "UpgradePoint__phase06_target",
+      "kind": "phase_target",
+      "label": "升级点",
+      "position": [
+        4.01,
+        0,
+        8.94
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "UpgradePoint__phase07_target",
+      "kind": "phase_target",
+      "label": "升级点",
+      "position": [
+        -3.72,
+        0,
+        9.76
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#5db7ff",
+        "meshOps": [],
+        "primitive": "box"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Item__phase09_target",
+      "kind": "phase_target",
+      "label": "食物",
+      "position": [
+        -8.94,
+        0,
+        4.01
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    },
+    {
+      "binding": null,
+      "id": "Item__phase10_target",
+      "kind": "phase_target",
+      "label": "食物",
+      "position": [
+        -9.76,
+        0,
+        -3.72
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visibleFromPhase": null,
+      "visual": {
+        "color": "#ffd34d",
+        "meshOps": [],
+        "primitive": "sphere"
+      }
+    }
+  ],
+  "extraction": {
+    "carrier": "window.__BP_SOURCE_IR__",
+    "declaredHash": "764caef1ef977f899ba510f6ce12ce1025415984dd9c9e1c1b2d17b1a11434ac",
+    "embeddedSourceIrPresent": true,
+    "legacyProjectionUsed": false
+  },
+  "generatedAt": "2026-06-11T11:57:57.867Z",
+  "hud": {
+    "cta": {
+      "arrivalGated": true,
+      "ctaId": "CtaButton"
+    },
+    "domHudContract": {
+      "css": {
+        "ctaDom": "display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font:900 22px/1.1 system-ui,sans-serif;box-shadow:0 10px 28px rgba(38,214,123,.35)",
+        "goldBox": "position:absolute;right:16px;top:16px;padding:9px 14px;border-radius:7px;background:rgba(10,24,36,.82);z-index:20;color:#fff;font:800 16px/1.3 system-ui,sans-serif",
+        "joystick": "position:fixed;left:24px;bottom:24px;width:96px;height:96px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(8,16,32,.38);z-index:30;opacity:.86",
+        "phaseBadge": "position:absolute;left:16px;top:18px;padding:8px 10px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#cbd5e1;font:700 14px/1.3 system-ui,sans-serif",
+        "stickThumb": "position:absolute;left:31px;top:31px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.85)",
+        "targetHint": "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#ffe45c;font:700 15px/1.3 system-ui,sans-serif",
+        "tip": "position:absolute;top:16px;left:50%;transform:translateX(-50%);max-width:min(760px,88vw);padding:10px 16px;border-radius:8px;background:rgba(5,16,28,.72);z-index:20;color:#fff;font:700 18px/1.35 system-ui,sans-serif;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)",
+        "victory": "position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.58);z-index:25;color:#fff;text-align:center",
+        "victoryTitle": "font:900 34px/1.18 system-ui,sans-serif;text-shadow:0 3px 14px rgba(0,0,0,.45)"
+      },
+      "ids": {
+        "ctaDom": "source-ir-cta-btn",
+        "goldBox": "resourceBar",
+        "joystick": "joystick",
+        "phaseBadge": "phaseLabel",
+        "stickThumb": "joystick-knob",
+        "targetHint": "targetHint",
+        "tip": "tip",
+        "victory": "source-ir-cta-overlay",
+        "victoryTitle": "source-ir-cta-title"
+      },
+      "initialText": {
+        "ctaDom": "安装完整游戏",
+        "goldBox": "食物: 0   奖励: 0",
+        "phaseBadge": "Phase 1/13",
+        "targetHint": "",
+        "tip": "",
+        "victory": "立即下载，解锁更多内容！"
+      },
+      "present": true
+    },
+    "resourceBar": [
+      "Item",
+      "Reward"
+    ],
+    "tip": {
+      "source": "phase.guideText"
+    }
+  },
+  "kind": "blueprint.sourceSceneIR",
+  "phases": [
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Item",
+        "threshold": 1
+      },
+      "goalText": "",
+      "guideText": "先选中食物，再合成升级，解锁餐厅后收集产出的食物。",
+      "hudText": null,
+      "id": "phase1",
+      "index": 0,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "player_input_tap",
+        "upgrade_progress",
+        "build_progress",
+        "inventory_wallet",
+        "collect_on_near"
+      ],
+      "showEntities": [
+        "Player",
+        "Target",
+        "Item",
+        "UpgradePoint",
+        "Producer",
+        "Source",
+        "Target__phase01_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "Target__phase01_target"
+        },
+        {
+          "index": 1,
+          "kind": "move_to",
+          "radius": 1.5,
+          "target": "Item"
+        },
+        {
+          "index": 2,
+          "kind": "select",
+          "target": "Item"
+        },
+        {
+          "index": 3,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "UpgradePoint"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint",
+          "index": 4,
+          "kind": "combine",
+          "resource": "Item",
+          "state": 2,
+          "target": "UpgradePoint"
+        },
+        {
+          "index": 5,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Target__phase01_target"
+        },
+        {
+          "entity": "Target__phase01_target",
+          "index": 6,
+          "kind": "unlock",
+          "state": 1,
+          "target": "Target__phase01_target"
+        },
+        {
+          "index": 7,
+          "kind": "wait",
+          "seconds": 1
+        },
+        {
+          "amount": 1,
+          "index": 8,
+          "kind": "produce",
+          "resource": "Item",
+          "target": "Item"
+        },
+        {
+          "index": 9,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "Item"
+        },
+        {
+          "amount": 1,
+          "from": "Item",
+          "index": 10,
+          "kind": "collect",
+          "resource": "Item",
+          "target": "Item"
+        }
+      ],
+      "targetSequence": [
+        "Target__phase01_target",
+        "Item",
+        "UpgradePoint"
+      ],
+      "title": "玩法逻辑 整个试玩采用斜俯视角（45"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "timer",
+        "seconds": 1
+      },
+      "goalText": "",
+      "guideText": "移动到餐厅，解锁新的区域或功能。",
+      "hudText": null,
+      "id": "phase2",
+      "index": 1,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "build_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Target",
+        "Target__phase02_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Target__phase02_target"
+        },
+        {
+          "entity": "Target__phase02_target",
+          "index": 1,
+          "kind": "unlock",
+          "state": 1,
+          "target": "Target__phase02_target"
+        },
+        {
+          "index": 2,
+          "kind": "wait",
+          "seconds": 1
+        }
+      ],
+      "targetSequence": [
+        "Target__phase02_target"
+      ],
+      "title": "【区域二：海鲜烧烤区域】---4个顾"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "timer",
+        "seconds": 1
+      },
+      "goalText": "",
+      "guideText": "查看剩余金额，确认还差多少才能解锁。",
+      "hudText": null,
+      "id": "phase3",
+      "index": 2,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target",
+        "Target__phase03_target"
+      ],
+      "steps": [
+        {
+          "entity": "Target__phase03_target",
+          "index": 0,
+          "kind": "show",
+          "state": 1,
+          "target": "Target__phase03_target"
+        },
+        {
+          "index": 1,
+          "kind": "wait",
+          "seconds": 1
+        }
+      ],
+      "targetSequence": [
+        "Target__phase03_target"
+      ],
+      "title": "剩余所需金额（如剩余150 ），资产"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "entity": "Target__phase04_target",
+        "kind": "near_entity",
+        "radius": 1.8
+      },
+      "goalText": "",
+      "guideText": "把食物放到餐厅处，完成这一步。",
+      "hudText": null,
+      "id": "phase4",
+      "index": 3,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Target",
+        "Target__phase04_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Target__phase04_target"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "transfer",
+          "resource": "Item",
+          "target": "Target__phase04_target",
+          "to": "Target"
+        }
+      ],
+      "targetSequence": [
+        "Target__phase04_target"
+      ],
+      "title": "爽感），现在可以放入4位排队的顾客，"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Item",
+        "threshold": 1
+      },
+      "goalText": "",
+      "guideText": "观察生产点自动产出食物。",
+      "hudText": null,
+      "id": "phase5",
+      "index": 4,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item",
+        "Reward"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "index": 0,
+          "kind": "produce",
+          "resource": "Item",
+          "target": "Item"
+        }
+      ],
+      "targetSequence": [
+        "Item"
+      ],
+      "title": "收益： 4 名新食客进来坐满。烧烤台"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "entity": "UpgradePoint__phase06_target",
+        "kind": "entity_state",
+        "state": 2
+      },
+      "goalText": "",
+      "guideText": "移动到升级点，把它升级到下一档。",
+      "hudText": null,
+      "id": "phase6",
+      "index": 5,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "UpgradePoint",
+        "Target",
+        "UpgradePoint__phase06_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase06_target"
+        },
+        {
+          "entity": "UpgradePoint__phase06_target",
+          "index": 1,
+          "kind": "upgrade",
+          "level": 2
+        }
+      ],
+      "targetSequence": [
+        "UpgradePoint__phase06_target"
+      ],
+      "title": "一吸，右上角资金飙升至600+主厨进"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "entity": "UpgradePoint__phase07_target",
+        "kind": "entity_state",
+        "state": 2
+      },
+      "goalText": "",
+      "guideText": "把两个食物合在一起，升成更高级的食物。",
+      "hudText": null,
+      "id": "phase7",
+      "index": 6,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "upgrade_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "UpgradePoint",
+        "UpgradePoint__phase07_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "UpgradePoint__phase07_target"
+        },
+        {
+          "amount": 1,
+          "entity": "UpgradePoint__phase07_target",
+          "index": 1,
+          "kind": "combine",
+          "resource": "Item",
+          "state": 2,
+          "target": "UpgradePoint__phase07_target"
+        }
+      ],
+      "targetSequence": [
+        "UpgradePoint__phase07_target"
+      ],
+      "title": "托盘变大： 托盘体积明显变大，食物盛"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "timer",
+        "seconds": 1
+      },
+      "goalText": "",
+      "guideText": "第8步：继续解锁新的区域或功能。",
+      "hudText": null,
+      "id": "phase8",
+      "index": 7,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "build_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Target"
+        },
+        {
+          "entity": "Target",
+          "index": 1,
+          "kind": "unlock",
+          "state": 1,
+          "target": "Target"
+        },
+        {
+          "index": 2,
+          "kind": "wait",
+          "seconds": 1
+        }
+      ],
+      "targetSequence": [
+        "Target"
+      ],
+      "title": "【区域三：外卖区域】（终极爽感解锁）"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Item",
+        "threshold": 1
+      },
+      "goalText": "",
+      "guideText": "第9步：继续观察自动产出食物。",
+      "hudText": null,
+      "id": "phase9",
+      "index": 8,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Producer",
+        "Item",
+        "Item__phase09_target"
+      ],
+      "steps": [
+        {
+          "amount": 1,
+          "index": 0,
+          "kind": "produce",
+          "resource": "Item",
+          "target": "Item__phase09_target"
+        }
+      ],
+      "targetSequence": [
+        "Item__phase09_target"
+      ],
+      "title": "台】，屏幕中央弹出半透明文字：Col"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "resource",
+        "resource": "Item",
+        "threshold": 1
+      },
+      "goalText": "",
+      "guideText": "移动到食物旁，收集食物。",
+      "hudText": null,
+      "id": "phase10",
+      "index": 9,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "collect_on_near",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Source",
+        "Item",
+        "Producer",
+        "Item__phase10_target"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.6,
+          "target": "Item__phase10_target"
+        },
+        {
+          "amount": 1,
+          "from": "Item",
+          "index": 1,
+          "kind": "collect",
+          "resource": "Item",
+          "target": "Item"
+        }
+      ],
+      "targetSequence": [
+        "Item__phase10_target",
+        "Item"
+      ],
+      "title": "步骤 2（指引送货）： 主厨吸入食物"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "kind": "timer",
+        "seconds": 1
+      },
+      "goalText": "",
+      "guideText": "把食物送到顾客处，完成订单。",
+      "hudText": null,
+      "id": "phase11",
+      "index": 10,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "inventory_wallet"
+      ],
+      "showEntities": [
+        "Player",
+        "Item",
+        "Consumer"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Consumer"
+        },
+        {
+          "amount": 1,
+          "index": 1,
+          "kind": "deliver",
+          "resource": "Item",
+          "target": "Consumer",
+          "to": "Consumer"
+        },
+        {
+          "index": 2,
+          "kind": "wait",
+          "seconds": 1
+        }
+      ],
+      "targetSequence": [
+        "Consumer"
+      ],
+      "title": "字：Pack Orders！爽感大收"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "entity": "Target",
+        "kind": "entity_state",
+        "state": 1
+      },
+      "goalText": "",
+      "guideText": "第12步：继续解锁新的区域或功能。",
+      "hudText": null,
+      "id": "phase12",
+      "index": 11,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "player_input_joystick",
+        "move_to_target",
+        "proximity_trigger",
+        "build_progress"
+      ],
+      "showEntities": [
+        "Player",
+        "Target",
+        "Item"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "move_to",
+          "radius": 1.8,
+          "target": "Target"
+        },
+        {
+          "entity": "Target",
+          "index": 1,
+          "kind": "unlock",
+          "state": 1,
+          "target": "Target"
+        }
+      ],
+      "targetSequence": [
+        "Target"
+      ],
+      "title": "【结尾高潮：未知新区域解锁选择中en"
+    },
+    {
+      "duration": {
+        "max": 15,
+        "min": 10
+      },
+      "gate": {
+        "ctaId": "CtaButton",
+        "kind": "cta_arrival"
+      },
+      "goalText": "",
+      "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+      "hudText": null,
+      "id": "phase13",
+      "index": 12,
+      "plannedModuleIds": [
+        "guide_ui",
+        "visual_binding",
+        "cta_finish",
+        "spawn_once"
+      ],
+      "showEntities": [
+        "Player",
+        "Target",
+        "Item",
+        "Producer"
+      ],
+      "steps": [
+        {
+          "ctaId": "CtaButton",
+          "index": 0,
+          "kind": "cta_finish"
+        }
+      ],
+      "targetSequence": [
+        "Target"
+      ],
+      "title": "定格： 两个解锁圈上方同时亮起巨大的"
+    }
+  ],
+  "project": {
+    "name": "MC原创_3D流水线小主厨解锁餐厅",
+    "theme": "default"
+  },
+  "resources": [
+    {
+      "carrierEntity": "Item",
+      "id": "Item",
+      "initial": 0,
+      "kind": "resource",
+      "label": "食物"
+    },
+    {
+      "carrierEntity": "Reward",
+      "id": "Reward",
+      "initial": 0,
+      "kind": "resource",
+      "label": "奖励"
+    }
+  ],
+  "runtimeContract": {
+    "forbidAutoplayProgress": true,
+    "joystickEvidence": {
+      "present": true,
+      "source": "source-html"
+    },
+    "phaseCount": 13,
+    "requiresArrivalGate": true,
+    "requiresJoystick": true,
+    "visualRuntimeContractHash": null
+  },
+  "scene": {
+    "backgroundColor": "#101820",
+    "camera": {
+      "far": 1000,
+      "follow": null,
+      "fov": 58,
+      "kind": "perspective",
+      "lookAt": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "position": [
+        0,
+        17.64,
+        24.36
+      ],
+      "source": null
+    },
+    "coordinateSystem": "three-xz-y-up",
+    "grid": null,
+    "ground": {
+      "color": "#203040",
+      "depth": 42,
+      "height": 42,
+      "kind": "plane",
+      "positionY": null,
+      "size": [
+        42,
+        42
+      ],
+      "width": 42
+    },
+    "guidance": null,
+    "lights": []
+  },
+  "schemaVersion": "source-scene-ir.v1",
+  "semanticHash": "764caef1ef977f899ba510f6ce12ce1025415984dd9c9e1c1b2d17b1a11434ac",
+  "source": {
+    "htmlPath": "/opt/blueprint-editor/server-data/project-sources/firstbatch-action-01/source-ir-preview.html",
+    "htmlSha256": "adca0c0752f1fef7022f7f9dd49d8203396d590acb8bf100379238aa2f0845d1"
+  }
+}
