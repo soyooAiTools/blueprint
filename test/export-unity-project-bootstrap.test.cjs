@@ -11,6 +11,39 @@ const scriptPath = path.join(repoRoot, 'scripts', 'export-unity-project.sh');
 const src = fs.readFileSync(scriptPath, 'utf8');
 
 assert(
+  src.includes('--profile gmp-v14|unitycomponent-v1') &&
+    src.includes('UNITY_DELIVERY_PROFILE="${BLUEPRINT_UNITY_DELIVERY_PROFILE:-gmp-v14}"') &&
+    src.includes('--profile) UNITY_DELIVERY_PROFILE="$2"'),
+  'export should expose an explicit Unity delivery profile flag while defaulting to gmp-v14'
+);
+assert(
+  src.includes('FAIL: unknown Unity delivery profile') &&
+    src.includes('if [ "$UNITY_DELIVERY_PROFILE" = "unitycomponent-v1" ]; then') &&
+    src.includes('PROGRAMMER_DELIVERY=1') &&
+    src.includes('STRIP_LUNA=1'),
+  'unitycomponent-v1 export should be explicit and still treated as programmer delivery'
+);
+assert(
+  src.includes('export_unitycomponent_v1()') &&
+    src.includes('scripts/export-unitycomponent-v1.cjs') &&
+    src.indexOf('scripts/export-unitycomponent-v1.cjs') < src.indexOf('programmer-delivery-cleaner.cjs'),
+  'unitycomponent-v1 profile should route to the v1 exporter before the legacy cleaner path'
+);
+assert(
+  src.includes('unitycomponent-v1 requires accepted SourceIR artifact') &&
+    src.includes('Unity export must not invent or rewrite source semantics') &&
+    src.includes('$BP_ROOT/server-data/webgl/$TASK_ID/source-ir.json'),
+  'unitycomponent-v1 export should require accepted SourceIR/WebGL artifacts'
+);
+assert(
+  src.includes('Assets/BlueprintDelivery/UnityDeliverySpec.json') &&
+    src.includes('Assets/BlueprintDelivery/FrameworkTemplateManifest.json') &&
+    src.includes('Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab') &&
+    src.includes('UNITYCOMPONENT_V1_VALIDATION.json') &&
+    src.includes('Editor/AIBridge hydration 未完成时，不能标记为最终交付认证通过'),
+  'unitycomponent-v1 handoff should name the spec, hardgate report, and Editor hydration boundary'
+);
+assert(
   src.includes('GameFlowBootstrap.cs'),
   'non-programmer Unity export must keep a bootstrap script for direct Editor Play'
 );

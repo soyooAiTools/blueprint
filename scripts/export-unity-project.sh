@@ -10,7 +10,7 @@
 #      保持原样，避免破坏后续自动修复链路。
 #
 # 用法：
-#   ./scripts/export-unity-project.sh <taskId> [--strip-luna] [--programmer-delivery] [--out /path/to.tar.gz]
+#   ./scripts/export-unity-project.sh <taskId> [--strip-luna] [--programmer-delivery] [--profile gmp-v14|unitycomponent-v1] [--out /path/to.tar.gz]
 #
 # 示例：
 #   ./scripts/export-unity-project.sh proj_1776391516726_urbib0 --strip-luna
@@ -22,6 +22,7 @@ TASK_ID="${1:-}"
 STRIP_LUNA=0
 LOCALIZE_COMMENTS=1
 PROGRAMMER_DELIVERY=0
+UNITY_DELIVERY_PROFILE="${BLUEPRINT_UNITY_DELIVERY_PROFILE:-gmp-v14}"
 OUT=""
 shift || true
 while [ "$#" -gt 0 ]; do
@@ -29,16 +30,25 @@ while [ "$#" -gt 0 ]; do
     --strip-luna) STRIP_LUNA=1; shift ;;
     --keep-comment-language) LOCALIZE_COMMENTS=0; shift ;;
     --programmer-delivery) PROGRAMMER_DELIVERY=1; shift ;;
+    --profile) UNITY_DELIVERY_PROFILE="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done
+case "$UNITY_DELIVERY_PROFILE" in
+  gmp-v14|unitycomponent-v1) ;;
+  *) echo "FAIL: unknown Unity delivery profile: $UNITY_DELIVERY_PROFILE" >&2; exit 2 ;;
+esac
+if [ "$UNITY_DELIVERY_PROFILE" = "unitycomponent-v1" ]; then
+  PROGRAMMER_DELIVERY=1
+  STRIP_LUNA=1
+fi
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   STRIP_LUNA=1
 fi
 
 if [ -z "$TASK_ID" ]; then
-  echo "Usage: $0 <taskId> [--strip-luna] [--programmer-delivery] [--keep-comment-language] [--out /path/to.tar.gz]" >&2
+  echo "Usage: $0 <taskId> [--strip-luna] [--programmer-delivery] [--profile gmp-v14|unitycomponent-v1] [--keep-comment-language] [--out /path/to.tar.gz]" >&2
   exit 2
 fi
 
@@ -53,9 +63,105 @@ OUT="${OUT:-/root/$TASK_ID-unity-project.tar.gz}"
 
 # ── 预检 ───────────────────────────────────────────────────────────
 [ -d "$SRC" ] || { echo "FAIL: project sources missing: $SRC" >&2; exit 1; }
-[ -d "$BASE" ] || { echo "FAIL: luna base template missing: $BASE" >&2; exit 1; }
+if [ "$UNITY_DELIVERY_PROFILE" != "unitycomponent-v1" ]; then
+  [ -d "$BASE" ] || { echo "FAIL: luna base template missing: $BASE" >&2; exit 1; }
+fi
 
-echo "[export] task=$TASK_ID strip-luna=$STRIP_LUNA localize-comments=$LOCALIZE_COMMENTS programmer-delivery=$PROGRAMMER_DELIVERY base=$BASE out=$OUT"
+echo "[export] task=$TASK_ID profile=$UNITY_DELIVERY_PROFILE strip-luna=$STRIP_LUNA localize-comments=$LOCALIZE_COMMENTS programmer-delivery=$PROGRAMMER_DELIVERY base=$BASE out=$OUT"
+
+package_workdir() {
+  local friendly="${TASK_ID}-unity-project"
+  local final_dir
+  final_dir="$(dirname "$WORK")/$friendly"
+  rm -rf "$final_dir"
+  mv "$WORK" "$final_dir"
+  tar -C "$(dirname "$final_dir")" -czf "$OUT" "$friendly"
+  du -h "$OUT"
+  rm -rf "$final_dir"
+  echo "[export] done → $OUT"
+}
+
+copy_first_existing() {
+  local dst="$1"
+  shift
+  local candidate
+  mkdir -p "$(dirname "$dst")"
+  for candidate in "$@"; do
+    if [ -f "$candidate" ]; then
+      command cp -rf "$candidate" "$dst"
+      return 0
+    fi
+  done
+  return 1
+}
+
+prepare_unitycomponent_v1_artifacts() {
+  local artifact_dir="$1"
+  mkdir -p "$artifact_dir"
+
+  if ! copy_first_existing "$artifact_dir/source-ir.json" \
+      "$BP_ROOT/server-data/webgl/$TASK_ID/source-ir.json" \
+      "$SRC/source-ir.json"; then
+    echo "FAIL: unitycomponent-v1 requires accepted SourceIR artifact: server-data/webgl/$TASK_ID/source-ir.json" >&2
+    echo "Run source-ir-build/storyboard2html WebGL pipeline first; Unity export must not invent or rewrite source semantics." >&2
+    exit 1
+  fi
+
+  copy_first_existing "$artifact_dir/asset-manifest.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/asset-manifest.json" \
+    "$SRC/asset-manifest.json" || true
+  copy_first_existing "$artifact_dir/gameschema.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/gameschema.json" \
+    "$SRC/gameschema.json" || true
+  copy_first_existing "$artifact_dir/playable-scene-ir.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/playable-scene-ir.json" \
+    "$SRC/playable-scene-ir.json" || true
+  copy_first_existing "$artifact_dir/unity-asset-plan.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/unity-asset-plan.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/blueprint-unity-asset-plan.json" \
+    "$SRC/unity-asset-plan.json" || true
+  copy_first_existing "$artifact_dir/source-scene-ir.json" \
+    "$SRC/source-scene-ir.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/source-scene-ir.json" || true
+  copy_first_existing "$artifact_dir/source-ir-preview.html" \
+    "$SRC/source-ir-preview.html" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/source-ir-preview.html" || true
+}
+
+export_unitycomponent_v1() {
+  mkdir -p "$WORK"
+  local artifact_dir="$WORK/BlueprintArtifacts/UnityComponentV1Source"
+  prepare_unitycomponent_v1_artifacts "$artifact_dir"
+  node "$BP_ROOT/scripts/export-unitycomponent-v1.cjs" "$artifact_dir" "$WORK"
+  cat > "$WORK/README.md" <<EOF
+# UnityComponent v1 Unity 工程导出 — $TASK_ID
+
+导出时间：$(date -Iseconds)
+Unity delivery profile：unitycomponent-v1
+
+## 目录
+- Assets/SLGFrameWork/Scripts/Base/ — BaseComponent / Entity / GameEntry 框架基底
+- Assets/SLGFrameWork/Scripts/Component/ — [Serializable] BaseComponent 能力组件
+- Assets/SLGFrameWork/Scripts/Entity/ — 继承 Entity 的项目实体组合
+- Assets/SLGFrameWork/Scripts/Manager/ — EntityManager / EventManager / BlueprintDelivery baked runtime
+- Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab — UnityComponent(3) 完整框架入口 prefab
+- Assets/BlueprintDelivery/UnityDeliverySpec.json — 下游 Unity 交付投影审计文件
+- Assets/BlueprintDelivery/FrameworkTemplateManifest.json — SLGFrameWork 模板文件 ownership/hash 审计文件
+- UNITYCOMPONENT_V1_VALIDATION.json — v1 hardgate 文件级验证报告
+- BlueprintArtifacts/UnityComponentV1Source/ — 本次导出消费的 SourceIR/WebGL 侧已验收 artifacts
+
+## 边界
+- 本导出只消费 storyboard2html/source HTML/WebGL 之后的 SourceIR artifacts，不修改 upstream schema、HTML contract、WebGL runtime 或 parity hash。
+- UnityDeliverySpec 是 Unity programmer delivery 的下游投影，runtime 不读取 JSON。
+- 该包已通过 v1 file hardgate；Unity Editor/AIBridge hydration 未完成时，不能标记为最终交付认证通过。
+EOF
+  package_workdir
+}
+
+if [ "$UNITY_DELIVERY_PROFILE" = "unitycomponent-v1" ]; then
+  export_unitycomponent_v1
+  exit 0
+fi
 
 # ── Step 1: 以基础模板铺底（command cp 绕过 cp alias） ──────────
 mkdir -p "$WORK"
@@ -383,7 +489,7 @@ Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开
 - 程序员交付版已剥离 Luna 打包流水线依赖和模板备份场景；需要重新接入 Luna 时，从 Blueprint 流水线重新导出审核版。
 - 每个脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按职责分段维护。
 - $DELIVERY_NEW_CODE_RULE
-- 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
+- 程序员交付实体引用只来自 GMP_SceneEntityRefs 或 serialized refs；RegisterEntityBindings()/GameSceneCtrl 只属于 Luna/WebGL staging，不要在业务代码里直接 GameObject.Find("__Pool_*") 覆盖字段。
 - 资源 API 使用 GMP_ResourceIds.Gold / GMP_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
 
@@ -450,12 +556,4 @@ PY
 fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────
-FRIENDLY="${TASK_ID}-unity-project"
-FINAL_DIR="$(dirname "$WORK")/$FRIENDLY"
-rm -rf "$FINAL_DIR"
-mv "$WORK" "$FINAL_DIR"
-tar -C "$(dirname "$FINAL_DIR")" -czf "$OUT" "$FRIENDLY"
-du -h "$OUT"
-rm -rf "$FINAL_DIR"
-
-echo "[export] done → $OUT"
+package_workdir

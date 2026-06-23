@@ -178,6 +178,30 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:storyboard2html-contract', ['node', 'test/storyboard2html-contract.test.cjs'], 'Validate storyboard2html HTML contract and hardgate command shape.'));
   }
 
+  if (/^(lib\/unity-delivery-spec-projector\.cjs|lib\/unitycomponent-profile-registry\.cjs|lib\/unitycomponent-v1-emitter\.cjs|lib\/unitycomponent-v1-hardgate\.cjs|scripts\/export-unitycomponent-v1\.cjs|scripts\/unitycomponent-v1-unity-smoke\.cjs|docs\/unitycomponent-contract-v1-remediation-plan\.md|test\/(blueprint-skill-unitycomponent-profile-contract|delivery-spec-source-parity|unity-delivery-spec-projector|unitycomponent-profile-registry|unitycomponent-v1-emitter|unitycomponent-v1-hardgate|unitycomponent-v1-synthetic-export-corpus|unitycomponent-v1-accepted-artifact-corpus|unitycomponent-v1-unity-smoke)\.test\.cjs)$/.test(file)) {
+    addTag(plan, 'unitycomponent-v1');
+    addCommand(plan, command('unit:unitycomponent-profile-registry', ['node', 'test/unitycomponent-profile-registry.test.cjs'], 'Validate explicit Unity delivery profile split and defaults.'));
+    addCommand(plan, command('unit:unity-delivery-spec-projector', ['node', 'test/unity-delivery-spec-projector.test.cjs'], 'Validate UnityDeliverySpec downstream projection.'));
+    addCommand(plan, command('unit:delivery-spec-source-parity', ['node', 'test/delivery-spec-source-parity.test.cjs'], 'Validate UnityDeliverySpec does not drift from source artifacts.'));
+    addCommand(plan, command('unit:unitycomponent-v1-emitter', ['node', 'test/unitycomponent-v1-emitter.test.cjs'], 'Validate SLGFrameWork emitter output and prefab shape.'));
+    addCommand(plan, command('unit:unitycomponent-v1-hardgate', ['node', 'test/unitycomponent-v1-hardgate.test.cjs'], 'Validate UnityComponent v1 profile hardgate failures.'));
+    addCommand(plan, command('unit:unitycomponent-v1-synthetic-export-corpus', ['node', 'test/unitycomponent-v1-synthetic-export-corpus.test.cjs'], 'Validate synthetic/unit UnityComponent v1 export corpus coverage.'));
+    addCommand(plan, command('unit:unitycomponent-v1-accepted-artifact-corpus', ['node', 'test/unitycomponent-v1-accepted-artifact-corpus.test.cjs'], 'Run accepted artifact corpus when repo/local accepted artifacts are available.'));
+    addCommand(plan, command('unit:unitycomponent-v1-unity-smoke', ['node', 'test/unitycomponent-v1-unity-smoke.test.cjs'], 'Validate Unity smoke script skip/required behavior.'));
+    addCommand(plan, command('unit:blueprint-skill-unitycomponent-profile-contract', ['node', 'test/blueprint-skill-unitycomponent-profile-contract.test.cjs'], 'Validate skill docs when BLUEPRINT_SKILL_ROOT or local skill docs are available.'));
+  }
+
+  if (/^scripts\/export-unity-project\.sh$/.test(file)) {
+    addTag(plan, 'programmer-delivery');
+    addTag(plan, 'unitycomponent-v1');
+    addCommand(plan, command('unit:export-unity-project-bootstrap', ['node', 'test/export-unity-project-bootstrap.test.cjs'], 'Validate Unity export profile flag and bootstrap guardrails.'));
+    addCommand(plan, command('unit:unitycomponent-profile-registry', ['node', 'test/unitycomponent-profile-registry.test.cjs'], 'Validate explicit Unity delivery profile split and defaults.'));
+    addCommand(plan, command('unit:unitycomponent-v1-emitter', ['node', 'test/unitycomponent-v1-emitter.test.cjs'], 'Validate SLGFrameWork emitter output and prefab shape.'));
+    addCommand(plan, command('unit:unitycomponent-v1-hardgate', ['node', 'test/unitycomponent-v1-hardgate.test.cjs'], 'Validate UnityComponent v1 profile hardgate failures.'));
+    addCommand(plan, command('unit:unitycomponent-v1-synthetic-export-corpus', ['node', 'test/unitycomponent-v1-synthetic-export-corpus.test.cjs'], 'Validate synthetic/unit UnityComponent v1 export corpus coverage.'));
+    addCommand(plan, command('unit:unitycomponent-v1-unity-smoke', ['node', 'test/unitycomponent-v1-unity-smoke.test.cjs'], 'Validate Unity smoke script skip/required behavior.'));
+  }
+
   if (/^(contracts\/cua-probe|engine\/stages\/runtime-contract\.cjs|engine\/playable-flow-manifest\.cjs)/.test(file)) {
     addTag(plan, 'runtime-contract');
     addCommand(plan, command('unit:runtime-contract-module-gate', ['node', 'test/runtime-contract-module-gate.test.cjs'], 'Validate runtime contract hardgate summary semantics.'));
