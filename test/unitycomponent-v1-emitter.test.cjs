@@ -116,6 +116,8 @@ assert.strictEqual(fs.existsSync(path.join(unityDir, 'Assets', 'Scripts', 'Base'
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'BlueprintDelivery', 'UnityDeliverySpec.json')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'BlueprintDelivery', 'FrameworkTemplateManifest.json')));
 assert.ok(fs.existsSync(path.join(unityDir, 'UNITYCOMPONENT_V1_VALIDATION.json')));
+var manifest = JSON.parse(fs.readFileSync(path.join(unityDir, 'Packages', 'manifest.json'), 'utf8'));
+assert.strictEqual(manifest.dependencies['com.unity.modules.physics'], '1.0.0', 'PickUpComponent collider usage requires the built-in Physics module for Unity compile');
 
 var text = readAll(unityDir);
 assert.strictEqual(/GMP_|GFM_|MonoSingleton|mSpawnEntities/.test(text), false, 'v1 export must not contain legacy identifiers');
