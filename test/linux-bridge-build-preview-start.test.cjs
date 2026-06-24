@@ -91,11 +91,17 @@ assert(
   'source visual overlay must install a deterministic source-style camera framing sync'
 );
 assert(
-  src.includes('var sourceCamera = sourceScene && sourceScene.camera || {}') &&
+    src.includes('var sourceCamera = sourceScene && sourceScene.camera || {}') &&
     src.includes('Array.isArray(sourceCamera.position) ? sourceCamera.position : [0, 22, 22]') &&
     src.includes('camEnt.camera.fov = isFinite(Number(sourceCamera.fov)) ? Number(sourceCamera.fov) : 60') &&
-    src.includes('if (sourceLookAt) camEnt.lookAt'),
+    src.includes('if (sourceLookAt) storyboardLookAtPoint(camEnt, sourceLookAt[0], sourceLookAt[1], sourceLookAt[2])') &&
+    src.includes('entity.lookAt(new pc.Vec3(tx, ty, tz), new pc.Vec3(0, 1, 0))'),
   'storyboard camera framing must be driven by the source scene camera contract with stable fallbacks'
+);
+assert(
+  !src.includes('camEnt.lookAt(Number(sourceLookAt[0])') &&
+    !src.includes('camEnt.lookAt(look[0], look[1], look[2])'),
+  'storyboard camera framing must not call PlayCanvas lookAt with the legacy numeric signature'
 );
 assert(
   src.includes('priority: __bpHasSourceVisualAssets ? -100 : 100'),
@@ -131,15 +137,37 @@ assert(
 );
 assert(
   src.includes('function applySourcePhaseVisibility(state, phase)') &&
+    src.includes('function blueprintBuildEntityShowMap(names)') &&
+    src.includes('function blueprintEntityMapHas(map, value)') &&
     src.includes('st.visible = isVisible') &&
     src.includes('state.visibleEntities = phase.showEntities.slice()'),
-  'target fidelity state must mirror source phase showEntities visibility before field extraction'
+  'target fidelity state must mirror source phase showEntities visibility with canonical entity-key matching before field extraction'
 );
 assert(
   src.includes('function sourcePhaseForOverlayState(gs)') &&
     src.includes('var sourceVisible = phaseVisibleMap(sourcePhase)') &&
-    src.includes('entityRoots[name].enabled = !!sourceVisible[name]'),
-  'storyboard overlay must hide inactive phase entities using source phase visibility'
+    src.includes('var sourceMapHas = (typeof blueprintEntityMapHas') &&
+    src.includes('window.__blueprintEntityMapHas') &&
+    src.includes('entityRoots[name].enabled = sourceMapHas ? sourceMapHas(sourceVisible, name) : !!sourceVisible[name]') &&
+    !src.includes('entityRoots[name].enabled = !!sourceVisible[name]'),
+  'storyboard overlay must hide inactive phase entities using normalized source phase visibility'
+);
+assert(
+  src.includes('window.__blueprintBuildEntityShowMap') &&
+    src.includes('window.__blueprintEntityMapHas') &&
+    src.includes('var show = buildMap ? buildMap(phase.showEntities) : {}') &&
+    src.includes('var isVisible = mapHas ? mapHas(show, name) : (!!show[name] || !!show[fallbackEntityKey(name)])'),
+  'target phase visibility normalization must use window-scoped entity helpers when bridge hooks live in another closure'
+);
+assert(
+  src.includes('window.__blueprintRefreshGameStateFromScene=refreshBlueprintGameStateFromScene') &&
+    src.includes('setInterval(refreshBlueprintGameStateFromScene,500)') &&
+    src.includes('if (typeof window.__blueprintRefreshGameStateFromScene === "function") window.__blueprintRefreshGameStateFromScene()'),
+  'target fidelity state bridge must support synchronous refresh so extraction does not race the polling interval'
+);
+assert(
+  !src.includes('if (isStoryboardPlayerName(overlayName)) return;'),
+  'projected anchor extraction must include Player instead of skipping its target anchor'
 );
 assert(
   src.includes('function auditStoryboardVisualLayer(options)') &&

@@ -51,6 +51,42 @@ assert.deepStrictEqual(bridgeOut.worldLabels.Player, {
 assert.strictEqual(bridgeOut.entityDetails.Player && bridgeOut.entityDetails.Player.worldLabel, undefined,
   'strict runtime bridge should not leak text; DOM extraction owns the existing text bucket');
 
+// Runtime bridge path: extractor must force a synchronous refresh and
+// source-phase normalization before reading visibleEntities, otherwise it can
+// race the 500 ms bridge poll and report entities hidden by the current phase.
+var refreshed = false;
+var normalizedPhase = null;
+var normalizedOut = withGlobals({
+  __gameState: {
+    entity_states: {
+      Player: { visible: true },
+      Target11: { visible: true }
+    }
+  },
+  __blueprintRefreshGameStateFromScene: function() {
+    refreshed = true;
+    return this.__gameState;
+  },
+  __blueprintNormalizeGameState: function(gs, phaseId) {
+    normalizedPhase = phaseId;
+    gs.entity_states.Target11.visible = false;
+    gs.visibleEntities = ['Player'];
+    return gs;
+  }
+}, {
+  querySelector: function() { return null; },
+  querySelectorAll: function() { return []; }
+}, function() {
+  return extractor({ phaseId: 'phase1' });
+});
+
+assert.strictEqual(refreshed, true,
+  'WEBGL extractor should refresh the runtime game state synchronously before field capture');
+assert.strictEqual(normalizedPhase, 'phase1',
+  'WEBGL extractor should pass the requested phaseId into target normalization');
+assert.deepStrictEqual(normalizedOut.visibleEntities, ['Player'],
+  'WEBGL extractor should use source-phase-normalized visibleEntities');
+
 // DOM fallback path: normalize viewport rect back to the 1280x720 contract
 // baseline when the worker bridge is absent.
 var domEl = {

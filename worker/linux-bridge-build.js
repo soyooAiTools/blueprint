@@ -1207,6 +1207,24 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       });
       camEnt.setPosition(0, 15, -8);
       camEnt.setEulerAngles(55, 0, 0);
+      function storyboardLookAtPoint(entity, x, y, z) {
+        if (!entity || typeof entity.lookAt !== 'function') return false;
+        var tx = Number(x);
+        var ty = Number(y);
+        var tz = Number(z);
+        if (!isFinite(tx)) tx = 0;
+        if (!isFinite(ty)) ty = 0;
+        if (!isFinite(tz)) tz = 0;
+        try {
+          entity.lookAt(new pc.Vec3(tx, ty, tz), new pc.Vec3(0, 1, 0));
+          return true;
+        } catch(eVecLookAt) {}
+        try {
+          entity.lookAt(tx, ty, tz);
+          return true;
+        } catch(eLegacyLookAt) {}
+        return false;
+      }
       function syncStoryboardSourceCamera() {
         try {
           if (!camEnt || !camEnt.camera) return;
@@ -1219,7 +1237,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           camEnt.camera.nearClip = isFinite(Number(sourceCamera.near)) ? Number(sourceCamera.near) : 0.1;
           camEnt.camera.farClip = isFinite(Number(sourceCamera.far)) ? Number(sourceCamera.far) : 1000;
           camEnt.setPosition(Number(sourcePosition[0]) || 0, Number(sourcePosition[1]) || 22, Number(sourcePosition[2]) || 22);
-          if (sourceLookAt) camEnt.lookAt(Number(sourceLookAt[0]) || 0, Number(sourceLookAt[1]) || 0, Number(sourceLookAt[2]) || 0);
+          if (sourceLookAt) storyboardLookAtPoint(camEnt, sourceLookAt[0], sourceLookAt[1], sourceLookAt[2]);
           else camEnt.setEulerAngles(45, 180, 0);
         } catch(eSourceCam) {}
       }
@@ -1268,6 +1286,39 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function blueprintNormalizePhaseKey(value) {
         return String(value == null ? '' : value).toLowerCase().replace(/[^a-z0-9]/g, '');
       }
+      function blueprintNormalizeEntityKey(value) {
+        return String(value == null ? '' : value).toLowerCase().replace(/[^a-z0-9]/g, '');
+      }
+      function blueprintEntityKeyVariants(value) {
+        var raw = String(value == null ? '' : value);
+        if (!raw) return [];
+        var variants = [raw];
+        variants.push(raw.charAt(0).toUpperCase() + raw.slice(1));
+        variants.push(raw.charAt(0).toLowerCase() + raw.slice(1));
+        variants.push(blueprintNormalizeEntityKey(raw));
+        var out = [];
+        for (var i = 0; i < variants.length; i++) {
+          if (variants[i] && out.indexOf(variants[i]) < 0) out.push(variants[i]);
+        }
+        return out;
+      }
+      function blueprintBuildEntityShowMap(names) {
+        var out = {};
+        names = Array.isArray(names) ? names : [];
+        for (var i = 0; i < names.length; i++) {
+          var variants = blueprintEntityKeyVariants(names[i]);
+          for (var v = 0; v < variants.length; v++) out[variants[v]] = true;
+        }
+        return out;
+      }
+      function blueprintEntityMapHas(map, value) {
+        if (!map || value == null) return false;
+        if (map[String(value)]) return true;
+        return !!map[blueprintNormalizeEntityKey(value)];
+      }
+      window.__blueprintNormalizeEntityKey = blueprintNormalizeEntityKey;
+      window.__blueprintBuildEntityShowMap = blueprintBuildEntityShowMap;
+      window.__blueprintEntityMapHas = blueprintEntityMapHas;
       function blueprintPhaseSets(manifest) {
         var phaseSets = [];
         try {
@@ -1879,7 +1930,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               if (sceneContract.directionalLight && Array.isArray(sceneContract.directionalLight.position) && lightEnt) {
                 var dp = sceneContract.directionalLight.position;
                 lightEnt.setPosition(dp[0], dp[1], dp[2]);
-                lightEnt.lookAt(0, 0, 0);
+                storyboardLookAtPoint(lightEnt, 0, 0, 0);
               }
               // Ambient light (PlayCanvas scene.ambientLight; scaled by intensity).
               if (sceneContract.ambientLight && sceneContract.ambientLight.color && pcApp && pcApp.scene) {
@@ -1895,7 +1946,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
                 rimEnt.addComponent('light', { type: 'directional', color: color(sceneContract.rimLight.color, '#ffffff'), intensity: (Number(sceneContract.rimLight.intensity) || 0.5) * 0.25 });
                 var rp = Array.isArray(sceneContract.rimLight.position) ? sceneContract.rimLight.position : [-10, 5, -12];
                 rimEnt.setPosition(rp[0], rp[1], rp[2]);
-                rimEnt.lookAt(0, 0, 0);
+                storyboardLookAtPoint(rimEnt, 0, 0, 0);
               }
               // Linear fog.
               if (sceneContract.fog && sceneContract.fog.color && pcApp && pcApp.scene) {
@@ -1914,7 +1965,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
                 if (isFinite(Number(scam.far))) camEnt.camera.farClip = Number(scam.far);
                 if (Array.isArray(scam.position)) camEnt.setPosition(scam.position[0], scam.position[1], scam.position[2]);
                 var look = Array.isArray(scam.lookAt) ? scam.lookAt : [0, 0, 0];
-                camEnt.lookAt(look[0], look[1], look[2]);
+                storyboardLookAtPoint(camEnt, look[0], look[1], look[2]);
               }
               console.log('[OPTION C] applied source-faithful scene lighting/fog/camera');
             } catch (e) { console.error('[OPTION C] scene-config apply error:', e); }
@@ -2704,7 +2755,6 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var overlayName = anchorOverlayName(contractId);
               var ent = entityRoots[overlayName];
               if (!ent) return;
-              if (isStoryboardPlayerName(overlayName)) return;
               calibrateOverlayEntityToAnchor(ent, anchor);
               var rect = entityScreenRect(ent);
               if (rect) {
@@ -2736,6 +2786,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function phaseVisibleMap(sourcePhase) {
             if (!sourcePhase || !Array.isArray(sourcePhase.showEntities)) return null;
+            var buildMap = (typeof blueprintBuildEntityShowMap === 'function') ? blueprintBuildEntityShowMap :
+              (typeof window !== 'undefined' && typeof window.__blueprintBuildEntityShowMap === 'function' ? window.__blueprintBuildEntityShowMap : null);
+            if (buildMap) return buildMap(sourcePhase.showEntities);
             var out = {};
             for (var i = 0; i < sourcePhase.showEntities.length; i++) {
               if (sourcePhase.showEntities[i]) out[String(sourcePhase.showEntities[i])] = true;
@@ -3086,8 +3139,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
 	            guidanceLineVisible(true);
 	            storyboardGuidanceLine.setPosition(a.clone().add(b).scale(0.5));
 	            try {
-	              if (typeof storyboardGuidanceLine.lookAt === 'function') storyboardGuidanceLine.lookAt(b.x, b.y, b.z);
-	              else if (typeof storyboardGuidanceLine.setRotation === 'function') {
+	              if (!storyboardLookAtPoint(storyboardGuidanceLine, b.x, b.y, b.z) && typeof storyboardGuidanceLine.setRotation === 'function') {
 	                var q = new pc.Quat();
 	                if (typeof q.lookRotation === 'function') storyboardGuidanceLine.setRotation(q.lookRotation(d.clone().normalize(), pc.Vec3.UP));
 	              }
@@ -3127,6 +3179,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var fitForPhase = anchorFitApplied[phaseId] || {};
             var sourcePhase = sourcePhaseForOverlayState(gs);
             var sourceVisible = phaseVisibleMap(sourcePhase);
+            var sourceMapHas = (typeof blueprintEntityMapHas === 'function') ? blueprintEntityMapHas :
+              (typeof window !== 'undefined' && typeof window.__blueprintEntityMapHas === 'function' ? window.__blueprintEntityMapHas : null);
             // Source-faithful storyboard POSITION (2026-06-01): place the overlay from the
             // SOURCE contract (sourceEntityContract.entityStyles[name].position) — distinct,
             // matches the source storyboard layout — instead of the game's runtime
@@ -3163,7 +3217,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name] && !isPlayer)) {
                 setStoryboardEntityPosition(name, storyboardRenderX(p.x), Number(p.y) || 0, storyboardRenderZForName(name, p.z), isPlayer);
               }
-              if (sourceVisible && !isStoryboardHudEntityName(name)) entityRoots[name].enabled = !!sourceVisible[name];
+              if (sourceVisible && !isStoryboardHudEntityName(name)) entityRoots[name].enabled = sourceMapHas ? sourceMapHas(sourceVisible, name) : !!sourceVisible[name];
               else if (st && st.visible === false) entityRoots[name].enabled = false;
               else entityRoots[name].enabled = true;
             });
@@ -3958,6 +4012,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       }
       function currentBlueprintGameState() {
         try {
+          if (typeof window.__blueprintRefreshGameStateFromScene === "function") window.__blueprintRefreshGameStateFromScene();
           var gs = typeof window.__gameState === "function" ? window.__gameState() : window.__gameState;
           gs = normalizeBlueprintGameState(gs, null);
           if (typeof window.__gameState !== "function") window.__gameState = gs;
@@ -3997,9 +4052,21 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function applySourcePhaseVisibility(state, phase) {
         try {
           if (!state || !phase || !Array.isArray(phase.showEntities)) return;
-          var show = {};
-          for (var i = 0; i < phase.showEntities.length; i++) {
-            if (phase.showEntities[i]) show[String(phase.showEntities[i])] = true;
+          function fallbackEntityKey(value) {
+            return String(value == null ? "" : value).toLowerCase().replace(/[^a-z0-9]/g, "");
+          }
+          var buildMap = (typeof blueprintBuildEntityShowMap === "function") ? blueprintBuildEntityShowMap :
+            (typeof window !== "undefined" && typeof window.__blueprintBuildEntityShowMap === "function" ? window.__blueprintBuildEntityShowMap : null);
+          var mapHas = (typeof blueprintEntityMapHas === "function") ? blueprintEntityMapHas :
+            (typeof window !== "undefined" && typeof window.__blueprintEntityMapHas === "function" ? window.__blueprintEntityMapHas : null);
+          var show = buildMap ? buildMap(phase.showEntities) : {};
+          if (!buildMap) {
+            for (var i = 0; i < phase.showEntities.length; i++) {
+              if (phase.showEntities[i]) {
+                show[String(phase.showEntities[i])] = true;
+                show[fallbackEntityKey(phase.showEntities[i])] = true;
+              }
+            }
           }
           var entityStates = state.entity_states || state.entityStates || {};
           var keys = Object.keys(entityStates);
@@ -4007,7 +4074,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var name = keys[k];
             var st = entityStates[name];
             if (!st || typeof st !== "object") continue;
-            var isVisible = !!show[name];
+            var isVisible = mapHas ? mapHas(show, name) : (!!show[name] || !!show[fallbackEntityKey(name)]);
             var runtimeHidden = st.visible === false || (st.position && isFinite(Number(st.position.y)) && Number(st.position.y) < -100);
             if (!isVisible || runtimeHidden) {
               st.visible = false;
@@ -4173,6 +4240,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         var snapshotName = "Snapshot_" + suffix + "_GateEntities";
         if (typeof loopComp[snapshotName] === "function") loopComp[snapshotName]();
         if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
+        if (typeof window.__blueprintRefreshGameStateFromScene === "function") window.__blueprintRefreshGameStateFromScene();
         normalizeBlueprintGameState(currentBlueprintGameState(), phaseId);
         return { phase: phaseId, index: phaseNumber };
       }
@@ -4211,6 +4279,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             settleFidelityFrame().then(function() {
               try {
                 if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
+                if (typeof window.__blueprintRefreshGameStateFromScene === "function") window.__blueprintRefreshGameStateFromScene();
                 normalizeBlueprintGameState(currentBlueprintGameState(), result.phase);
               } catch(e) {}
               waitForFidelityState(result.phase).then(function() { resolve(result); }, reject);
@@ -4514,7 +4583,7 @@ if(_imgSet&&_imgSet.set){
     }catch(e){}
     return made;
   }
-  setInterval(function(){
+  function refreshBlueprintGameStateFromScene(){
     try{
       var app=pc.app||pc.Application.getApplication();
       // Create autoPlay flag entity once (C# reads via GameObject.Find("__AUTOPLAY_ON__"))
@@ -4567,7 +4636,10 @@ if(_imgSet&&_imgSet.set){
         window.__gameState=nextState;
       }
     }catch(e){}
-  },500);
+    return window.__gameState||null;
+  }
+  window.__blueprintRefreshGameStateFromScene=refreshBlueprintGameStateFromScene;
+  setInterval(refreshBlueprintGameStateFromScene,500);
 })();
 <\/script>`;
   html = html.replace('</body>', gameStateBridge + '</body>');

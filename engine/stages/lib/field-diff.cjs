@@ -790,6 +790,9 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
 
   let gs = null;
   try {
+    if (typeof window !== 'undefined' && typeof window.__blueprintRefreshGameStateFromScene === 'function') {
+      window.__blueprintRefreshGameStateFromScene();
+    }
     if (typeof window !== 'undefined' && window.__gameState != null) {
       gs = (typeof window.__gameState === 'function') ? window.__gameState() : window.__gameState;
     }
@@ -804,9 +807,13 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
   function normalizeGameState(candidate) {
     let cur = candidate;
     for (let i = 0; i < 8; i++) {
+      if (typeof cur === 'function') {
+        try { cur = cur(); } catch (e) { return null; }
+      }
       if (!cur || typeof cur !== 'object') return cur;
       if (hasEntityStatesShape(cur)) return cur;
-      const next = cur.state ||
+      const next = cur.__gameState ||
+        cur.state ||
         cur.gameState ||
         cur.game_state ||
         cur.runtimeState ||
@@ -829,6 +836,12 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
   }
 
   gs = normalizeGameState(gs);
+  try {
+    if (typeof window !== 'undefined' && typeof window.__blueprintNormalizeGameState === 'function') {
+      gs = window.__blueprintNormalizeGameState(gs, phaseId) || gs;
+      if (typeof window.__gameState !== 'function') window.__gameState = gs;
+    }
+  } catch (e) {}
   const authoritativeEntityStates = getEntityStates(gs);
   const hasAuthoritativeEntityState = !!authoritativeEntityStates;
 
