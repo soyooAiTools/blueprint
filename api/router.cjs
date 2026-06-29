@@ -44,6 +44,19 @@ function matchRoute(method, pathname) {
   m = pathname.match(/^\/api\/projects\/([^/]+)\/svn-commit$/);
   if (m && method === 'POST') return { handler: 'svnCommit', id: m[1] };
 
+  // Storyboard flow authoring routes
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard-flow$/);
+  if (m && method === 'GET') return { handler: 'getStoryboardFlow', id: m[1] };
+  if (m && method === 'PUT') return { handler: 'saveStoryboardFlow', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard-flow\/validate$/);
+  if (m && method === 'POST') return { handler: 'validateStoryboardFlow', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard-flow\/source-ir$/);
+  if (m && method === 'POST') return { handler: 'generateStoryboardFlowSourceIr', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard-flow\/diff$/);
+  if (m && method === 'POST') return { handler: 'diffStoryboardFlow', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard-flow\/artifacts\/(.+)$/);
+  if (m && method === 'GET') return { handler: 'serveStoryboardFlowArtifact', id: m[1], flowFile: m[2] };
+
   // Storyboard routes
   m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-storyboard$/);
   if (m && method === 'POST') return { handler: 'parseStoryboard', id: m[1], rawBody: true };
@@ -164,6 +177,7 @@ function createRouter(handlers) {
       if (route.fingerprintId) params.fingerprintId = route.fingerprintId;
       if (route.packageJobId) params.packageJobId = route.packageJobId;
       if (route.packageFile) params.packageFile = route.packageFile;
+      if (route.flowFile) params.flowFile = route.flowFile;
 
       if (route.rawBody) {
         // Binary upload — pass req directly, handler reads raw body

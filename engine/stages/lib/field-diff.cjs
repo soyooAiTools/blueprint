@@ -811,6 +811,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
         cur.game_state ||
         cur.runtimeState ||
         cur.runtime_state ||
+        cur.__gameState ||
         cur.current ||
         cur.snapshot ||
         cur.payload ||

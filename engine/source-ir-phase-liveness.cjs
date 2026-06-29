@@ -181,6 +181,19 @@ function checkCollectCarrier(step, phase, phaseIndex, show, resourceById, entity
   }
 }
 
+function stateValueOrDefault(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  var number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function applyEntityStateDelta(entityStates, entity, value) {
+  if (!entity) return;
+  var next = stateValueOrDefault(value, 1);
+  if (next <= 0) entityStates[entity] = next;
+  else entityStates[entity] = Math.max(Number(entityStates[entity] || 0), next);
+}
+
 function applyStepDelta(step, resources, entityStates) {
   if (!isObject(step)) return;
   if (step.kind === 'collect' && step.resource) {
@@ -193,21 +206,24 @@ function applyStepDelta(step, resources, entityStates) {
     resources[step.resource] = Math.max(0, Number(resources[step.resource] || 0) - (Number(step.amount) || 1));
     if (step.target || step.to) {
       var deliverTarget = step.target || step.to;
-      entityStates[deliverTarget] = Math.max(Number(entityStates[deliverTarget] || 0), Number(step.state || 1));
+      applyEntityStateDelta(entityStates, deliverTarget, step.state == null ? 1 : step.state);
     }
   } else if (step.kind === 'transfer' && step.resource) {
     resources[step.resource] = Math.max(0, Number(resources[step.resource] || 0) - (Number(step.amount) || 1));
     if (step.target || step.to) {
       var transferTarget = step.target || step.to;
-      entityStates[transferTarget] = Math.max(Number(entityStates[transferTarget] || 0), Number(step.state || 1));
+      applyEntityStateDelta(entityStates, transferTarget, step.state == null ? 1 : step.state);
     }
   } else if (step.kind === 'set_resource' && step.resource) {
     resources[step.resource] = Number(step.amount != null ? step.amount : step.value) || 0;
   } else if (step.kind === 'set_entity_state' && step.entity) {
-    entityStates[step.entity] = Math.max(Number(entityStates[step.entity] || 0), Number(step.state == null ? 1 : step.state));
+    applyEntityStateDelta(entityStates, step.entity, step.state == null ? 1 : step.state);
   } else if ((step.kind === 'build' || step.kind === 'upgrade' || step.kind === 'unlock' || step.kind === 'show' || step.kind === 'combine' || step.kind === 'select') && (step.entity || step.target)) {
     var id = step.entity || step.target;
-    entityStates[id] = Math.max(Number(entityStates[id] || 0), Number(step.state || step.level || 1));
+    applyEntityStateDelta(entityStates, id, step.state != null ? step.state : (step.level != null ? step.level : 1));
+  } else if (step.kind === 'attack' && (step.entity || step.target)) {
+    var attackId = step.entity || step.target;
+    applyEntityStateDelta(entityStates, attackId, step.state != null ? step.state : 0);
   }
 }
 
@@ -233,7 +249,8 @@ function checkGateSatisfiable(gate, resources, entityStates, phase, phaseIndex, 
   } else if (gate.kind === 'entity_state') {
     var state = Number(entityStates[gate.entity || gate.target] || 0);
     var required = Number(gate.state == null ? 1 : gate.state);
-    if (state < required) {
+    var unsatisfied = required <= 0 ? state > required : state < required;
+    if (unsatisfied) {
       addViolation(errors, 'source_ir_gate_entity_state_unsatisfied', 'phase' + (phaseIndex + 1) + ' entity_state gate cannot be reached by declared step deltas', {
         phaseId: phase.id,
         entity: gate.entity || gate.target,

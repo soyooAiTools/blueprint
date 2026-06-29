@@ -288,6 +288,10 @@ function triggerToRequiredInteractions(trigger, options) {
     return ['wait:' + (trigger.seconds || 1)];
   }
   if (trigger.type === 'entity_state_reached') {
+    var interactionState = trigger.state === null || trigger.state === undefined || trigger.state === ''
+      ? 1
+      : Math.round(Number(trigger.state));
+    if (Number.isFinite(interactionState) && interactionState <= 0) return ['attack:' + (trigger.entity || '')];
     return ['build:' + (trigger.entity || '')];
   }
   if (trigger.type === 'near_entity') {
@@ -336,8 +340,12 @@ function triggerToCondition(trigger, options) {
     return 'phaseDwellSeconds >= ' + Math.max(1, Number(trigger.seconds || 1) || 1);
   }
   if (trigger.type === 'entity_state_reached') {
-    return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'State >= ' +
-      Math.max(1, Math.round(Number(trigger.state || 1) || 1));
+    var state = trigger.state === null || trigger.state === undefined || trigger.state === ''
+      ? 1
+      : Math.round(Number(trigger.state));
+    state = Number.isFinite(state) ? state : 1;
+    return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'State ' +
+      (state <= 0 ? '<= ' : '>= ') + state;
   }
   if (trigger.type === 'near_entity') {
     return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'Reached';
@@ -358,7 +366,12 @@ function triggerDescription(trigger) {
   if (trigger.type === 'click_entity') return 'Click ' + (trigger.entity || 'target');
   if (trigger.type === 'cta_arrival') return 'Reach CTA ' + (trigger.ctaId || trigger.entity || 'CtaButton');
   if (trigger.type === 'timer') return 'Wait ' + (trigger.seconds || 1) + 's';
-  if (trigger.type === 'entity_state_reached') return 'Reach state ' + (trigger.state || 1) + ' on ' + (trigger.entity || 'target');
+  if (trigger.type === 'entity_state_reached') {
+    var state = trigger.state === null || trigger.state === undefined || trigger.state === ''
+      ? 1
+      : Math.round(Number(trigger.state));
+    return 'Reach state ' + (Number.isFinite(state) ? state : 1) + ' on ' + (trigger.entity || 'target');
+  }
   if (trigger.type === 'near_entity') return 'Move near ' + (trigger.entity || 'target');
   if (trigger.type === 'enemy_defeated') return 'Defeat ' + (trigger.count || 1) + ' ' + (trigger.entity || 'enemy');
   return 'SourceIR phase gate complete';
@@ -383,6 +396,19 @@ function sourcePhaseStepInteractions(sourcePhase) {
     if (step.spend && target) out.push('spend:' + String(step.spend).trim() + ':' + (Number(step.amount || step.cost || 1) || 1) + ':' + target);
   });
   return uniq(out);
+}
+
+function mergeSourceAndTriggerInteractions(sourceInteractions, triggerInteractions) {
+  const attackTargets = {};
+  safeArray(sourceInteractions).forEach(interaction => {
+    const match = String(interaction || '').match(/^attack:(.+)$/);
+    if (match) attackTargets[match[1]] = true;
+  });
+  const filteredTriggers = safeArray(triggerInteractions).filter(interaction => {
+    const match = String(interaction || '').match(/^build:(.+)$/);
+    return !(match && attackTargets[match[1]]);
+  });
+  return uniq(safeArray(sourceInteractions).concat(filteredTriggers));
 }
 
 function parseScale(scale) {
@@ -505,9 +531,11 @@ function buildBlueprintProject(gameSchema, options) {
     const sourcePhase = sourcePhaseForGamePhase(phase, assetManifest);
     const isFinalPhase = index === phases.length - 1;
     const finalCta = isFinalPhase && isFinalCtaTrigger(phase.trigger);
-    const requiredInteractions = uniq(sourcePhaseStepInteractions(sourcePhase)
-      .concat(triggerToRequiredInteractions(phase.trigger, { resourceEntities, phaseResourceTargets, isFinalPhase }))
-      .filter(interaction => interaction && interaction.indexOf('wait:') !== 0));
+    const requiredInteractions = mergeSourceAndTriggerInteractions(
+      sourcePhaseStepInteractions(sourcePhase),
+      triggerToRequiredInteractions(phase.trigger, { resourceEntities, phaseResourceTargets, isFinalPhase })
+    )
+      .filter(interaction => interaction && interaction.indexOf('wait:') !== 0);
     const spec = {
       phaseId: phase.phaseId || ('phase' + (index + 1)),
       phaseName: phase.guideText || phase.phaseId || ('phase' + (index + 1)),
@@ -547,15 +575,23 @@ function buildBlueprintProject(gameSchema, options) {
     sourceHtmlSha256: sceneBinding.sourceHtmlSha256 || null,
     playableSceneIrHash: sceneBinding.playableSceneIrHash || null,
     playableSceneIr: cloneOrNull(sceneBinding.playableSceneIr),
-    storyboardFrames: phases.map((phase, index) => ({
-      title: phase.guideText || phase.phaseId || '',
-      interaction: triggerToRequiredInteractions(phase.trigger, {
-        resourceEntities,
-        phaseResourceTargets: phaseResourceTargetIndex(phase, assetManifest),
-        isFinalPhase: index === phases.length - 1,
-      }).join(','),
-      ui: phase.guideText || '',
-    })),
+    storyboardFrames: phases.map((phase, index) => {
+      const phaseResourceTargets = phaseResourceTargetIndex(phase, assetManifest);
+      const sourcePhase = sourcePhaseForGamePhase(phase, assetManifest);
+      const isFinalPhase = index === phases.length - 1;
+      return {
+        title: phase.guideText || phase.phaseId || '',
+        interaction: mergeSourceAndTriggerInteractions(
+          sourcePhaseStepInteractions(sourcePhase),
+          triggerToRequiredInteractions(phase.trigger, {
+            resourceEntities,
+            phaseResourceTargets,
+            isFinalPhase,
+          })
+        ).join(','),
+        ui: phase.guideText || '',
+      };
+    }),
     entities,
     visualAssets: cloneOrNull(assetManifest),
     visualAssetPlan: cloneOrNull(unityAssetPlan),

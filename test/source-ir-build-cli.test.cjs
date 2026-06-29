@@ -250,4 +250,8 @@ assert.ok(legacyDebugPlan.gates.some(function(gate) {
   return gate.id === 'source-ir-preflight' && gate.status === 'failed';
 }));
 
+var sourceIrBuildCliSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'source-ir-build.cjs'), 'utf8');
+assert.match(sourceIrBuildCliSource, /var smokeIndex = path\.join\(smokeOut, 'index\.html'\)/);
+assert.match(sourceIrBuildCliSource, /fs\.copyFileSync\(smokeIndex, path\.join\(outDir, 'index\.html'\)\)/);
+
 console.log('source-ir build CLI tests passed');

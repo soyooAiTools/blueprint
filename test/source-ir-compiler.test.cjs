@@ -23,6 +23,7 @@ var {
   compilePlayableSceneIr,
   buildSourceIrBlueprintContext,
 } = require('../adapters/source-ir/index.js');
+var blueprintProject = require('../adapters/source-ir/blueprint-project.js');
 
 function fixturePlans() {
   return {
@@ -202,6 +203,122 @@ assert.deepStrictEqual(stateGateBlueprint.blueprint.specs[0].requiredInteraction
 assert.ok(stateGateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf(conditionId(stateGatePhase1Target) + 'Reached') >= 0);
 assert.ok(stateGateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf(conditionId(stateGatePhase1Target) + 'State >= 2') >= 0);
 
+var snapshotSchema = require('../adapters/source-ir/snapshot-schema.js');
+var attackProjectVocabulary = snapshotSchema.buildProjectVocabulary({
+  phases: [
+    {
+      id: 'phase1',
+      guideText: 'Clear the obstacle',
+      showEntities: ['Player', 'AsteroidObstacle'],
+      steps: [
+        { kind: 'move_to', target: 'AsteroidObstacle', radius: 2.2 },
+        { kind: 'attack', target: 'AsteroidObstacle', state: 0, damage: true },
+      ],
+    },
+  ],
+}, {
+  phases: [
+    {
+      phaseId: 'phase1',
+      guideText: 'Clear the obstacle',
+      showEntities: ['Player', 'AsteroidObstacle'],
+      trigger: {
+        type: 'compound',
+        operator: 'and',
+        triggers: [
+          { type: 'near_entity', entity: 'AsteroidObstacle', range: 2 },
+          { type: 'entity_state_reached', entity: 'AsteroidObstacle', state: 0 },
+        ],
+      },
+      steps: [
+        { target: 'AsteroidObstacle' },
+        { target: 'AsteroidObstacle', damage: true },
+      ],
+    },
+  ],
+  entities: [
+    { name: 'Player' },
+    { name: 'AsteroidObstacle' },
+  ],
+});
+assert.ok(attackProjectVocabulary.phases[0].plannedModuleIds.indexOf('apply_damage') >= 0);
+assert.ok(attackProjectVocabulary.phases[0].plannedModuleIds.indexOf('damageable') >= 0);
+assert.strictEqual(attackProjectVocabulary.phases[0].plannedModuleIds.indexOf('build_progress'), -1);
+var attackCuaPlans = snapshotSchema.buildCuaPlans({ project: attackProjectVocabulary });
+assert.ok(attackCuaPlans.cuaPlan.steps[0].phaseEvidenceExpectedSignals.indexOf('target_hp_decreased_or_target_dead') >= 0);
+assert.strictEqual(attackCuaPlans.cuaPlan.steps[0].phaseEvidenceExpectedSignals.indexOf('entity_state_changed'), -1);
+
+var attackStateHtml = '<div id="joystick"></div>';
+var attackStateIr = normalizeSourceSceneIr({
+  schemaVersion: 'source-scene-ir.v1',
+  project: { name: 'attack-state-fixture', theme: 'space' },
+  scene: {
+    backgroundColor: '#101820',
+    camera: { position: [0, 8, 12], lookAt: [0, 0, 0], fov: 55 },
+    ground: { kind: 'plane', size: [20, 20], color: '#203040' },
+  },
+  entities: [
+    { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
+    { id: 'AsteroidObstacle', label: 'Obstacle', kind: 'enemy', position: [3, 0, 0], visual: { primitive: 'sphere', color: '#e85d75' } },
+    { id: 'CtaButton', label: 'Install', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+  ],
+  phases: [
+    {
+      id: 'phase1',
+      title: 'Clear obstacle',
+      guideText: 'Clear obstacle',
+      showEntities: ['Player', 'AsteroidObstacle'],
+      steps: [
+        { kind: 'move_to', target: 'AsteroidObstacle', radius: 2.2 },
+        { kind: 'attack', target: 'AsteroidObstacle', state: 0 },
+      ],
+      gate: { kind: 'entity_state', entity: 'AsteroidObstacle', state: 0 },
+    },
+    {
+      id: 'phase2',
+      title: 'Install',
+      guideText: 'Install',
+      showEntities: ['Player', 'CtaButton'],
+      steps: [{ kind: 'cta_finish', entity: 'CtaButton' }],
+      gate: { kind: 'cta_arrival', entity: 'CtaButton' },
+    },
+  ],
+}, {
+  sourceHtmlPath: path.join(tmp, 'attack-state-source.html'),
+  sourceHtmlSha256: require('../engine/source-scene-ir.cjs').sha256OfString(attackStateHtml),
+  html: attackStateHtml,
+  generatedAt: '2026-06-07T00:00:00.000Z',
+});
+var attackStateSchema = compileToGameSchema(attackStateIr);
+assert.strictEqual(attackStateSchema.phases[0].trigger.triggers[1].state, 0);
+assert.strictEqual(assertPlayableSceneIrExecutionAlignment(compilePlayableSceneIr(attackStateIr), { gameSchema: attackStateSchema }).passed, true);
+var attackStatePlayableSceneIr = compilePlayableSceneIr(attackStateIr);
+var attackStateSourceVisualIr = compileSourceVisualIr(attackStateIr);
+var attackStateAssetManifest = compileVisualAssetManifest(attackStateIr, {
+  playableSceneIrHash: attackStatePlayableSceneIr.semanticHash,
+  sourceVisualIrHash: attackStateSourceVisualIr.semanticHash,
+});
+var attackStateBlueprint = buildSourceIrBlueprintContext(attackStateIr, {
+  projectName: 'attack-state-blueprint-fixture',
+  gameSchema: attackStateSchema,
+  playableSceneIr: attackStatePlayableSceneIr,
+  assetManifest: attackStateAssetManifest,
+  buildProjectPlans: fixturePlans,
+});
+assert.deepStrictEqual(attackStateBlueprint.blueprint.specs[0].requiredInteractions, ['move_to:AsteroidObstacle', 'attack:AsteroidObstacle']);
+assert.ok(attackStateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf('AsteroidObstacleState <= 0') >= 0);
+assert.strictEqual(attackStateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf('AsteroidObstacleState >= 0'), -1);
+assert.deepStrictEqual(blueprintProject.triggerToRequiredInteractions({
+  type: 'entity_state_reached',
+  entity: 'AsteroidObstacle',
+  state: 0,
+}), ['attack:AsteroidObstacle']);
+assert.strictEqual(blueprintProject.triggerToCondition({
+  type: 'entity_state_reached',
+  entity: 'AsteroidObstacle',
+  state: 0,
+}), 'AsteroidObstacleState <= 0');
+
 var playableSceneIr = compilePlayableSceneIr(sourceIr);
 assert.strictEqual(playableSceneIr.kind, 'blueprint.playableSceneIR');
 assert.strictEqual(playableSceneIr.phases.length, 2);
@@ -256,8 +373,14 @@ var assetManifest = compileVisualAssetManifest(sourceIr, {
 });
 assert.strictEqual(assetManifest.kind, 'blueprint.sourceIr.visualAssetManifest');
 assert.strictEqual(assetManifest.sourceVisualIrHash, sourceVisualIr.semanticHash);
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.resources, [
+  { id: 'Water', label: '水', kind: 'resource', carrierEntity: 'WaterDrop', initial: 0 },
+]);
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.phases[0].runtimeResources, { Water: 0 });
+assert.deepStrictEqual(assetManifest.sourcePhaseContract.phases[1].runtimeResources, { Water: 2 });
 assert.strictEqual(assetManifest.visualRuntimeContract.kind, 'blueprint.sourceIr.visualRuntimeContract');
 assert.strictEqual(assetManifest.visualRuntimeContract.summary.phaseCount, 2);
+assert.deepStrictEqual(assetManifest.visualRuntimeContract.phases[1].runtimeResources, { Water: 2 });
 assert.strictEqual(assetManifest.visualRuntimeContract.phaseDriver.sourceFunction, '__driveToSourcePhase');
 
 var built = buildSourceIrBlueprintContext(sourceIr, {

@@ -74,7 +74,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     lunaAppSuppressed: false,
     manualInteraction: false,
     positions: {},
-    resources: { Ice: 0, Oxygen: 0, Scrap: 0, Coin: 0, Gold: 0, ShipLevel: 0, tool: '镐子' },
+    movementBounds: null,
+    resources: { ShipLevel: 0, tool: '镐子' },
     resourceBaselines: {},
     phaseEvidence: {},
     phaseTimestamps: {},
@@ -389,7 +390,52 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   }
   function entityTargetLabel(name) {
     var composites = manifest.sourceEntityContract && manifest.sourceEntityContract.entityComposites || {};
-    return name && composites[name] && composites[name].label || name || '';
+    var styles = manifest.sourceEntityContract && manifest.sourceEntityContract.entityStyles || {};
+    return name && composites[name] && composites[name].label || name && styles[name] && styles[name].label || name || '';
+  }
+  function sourceResourceDescriptors() {
+    var contract = manifest.sourcePhaseContract || manifest.fidelityContract || {};
+    var resources = Array.isArray(contract.resources) ? contract.resources : [];
+    if (resources.length) {
+      return resources.filter(function(resource) { return resource && resource.id; }).map(function(resource) {
+        return { id: String(resource.id), label: String(resource.label || resource.id) };
+      });
+    }
+    var seen = {};
+    var out = [];
+    var phases = Array.isArray(contract.phases) ? contract.phases : [];
+    phases.forEach(function(phase) {
+      var steps = Array.isArray(phase && phase.steps) ? phase.steps : [];
+      steps.forEach(function(step) {
+        var id = step && (step.resource || step.gain || step.spend);
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        out.push({ id: String(id), label: entityTargetLabel(id) || String(id) });
+      });
+    });
+    return out;
+  }
+  function sourceInitialResourceValues() {
+    var out = {};
+    var contract = manifest.sourcePhaseContract || manifest.fidelityContract || {};
+    var resources = Array.isArray(contract.resources) ? contract.resources : [];
+    resources.forEach(function(resource) {
+      if (!resource || !resource.id) return;
+      out[resource.id] = Number(resource.initial) || 0;
+    });
+    return out;
+  }
+  function renderSourceResourcePills(res) {
+    var box = document.getElementById('source-ir-resource-pills');
+    if (!box) return;
+    box.innerHTML = '';
+    sourceResourceDescriptors().slice(0, 5).forEach(function(resource, index) {
+      var pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.setAttribute('data-k', 'resource-' + index);
+      pill.textContent = resource.label + ' ' + resourceValue(res, resource.id);
+      box.appendChild(pill);
+    });
   }
   function sourceTargetLabel(info, resources, states) {
     return entityTargetLabel(sourceTargetName(info, resources, states));
@@ -522,7 +568,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var tipCss = String(css.tip || css.goalText || '');
     var targetHintCss = String(css.targetHint || '');
     var sourceTipExtra = 'z-index:2147482412!important;pointer-events:none!important';
-    if (sourceDomCtaPresent() && !hudCss && !/\\bposition\\s*:\\s*fixed\\b/i.test(tipCss)) {
+    var tipHasVerticalAnchor = /\\b(?:top|bottom)\\s*:/i.test(tipCss);
+    if (sourceDomCtaPresent() && !hudCss && !tipHasVerticalAnchor && !/\\bposition\\s*:\\s*fixed\\b/i.test(tipCss)) {
       sourceTipExtra = 'position:fixed!important;left:50%!important;bottom:22px!important;top:auto!important;transform:translateX(-50%)!important;' + sourceTipExtra;
     }
     if (!/\\bcolor\\s*:/.test(tipCss)) sourceTipExtra += ';color:#fff!important';
@@ -659,6 +706,121 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     pos.z += dz / d * step;
     return d;
   }
+  function sourceGroundMovementBounds() {
+    var ground = manifest.sourceSceneContract && manifest.sourceSceneContract.ground || {};
+    var size = Array.isArray(ground.size) ? ground.size : [];
+    var radius = Number(ground.radius);
+    var width = Number(ground.width || size[0] || (isFinite(radius) ? radius * 2 : 0));
+    var depth = Number(ground.depth || ground.height || size[1] || ground.width || (isFinite(radius) ? radius * 2 : 0));
+    if (!isFinite(width) || width <= 0) width = 36;
+    if (!isFinite(depth) || depth <= 0) depth = 36;
+    var center = Array.isArray(ground.position) ? ground.position : [];
+    var cx = Number(ground.x != null ? ground.x : center[0]);
+    var cz = Number(ground.z != null ? ground.z : center[2]);
+    if (!isFinite(cx)) cx = 0;
+    if (!isFinite(cz)) cz = 0;
+    return {
+      minX: cx - width / 2 - 4,
+      maxX: cx + width / 2 + 4,
+      minZ: cz - depth / 2 - 4,
+      maxZ: cz + depth / 2 + 4
+    };
+  }
+  function expandMovementBounds(bounds, pos, margin) {
+    if (!bounds || !pos) return bounds;
+    var x = Number(pos.x);
+    var z = Number(pos.z);
+    if (!isFinite(x) || !isFinite(z)) return bounds;
+    margin = Number(margin);
+    if (!isFinite(margin)) margin = 4;
+    bounds.minX = Math.min(bounds.minX, x - margin);
+    bounds.maxX = Math.max(bounds.maxX, x + margin);
+    bounds.minZ = Math.min(bounds.minZ, z - margin);
+    bounds.maxZ = Math.max(bounds.maxZ, z + margin);
+    return bounds;
+  }
+  function sourceStepTargetNames() {
+    var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
+    var out = [];
+    function add(value) {
+      var name = worldTargetName(value);
+      if (name && out.indexOf(name) < 0) out.push(name);
+    }
+    phases.forEach(function(phase) {
+      (phase && phase.steps || []).forEach(function(step) {
+        add(step && (step.target || step.entity || step.to || step.from || step.setEntity));
+      });
+      (phase && phase.targetSequence || []).forEach(add);
+      (phase && phase.showEntities || []).forEach(add);
+      (phase && phase.runtimeVisibleEntities || []).forEach(add);
+    });
+    return out;
+  }
+  function overlayMovementBounds(composites) {
+    if (overlayRuntime.movementBounds) return overlayRuntime.movementBounds;
+    composites = composites || {};
+    var bounds = sourceGroundMovementBounds();
+    Object.keys(composites).forEach(function(name) {
+      expandMovementBounds(bounds, composites[name] && composites[name].position, 5);
+    });
+    sourceStepTargetNames().forEach(function(name) {
+      expandMovementBounds(bounds, composites[name] && composites[name].position, 6);
+    });
+    if (!isFinite(bounds.minX) || !isFinite(bounds.maxX) || bounds.minX >= bounds.maxX) {
+      bounds.minX = -36;
+      bounds.maxX = 36;
+    }
+    if (!isFinite(bounds.minZ) || !isFinite(bounds.maxZ) || bounds.minZ >= bounds.maxZ) {
+      bounds.minZ = -24;
+      bounds.maxZ = 24;
+    }
+    overlayRuntime.movementBounds = {
+      minX: Number(bounds.minX.toFixed(3)),
+      maxX: Number(bounds.maxX.toFixed(3)),
+      minZ: Number(bounds.minZ.toFixed(3)),
+      maxZ: Number(bounds.maxZ.toFixed(3))
+    };
+    try { window.__SOURCE_IR_OVERLAY_MOVEMENT_BOUNDS__ = overlayRuntime.movementBounds; } catch(e) {}
+    return overlayRuntime.movementBounds;
+  }
+  function clampOverlayPlayerPosition(player, composites) {
+    var bounds = overlayMovementBounds(composites);
+    if (!player || !bounds) return bounds;
+    player.x = Math.max(bounds.minX, Math.min(bounds.maxX, Number(player.x) || 0));
+    player.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, Number(player.z) || 0));
+    return bounds;
+  }
+  function sourceReachabilityReport(composites) {
+    composites = composites || {};
+    var bounds = overlayMovementBounds(composites);
+    var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
+    var checked = [];
+    var unreachable = [];
+    phases.forEach(function(phase) {
+      (phase && phase.steps || []).forEach(function(step) {
+        var target = worldTargetName(step && (step.target || step.entity || step.to || step.from || step.setEntity));
+        if (!target || !composites[target] || !composites[target].position) return;
+        var pos = composites[target].position;
+        var radius = Math.max(2.5, Number(step.radius) || 0);
+        var reachable = Number(pos.x) >= bounds.minX - radius &&
+          Number(pos.x) <= bounds.maxX + radius &&
+          Number(pos.z) >= bounds.minZ - radius &&
+          Number(pos.z) <= bounds.maxZ + radius;
+        var item = {
+          phase: phase.id || '',
+          stepIndex: step.index == null ? null : step.index,
+          kind: step.kind || '',
+          target: target,
+          position: { x: Number(pos.x) || 0, z: Number(pos.z) || 0 },
+          radius: radius,
+          reachable: reachable
+        };
+        checked.push(item);
+        if (!reachable) unreachable.push(item);
+      });
+    });
+    return { bounds: bounds, checked: checked.length, unreachable: unreachable };
+  }
   function cssHex(value) {
     var n = Number(value) || 0;
     return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6);
@@ -737,6 +899,12 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function ensureOverlayRuntime(composites, names) {
     if (overlayRuntime.initialized) return;
     overlayRuntime.startedAt = runtimeNowMs();
+    var initialResources = sourceInitialResourceValues();
+    Object.keys(initialResources).forEach(function(key) {
+      if (!Object.prototype.hasOwnProperty.call(overlayRuntime.resources, key)) overlayRuntime.resources[key] = initialResources[key];
+      if (key === 'Gold' && !Object.prototype.hasOwnProperty.call(overlayRuntime.resources, 'Coin')) overlayRuntime.resources.Coin = initialResources[key];
+      if (key === 'Coin' && !Object.prototype.hasOwnProperty.call(overlayRuntime.resources, 'Gold')) overlayRuntime.resources.Gold = initialResources[key];
+    });
     names.forEach(function(name) {
       var c = composites[name] || {};
       var p = c.position || {};
@@ -746,6 +914,14 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var pp = composites.Player.position || {};
       overlayRuntime.positions.Player = { x: Number(pp.x) || 0, y: 0, z: Number(pp.z) || 0 };
     }
+    overlayMovementBounds(composites);
+    try {
+      window.__SOURCE_IR_OVERLAY_REACHABILITY__ = sourceReachabilityReport(composites);
+      window.__SOURCE_IR_OVERLAY_DEBUG__ = {
+        movementBounds: overlayRuntime.movementBounds,
+        reachability: window.__SOURCE_IR_OVERLAY_REACHABILITY__
+      };
+    } catch(eReachability) {}
     overlayRuntime.initialized = true;
   }
   function overlayPhaseText() {
@@ -766,7 +942,13 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function stepLabel(step) {
     if (!step) return '';
     var composites = manifest.sourceEntityContract && manifest.sourceEntityContract.entityComposites || {};
-    return step.label || (step.target && composites[step.target] && composites[step.target].label) || step.target || '';
+    var target = worldTargetName(step.target || step.entity || step.setEntity || step.to || step.from || '');
+    var targetLabel = target && composites[target] && composites[target].label || entityTargetLabel(target);
+    var label = String(step.label || '').trim();
+    if (!label) return targetLabel || target || '';
+    if (target && label === target) return targetLabel || label;
+    if (targetLabel && targetLabel !== target && /^[A-Za-z0-9_]+(?:__phase\d+_target)?$/i.test(label)) return targetLabel;
+    return label;
   }
   function currentOverlayStep(info) {
     var steps = info && info.steps || [];
@@ -821,7 +1003,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       overlayRuntime.laserOpacity = 1;
       overlayRuntime.laserTarget = step.target;
     }
-    showOverlayToast(step.label || entityTargetLabel(step.target));
+    showOverlayToast(stepLabel(step));
     if ((step.kind === 'collect' || step.kind === 'produce' || step.kind === 'reward') && step.resource) addResource(step.resource, step.amount || 1);
     if ((step.kind === 'deliver' || step.kind === 'transfer' || step.kind === 'combine') && step.resource) spendResource(step.resource, step.amount || step.cost || 1);
     spendResource(step.spend, step.amount || step.cost || 1);
@@ -912,8 +1094,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var inputY = manualOverride ? manualOverride.y : overlayInput.dy;
       player.x += inputX * speed * dt;
       player.z += inputY * speed * dt;
-      player.x = Math.max(-18, Math.min(72, player.x));
-      player.z = Math.max(-18, Math.min(18, player.z));
+      clampOverlayPlayerPosition(player, composites);
     }
     var ship = overlayRuntime.positions.SpaceShip;
     if (ship && player && Number(overlayRuntime.resources.ShipLevel || 0) > 0) {
@@ -1015,6 +1196,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       overlayPerformance: {
         lunaSuppressed: overlayRuntime.lunaSuppressed,
         manualInteraction: overlayRuntime.manualInteraction,
+        movementBounds: overlayRuntime.movementBounds || null,
+        targetReachability: window.__SOURCE_IR_OVERLAY_REACHABILITY__ || null,
         pixelRatio: 1,
         antialias: false
       },
@@ -1039,6 +1222,12 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     overlayRuntime.stepStartedAt = runtimeNowMs();
     overlayRuntime.completed = phases.slice(0, index).map(function(phase) { return phase && phase.id || ''; }).filter(Boolean);
     var info = phaseByRuntimeIndex(index);
+    var initialResources = sourceInitialResourceValues();
+    Object.keys(initialResources).forEach(function(key) {
+      overlayRuntime.resources[key] = initialResources[key];
+      if (key === 'Gold') overlayRuntime.resources.Coin = initialResources[key];
+      if (key === 'Coin') overlayRuntime.resources.Gold = initialResources[key];
+    });
     var runtimeResources = info && info.runtimeResources || {};
     Object.keys(runtimeResources).forEach(function(key) {
       var value = Number(runtimeResources[key]);
@@ -1192,7 +1381,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function installHud() {
     if (document.getElementById('source-ir-hud')) return;
     var style = document.createElement('style');
-    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#source-ir-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}.source-ir-world-label{position:fixed;z-index:2147482409;transform:translate(-50%,-50%);padding:3px 7px;border-radius:5px;background:rgba(5,16,28,.62);font:700 12px Arial,"Microsoft YaHei",sans-serif;color:#fff;white-space:nowrap;pointer-events:none}#source-ir-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#source-ir-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#source-ir-hud .pill,#source-ir-hud .tip,#source-ir-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#source-ir-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#source-ir-hud .pill{padding:8px 10px;font-size:13px}#source-ir-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#source-ir-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#source-ir-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#source-ir-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#source-ir-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#source-ir-stick.active{opacity:1}#source-ir-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#source-ir-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}#source-ir-cta-overlay{position:fixed;inset:0;z-index:2147482413;display:none;place-items:center;background:rgba(0,0,0,.62);pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#fff;text-align:center}#source-ir-cta-overlay.visible{display:grid}#source-ir-cta-box{width:min(520px,86vw);padding:0 12px}#source-ir-cta-title{font-size:34px;font-weight:900;line-height:1.18;text-shadow:0 3px 14px rgba(0,0,0,.62)}#source-ir-cta-btn{display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font-size:22px;font-weight:900;box-shadow:0 10px 28px rgba(38,214,123,.35)}@media(max-width:760px){#source-ir-phase-band{width:14px}#source-ir-hud{flex-wrap:wrap}#source-ir-hud .pill{font-size:12px}#source-ir-hud .tip{order:9;flex-basis:100%}#source-ir-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#source-ir-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#source-ir-stick{width:118px;height:118px;margin:-59px 0 0 -59px}#source-ir-cta-title{font-size:28px}#source-ir-cta-btn{font-size:20px;padding:15px 28px}}';
+    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#source-ir-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}.source-ir-world-label{position:fixed;z-index:2147482409;transform:translate(-50%,-50%);padding:3px 7px;border-radius:5px;background:rgba(5,16,28,.62);font:700 12px Arial,"Microsoft YaHei",sans-serif;color:#fff;white-space:nowrap;pointer-events:none}#source-ir-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#source-ir-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#source-ir-resource-pills{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}#source-ir-hud .pill,#source-ir-hud .tip,#source-ir-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#source-ir-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#source-ir-hud .pill{padding:8px 10px;font-size:13px}#source-ir-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#source-ir-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#source-ir-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#source-ir-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#source-ir-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#source-ir-stick.active{opacity:1}#source-ir-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#source-ir-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}#source-ir-cta-overlay{position:fixed;inset:0;z-index:2147482413;display:none;place-items:center;background:rgba(0,0,0,.62);pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#fff;text-align:center}#source-ir-cta-overlay.visible{display:grid}#source-ir-cta-box{width:min(520px,86vw);padding:0 12px}#source-ir-cta-title{font-size:34px;font-weight:900;line-height:1.18;text-shadow:0 3px 14px rgba(0,0,0,.62)}#source-ir-cta-btn{display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font-size:22px;font-weight:900;box-shadow:0 10px 28px rgba(38,214,123,.35)}@media(max-width:760px){#source-ir-phase-band{width:14px}#source-ir-hud{flex-wrap:wrap}#source-ir-hud .pill{font-size:12px}#source-ir-hud .tip{order:9;flex-basis:100%}#source-ir-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#source-ir-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#source-ir-stick{width:118px;height:118px;margin:-59px 0 0 -59px}#source-ir-cta-title{font-size:28px}#source-ir-cta-btn{font-size:20px;padding:15px 28px}}';
     style.textContent = bridgeOverlayHiddenCss() + style.textContent + sourceDomHudCssRules();
     document.head.appendChild(style);
     if (!sourceDomHudPresent()) {
@@ -1225,7 +1414,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       }
       hud.setAttribute('data-source-dom-hud', '1');
     } else {
-      hud.innerHTML = '<div class="phase" data-k="phase">Phase 1/' + sourcePhaseCount() + '</div><div class="pill" data-k="ice">冰 0</div><div class="pill" data-k="oxygen">氧气 0</div><div class="pill" data-k="scrap">铁块 0</div><div class="pill" data-k="coin">金币 0</div><div class="pill" data-k="tool">镐子</div><div class="tip" data-k="tip"></div>';
+      hud.innerHTML = '<div class="phase" data-k="phase">Phase 1/' + sourcePhaseCount() + '</div><div id="source-ir-resource-pills"></div><div class="tip" data-k="tip"></div>';
     }
     document.body.appendChild(hud);
     if (sourceDomHudPresent() && (sourceDomHudUsesResourceBar() || sourceDomHudUsesCompactPills() || sourceDomHudUsesMeterPills()) && !inlineSourceTip) {
@@ -1378,11 +1567,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       return;
     }
     set('phase', 'Phase ' + (phaseNum ? phaseNum[0] : '1') + '/' + sourcePhaseCount());
-    set('ice', '冰 ' + (res.Ice || res.ice || 0));
-    set('oxygen', '氧气 ' + (res.Oxygen || res.oxygen || 0));
-    set('scrap', '铁块 ' + (res.Scrap || res.scrap || 0));
-    set('coin', '金币 ' + (res.Coin || res.Gold || res.gold || 0));
-    set('tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
+    renderSourceResourcePills(res);
     var guide = info && info.guideText || gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
     set('tip', guide || '在任意位置拖动摇杆，控制角色靠近高亮目标');
     var target = document.getElementById('source-ir-target');

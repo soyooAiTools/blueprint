@@ -1,0 +1,666 @@
+'use strict';
+
+var assert = require('assert');
+var crypto = require('crypto');
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
+
+var hardgate = require('../lib/programmer-delivery-hardgate.cjs');
+var hydration = require('../lib/programmer-delivery-hydration-report.cjs');
+
+function walkFiles(root) {
+  var files = [];
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return;
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(function(entry) {
+      var full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        files.push(full);
+      }
+    });
+  }
+  walk(root);
+  return files.sort();
+}
+
+function hashTree(root) {
+  var hash = crypto.createHash('sha256');
+  walkFiles(root).forEach(function(file) {
+    hash.update(path.relative(root, file).split(path.sep).join('/'));
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  });
+  return hash.digest('hex');
+}
+
+function hashSourceArtifacts(root) {
+  var hash = crypto.createHash('sha256');
+  [
+    'source-scene-ir.json',
+    'source-ir.json',
+    'source-ir-preview.html',
+    'asset-manifest.json'
+  ].forEach(function(rel) {
+    var file = path.join(root, rel);
+    if (!fs.existsSync(file)) return;
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  });
+  return hash.digest('hex');
+}
+
+function writeFile(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+}
+
+function guidForRel(rel) {
+  return crypto.createHash('sha1').update(rel).digest('hex').slice(0, 32);
+}
+
+function ensureMeta(root, rel) {
+  var file = path.join(root, rel);
+  writeFile(file + '.meta', [
+    'fileFormatVersion: 2',
+    'guid: ' + guidForRel(rel),
+    'MonoImporter:',
+    '  externalObjects: {}',
+    ''
+  ].join('\n'));
+  return guidForRel(rel);
+}
+
+function countCodeLines(text) {
+  var lines = String(text || '').split(/\r?\n/);
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines.length;
+}
+
+function sceneSingletonMembers(className) {
+  return [
+    '    private static ' + className + ' mInstance;',
+    '    public static ' + className + ' instance { get { return mInstance; } }',
+    '    private void Awake()',
+    '    {',
+    '        if (mInstance != null && mInstance != this) { enabled = false; return; }',
+    '        mInstance = this;',
+    '    }',
+    '    private void OnDestroy()',
+    '    {',
+    '        if (mInstance == this) mInstance = null;',
+    '    }'
+  ];
+}
+
+function flowGuideText() {
+  return [
+    '## 流程增删改指南',
+    '- 修改流程：编辑 FlowXX_<业务语义>.asset 的 mGuideText、mGate、mSteps，并同步 GMP_PhaseController.mPhases。',
+    '- 删除流程：从 mPhases 移除对应 Flow 资产，删除不再引用的场景实体字段。',
+    '- 增加流程：新增 Flow03_collect_food.asset，补 mPhaseId、场景引用和 LevelRuleEngine 规则。',
+    '- 例子：把 flow03_collect_food 改成 flow04_upgrade_chef 时，同步 Flow04_upgrade_chef.asset 与 README 说明。'
+  ].join('\n');
+}
+
+function sceneObjectYaml(name, guid, index, audio, parentTransformId) {
+  var go = 1000 + index * 100;
+  var tr = go + 1;
+  var mb = go + 2;
+  var lines = [
+    '--- !u!1 &' + go,
+    'GameObject:',
+    '  m_Component:',
+    '  - component: {fileID: ' + tr + '}',
+    '  - component: {fileID: ' + mb + '}'
+  ];
+  if (audio) {
+    for (var a = 0; a < 4; a++) lines.push('  - component: {fileID: ' + (go + 10 + a) + '}');
+  }
+  lines = lines.concat([
+    '  m_Name: ' + name,
+    '--- !u!4 &' + tr,
+    'Transform:',
+    '  m_GameObject: {fileID: ' + go + '}',
+    '  m_Father: {fileID: ' + (parentTransformId || 0) + '}',
+    '--- !u!114 &' + mb,
+    'MonoBehaviour:',
+    '  m_GameObject: {fileID: ' + go + '}',
+    '  m_Script: {fileID: 11500000, guid: ' + guid + ', type: 3}'
+  ]);
+  if (audio) {
+    for (var i = 0; i < 4; i++) {
+      lines = lines.concat([
+        '--- !u!82 &' + (go + 10 + i),
+        'AudioSource:',
+        '  m_GameObject: {fileID: ' + go + '}'
+      ]);
+    }
+  }
+  return lines.join('\n');
+}
+
+function mainGameYaml() {
+  return [
+    '--- !u!1 &50',
+    'GameObject:',
+    '  m_Component:',
+    '  - component: {fileID: 51}',
+    '  m_Name: MainGame',
+    '--- !u!4 &51',
+    'Transform:',
+    '  m_GameObject: {fileID: 50}',
+    '  m_Father: {fileID: 0}',
+    ''
+  ].join('\n');
+}
+
+function canvasYaml() {
+  return [
+    '--- !u!1 &60000',
+    'GameObject:',
+    '  m_Component:',
+    '  - component: {fileID: 60001}',
+    '  - component: {fileID: 60002}',
+    '  - component: {fileID: 60003}',
+    '  - component: {fileID: 60004}',
+    '  m_Name: Canvas',
+    '--- !u!224 &60001',
+    'RectTransform:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_Father: {fileID: 0}',
+    '--- !u!223 &60002',
+    'Canvas:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_RenderMode: 0',
+    '  m_SortingOrder: 100',
+    '--- !u!114 &60003',
+    'MonoBehaviour:',
+    '  m_GameObject: {fileID: 60000}',
+    '  m_ReferenceResolution: {x: 1080, y: 1920}',
+    '  m_MatchWidthOrHeight: 0.5',
+    '--- !u!114 &60004',
+    'MonoBehaviour:',
+    '  m_GameObject: {fileID: 60000}',
+    ''
+  ].join('\n');
+}
+
+function writeRequiredScene(root) {
+  var required = [
+    { name: 'GMP_MainManager', rel: 'Assets/Scripts/Core/Modules/GMP_MainManager.cs' },
+    { name: 'GMP_EntityManager', rel: 'Assets/Scripts/Core/Modules/GMP_EntityManager.cs' },
+    { name: 'GMP_PhaseController', rel: 'Assets/Scripts/Core/Modules/GMP_PhaseController.cs' },
+    { name: 'GMP_Audio', rel: 'Assets/Scripts/Core/Modules/GMP_Audio.cs', audio: true },
+    { name: 'GMP_UIManager', rel: 'Assets/Scripts/Core/Modules/GMP_UIManager.cs' },
+    { name: 'GMP_HudController', rel: 'Assets/Scripts/Core/Modules/GMP_HudController.cs' },
+    { name: 'GMP_EventModule', rel: 'Assets/Scripts/Core/Modules/GMP_EventModule.cs' },
+    { name: 'GMP_CameraController', rel: 'Assets/Scripts/Tool/GMP_CameraController.cs' },
+    { name: 'GMP_SceneEntityRefs', rel: 'Assets/Scripts/Game/Level/GMP_SceneEntityRefs.cs' },
+    { name: 'GMP_LevelRuleEngine', rel: 'Assets/Scripts/Game/Level/GMP_LevelRuleEngine.cs' },
+    { name: 'GMP_Player', rel: 'Assets/Scripts/Game/Player/GMP_Player.cs' },
+    { name: 'GMP_AutoPlayDriver', rel: 'Assets/Scripts/Game/AutoPlay/GMP_AutoPlayDriver.cs' }
+  ];
+  writeFile(path.join(root, 'Assets', 'Scenes', 'Game.unity'), ['%YAML 1.1', mainGameYaml(), canvasYaml()].concat(required.map(function(item, index) {
+    return sceneObjectYaml(item.name, ensureMeta(root, item.rel), index + 1, item.audio, 51);
+  }), ['']).join('\n'));
+}
+
+function makeDeliverableRoot() {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-feature-sim-'));
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Base'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Entities'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Level'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'AutoPlay'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Game', 'Player'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scripts', 'Tool'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Assets', 'Scenes'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Packages'), { recursive: true });
+  writeFile(path.join(root, 'Packages', 'manifest.json'), JSON.stringify({ dependencies: {} }, null, 2) + '\n');
+  writeFile(path.join(root, 'source-scene-ir.json'), JSON.stringify({
+    schemaVersion: 'source-scene-ir.v1',
+    project: { id: 'chef-sim', name: 'Chef feature simulation' },
+    entities: [{ id: '_chef', label: 'Chef' }, { id: '_shrimpPlate', label: 'Shrimp plate' }],
+    phases: [{ phaseId: 'serve', guideText: 'Serve shrimp' }]
+  }, null, 2) + '\n');
+  writeFile(path.join(root, 'source-ir.json'), JSON.stringify({
+    kind: 'blueprint.sourceIR',
+    phases: [{ id: 'serve', guideText: 'Serve shrimp' }]
+  }, null, 2) + '\n');
+  writeFile(path.join(root, 'asset-manifest.json'), JSON.stringify({ entities: ['_chef', '_shrimpPlate'] }, null, 2) + '\n');
+  writeFile(path.join(root, 'source-ir-preview.html'), '<!doctype html><title>Chef feature simulation</title>\n');
+
+  var main = [
+    'using UnityEngine;',
+    '',
+    'public class GMP_MainManager : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_MainManager')).concat([
+    '',
+    '    public GMP_PhaseController mPhaseController;',
+    '    public GMP_EntityManager mEntityManager;',
+    '    public GMP_UIManager mUIManager;',
+    '    public GMP_HudController mHudController;',
+    '    public GMP_EventModule mEventModule;',
+    '    public GMP_Audio mAudio;',
+    '    public GMP_Player mPlayer;',
+    '    public GMP_RestaurantEntity mChef;',
+    '    public GMP_LevelRuleEngine mRules;',
+    '    public GMP_SceneEntityRefs mSceneEntityRefs;',
+    '    public GMP_AutoPlayDriver mAutoPlayDriver;',
+    '    public GMP_CameraController mCameraController = new GMP_CameraController();',
+    '    public AudioClip mPreviewClip;',
+    '',
+    '    public void InitCoreModules()',
+    '    {',
+    '        if (mChef != null)',
+    '        {',
+    '            mChef.Bind(null, "_chef", "Chef");',
+    '            mChef.ResetServiceProgress();',
+    '        }',
+    '        if (mRules != null && mChef != null) mRules.TryServe(mChef);',
+    '        if (mPhaseController != null) mPhaseController.StartFlow();',
+    '        if (mUIManager != null) mUIManager.SyncSceneEntityLabels();',
+    '        if (mHudController != null) mHudController.SetGuideText(1, 1, "Serve shrimp");',
+    '        if (mEventModule != null)',
+    '        {',
+    '            System.Action<object> callback = OnServeEvent;',
+    '            mEventModule.Subscribe("serve", callback);',
+    '            mEventModule.Unsubscribe("serve", callback);',
+    '            mEventModule.UnSubScribe("serve", callback);',
+    '            mEventModule.Publish("serve", "_chef");',
+    '        }',
+    '        if (mAudio != null)',
+    '        {',
+    '            mAudio.Init();',
+    '            mAudio.PlayBGM(mPreviewClip);',
+    '            mAudio.PlaySFX(mPreviewClip);',
+    '            mAudio.StopLoop("bgm");',
+    '        }',
+    '        if (mSceneEntityRefs != null)',
+    '        {',
+    '            mSceneEntityRefs.SetState("_chef", GMP_EntityState.Active);',
+    '            mSceneEntityRefs.GetState("_chef");',
+    '        }',
+    '        if (mCameraController != null) mCameraController.FrameCurrentPhase();',
+    '    }',
+    '    private void OnServeEvent(object payload) {}',
+    '    public void Start() { InitCoreModules(); }',
+    '    public void Update()',
+    '    {',
+    '        if (mEntityManager != null) mEntityManager.Tick(Time.deltaTime);',
+    '        if (mPhaseController != null) mPhaseController.Tick(Time.deltaTime);',
+    '        if (mPlayer != null) mPlayer.TickInput(Time.deltaTime);',
+    '        if (mAutoPlayDriver != null) mAutoPlayDriver.Tick(Time.deltaTime);',
+    '    }',
+    '}',
+    ''
+  ]).join('\n');
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_MainManager.cs'), main);
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EntityManager.cs'), [
+    'using UnityEngine;',
+    'public class GMP_EntityManager : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_EntityManager')).concat([
+    '    public void Tick(float dt) {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhaseController.cs'), [
+    'using UnityEngine;',
+    'public class GMP_PhaseController : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_PhaseController')).concat([
+    '    public void StartFlow() {}',
+    '    public void Tick(float dt) {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_Audio.cs'), [
+    'using UnityEngine;',
+    'public class GMP_Audio : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_Audio')).concat([
+    '    public AudioSource[] mLoopSources = new AudioSource[0];',
+    '    public AudioSource[] mOneShotSources = new AudioSource[0];',
+    '    public void Init() { GetComponents<AudioSource>(); }',
+    '    public void PlayLoop(string key, AudioClip clip) {}',
+    '    public void StopLoop(string key) {}',
+    '    public void PlayOneShot(AudioClip clip) {}',
+    '    public void PlayBGM(AudioClip clip) { PlayLoop("bgm", clip); }',
+    '    public void PlaySFX(AudioClip clip) { PlayOneShot(clip); }',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_UIManager.cs'), [
+    'using UnityEngine;',
+    'public class GMP_UIManager : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_UIManager')).concat([
+    '    public void SyncSceneEntityLabels() {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_HudController.cs'), [
+    'using UnityEngine;',
+    'public class GMP_HudController : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_HudController')).concat([
+    '    public void SetGuideText(int index, int count, string text) {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_EventModule.cs'), [
+    'using System;',
+    'using UnityEngine;',
+    'public class GMP_EventModule : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_EventModule')).concat([
+    '    public void Subscribe(string eventName, Action<object> callback) {}',
+    '    public void Unsubscribe(string eventName, Action<object> callback) {}',
+    '    public void UnSubScribe(string eventName, Action<object> callback) {}',
+    '    public void Publish(string eventName, object payload) {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_PhasePreset.cs'), [
+    'public class GMP_PhaseStep',
+    '{',
+    '    public GMP_EntityState mSetState = GMP_EntityState.Hidden;',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_EntityState.cs'), [
+    'public enum GMP_EntityState',
+    '{',
+    '    Hidden = 0,',
+    '    Active = 1,',
+    '    Completed = 2',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_BaseGameFlowEntity.cs'), [
+    'using UnityEngine;',
+    'public class GMP_BaseGameFlowEntity : MonoBehaviour',
+    '{',
+    '    public GameObject SourceObject;',
+    '    public string EntityId;',
+    '    public string DisplayName;',
+    '    public virtual void Bind(GameObject source, string entityId, string displayName)',
+    '    {',
+    '        SourceObject = source != null ? source : gameObject;',
+    '        EntityId = entityId;',
+    '        DisplayName = displayName;',
+    '    }',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Core', 'Base', 'GMP_PlayerBase.cs'), [
+    'public class GMP_PlayerBase : GMP_BaseGameFlowEntity',
+    '{',
+    '    public float MoveSpeed = 6f;',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Tool', 'GMP_CameraController.cs'), [
+    'using UnityEngine;',
+    'public class GMP_CameraController : MonoBehaviour',
+    '{',
+    '    public void FrameCurrentPhase() {}',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Player', 'GMP_Player.cs'), [
+    'public class GMP_Player : GMP_PlayerBase',
+    '{',
+    '    public void TickInput(float dt) {}',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_RestaurantEntity.cs'), [
+    'using UnityEngine;',
+    'public enum GMP_RestaurantEntityKind { Decor, Workstation, ResourceSource, UnlockArea, Upgrade, Queue, Pickup, DeliveryTarget }',
+    'public class GMP_RestaurantEntity : GMP_BaseGameFlowEntity',
+    '{',
+    '    public GMP_RestaurantEntityKind mKind = GMP_RestaurantEntityKind.Workstation;',
+    '    public string mResourceId = "coin";',
+    '    public int mRewardAmount = 1;',
+    '    public int ServedCount = 0;',
+    '    public bool IsCompleted = false;',
+    '    public GMP_EntityState mServiceState = GMP_EntityState.Hidden;',
+    '    public bool HasReward { get { return !string.IsNullOrEmpty(mResourceId) && mRewardAmount > 0; } }',
+    '    public void RecordServed() { ServedCount += 1; mServiceState = GMP_EntityState.Active; }',
+    '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }',
+    '}',
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), [
+    'using UnityEngine;',
+    'public class GMP_LevelRuleEngine : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_LevelRuleEngine')).concat([
+    '    public int ServedCount = 0;',
+    '    public void TryServe(GMP_RestaurantEntity chef)',
+    '    {',
+    '        if (chef == null) return;',
+    '        chef.RecordServed();',
+    '        ServedCount += 1;',
+    '    }',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_SceneEntityRefs.cs'), [
+    'using System.Collections.Generic;',
+    'using UnityEngine;',
+    'public class GMP_SceneEntityRef',
+    '{',
+    '    public string mEntityName;',
+    '    public GameObject mSceneObject;',
+    '    public int mInitialState;',
+    '    public GMP_EntityState mRuntimeState;',
+    '}',
+    'public class GMP_SceneEntityRefs : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_SceneEntityRefs')).concat([
+    '    public List<GMP_SceneEntityRef> mSceneEntities = new List<GMP_SceneEntityRef>();',
+    '    public void SetState(string entityName, GMP_EntityState state)',
+    '    {',
+    '        for (int i = 0; i < mSceneEntities.Count; i++) if (mSceneEntities[i].mEntityName == entityName) { mSceneEntities[i].mRuntimeState = state; return; }',
+    '    }',
+    '    public GMP_EntityState GetState(string entityName)',
+    '    {',
+    '        for (int i = 0; i < mSceneEntities.Count; i++) if (mSceneEntities[i].mEntityName == entityName) return mSceneEntities[i].mRuntimeState;',
+    '        return GMP_EntityState.Hidden;',
+    '    }',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'AutoPlay', 'GMP_AutoPlayDriver.cs'), [
+    'using UnityEngine;',
+    'public class GMP_AutoPlayDriver : MonoBehaviour',
+    '{',
+  ].concat(sceneSingletonMembers('GMP_AutoPlayDriver')).concat([
+    '    public void Tick(float dt) {}',
+    '}',
+    ''
+  ]).join('\n'));
+  writeFile(path.join(root, 'README.md'), [
+    '# Unity 工程导出',
+    '',
+    '## 程序员交付边界',
+    '- Core / Tool / Game',
+    '',
+    flowGuideText(),
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'CODE_RELATION_GRAPH.md'), [
+    '# 代码关系图',
+    '',
+    'GMP_MainManager.InitCoreModules -> GMP_PhaseController.Tick -> GMP_LevelRuleEngine',
+    '',
+    flowGuideText(),
+    ''
+  ].join('\n'));
+  writeFile(path.join(root, 'PROGRAMMER_HANDOFF.md'), [
+    '# 程序员交付版说明',
+    '',
+    '## 后续维护建议',
+    '- 新增业务逻辑优先写入 `Assets/Scripts/Game/`。',
+    '',
+    flowGuideText(),
+    '',
+    '## 清理统计',
+    '- GMP_MainManager.cs 行数：' + countCodeLines(main),
+    ''
+  ].join('\n'));
+  walkFiles(path.join(root, 'Assets', 'Scripts')).forEach(function(file) {
+    if (/\.cs$/i.test(file)) ensureMeta(root, path.relative(root, file).split(path.sep).join('/'));
+  });
+  writeRequiredScene(root);
+  var hydrationFile = path.join(root, 'MCP_HYDRATION_REPORT.json');
+  hydration.writeHydrationReport(root, hydrationFile, { mode: 'aibridge-editor' });
+  var hydrationJson = JSON.parse(fs.readFileSync(hydrationFile, 'utf8'));
+  hydrationJson.mode = 'aibridge-editor';
+  hydrationJson.toolLayer = 'aibridge-editor';
+  hydrationJson.editorConnected = true;
+  hydrationJson.summary = hydrationJson.summary || {};
+  hydrationJson.summary.editorConnected = true;
+  hydrationJson.aibridge = {
+    ran: true,
+    required: true,
+    cliPath: '/usr/local/bin/AIBridgeCLI',
+    editorConnected: true,
+    commandCount: 2,
+    failedCommandCount: 0
+  };
+  fs.writeFileSync(hydrationFile, JSON.stringify(hydrationJson, null, 2) + '\n');
+  return root;
+}
+
+function addProgrammerFeature(root) {
+  var restaurantEntityFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Entities', 'GMP_RestaurantEntity.cs');
+  var restaurantEntity = fs.readFileSync(restaurantEntityFile, 'utf8');
+  restaurantEntity = restaurantEntity.replace(
+    '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }\n',
+    [
+      '    public void ResetServiceProgress() { ServedCount = 0; IsCompleted = false; mServiceState = GMP_EntityState.Hidden; }',
+      '    public bool HasServedAtLeast(int count) { return ServedCount >= count; }',
+      '    public void MarkComboCompleted() { IsCompleted = true; mServiceState = GMP_EntityState.Completed; }'
+    ].join('\n') + '\n'
+  );
+  fs.writeFileSync(restaurantEntityFile, restaurantEntity);
+
+  var levelRuleFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_LevelRuleEngine.cs');
+  var levelRule = fs.readFileSync(levelRuleFile, 'utf8');
+  levelRule = levelRule.replace(
+    '    public int ServedCount = 0;\n',
+    [
+      '    public int ServedCount = 0;',
+      '    public int BonusCoins = 0;',
+      '    public GMP_ChefComboBonusFeature mComboBonusFeature;',
+      '',
+      '    public void AddBonusCoins(int amount)',
+      '    {',
+      '        if (amount <= 0) return;',
+      '        BonusCoins += amount;',
+      '    }',
+      ''
+    ].join('\n') + '\n'
+  );
+  levelRule = levelRule.replace(
+    '        ServedCount += 1;\n',
+    [
+      '        ServedCount += 1;',
+      '        if (mComboBonusFeature != null) mComboBonusFeature.TryGrant(chef, this);'
+    ].join('\n') + '\n'
+  );
+  fs.writeFileSync(levelRuleFile, levelRule);
+
+  writeFile(path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_ChefComboBonusFeature.cs'), [
+    'using UnityEngine;',
+    '',
+    'public class GMP_ChefComboBonusFeature : MonoBehaviour',
+    '{',
+    '    public string mChefEntityName = "_chef";',
+    '    public int mRequiredInteractions = 3;',
+    '    public int mBonusCoins = 25;',
+    '    public bool IsBonusGranted { get; private set; }',
+    '',
+    '    public bool TryGrant(GMP_RestaurantEntity chef, GMP_LevelRuleEngine rules)',
+    '    {',
+    '        if (chef == null || rules == null || IsBonusGranted) return false;',
+    '        if (!chef.HasServedAtLeast(mRequiredInteractions)) return false;',
+    '        IsBonusGranted = true;',
+    '        chef.MarkComboCompleted();',
+    '        rules.AddBonusCoins(mBonusCoins);',
+    '        if (GMP_SceneEntityRefs.instance != null)',
+    '        {',
+    '            GMP_SceneEntityRefs.instance.SetState(mChefEntityName, GMP_EntityState.Completed);',
+    '        }',
+    '        return true;',
+    '    }',
+    '}',
+    ''
+  ].join('\n'));
+}
+
+var summary = {
+  errors: [],
+  initialPhaseEntities: 2,
+  initialPhaseEntitiesPositioned: 2,
+  initialPhaseEntitiesMissing: 0,
+  joystickObjectsPresent: true,
+  hudTextObjectsPresent: true,
+  fallbackMaterialMissingGuidCount: 0,
+  fallbackMaterialShaderMissing: false,
+  sourcePrimitiveEntityCount: 1
+};
+
+var root = makeDeliverableRoot();
+try {
+  var before = hardgate.validateProgrammerDelivery(root, summary);
+  assert.strictEqual(before.passed, true, JSON.stringify(before.errors, null, 2));
+  assert.strictEqual(before.maintainability.summary.gameObjectFindGameLayerCount, 0);
+  assert.strictEqual(before.maintainability.summary.thinEntityClassCount, 0);
+
+  var coreHash = hashTree(path.join(root, 'Assets', 'Scripts', 'Core'));
+  var toolHash = hashTree(path.join(root, 'Assets', 'Scripts', 'Tool'));
+  var sourceHash = hashSourceArtifacts(root);
+
+  addProgrammerFeature(root);
+
+  assert.strictEqual(hashTree(path.join(root, 'Assets', 'Scripts', 'Core')), coreHash, 'programmer feature must not modify Core');
+  assert.strictEqual(hashTree(path.join(root, 'Assets', 'Scripts', 'Tool')), toolHash, 'programmer feature must not modify Tool');
+  assert.strictEqual(hashSourceArtifacts(root), sourceHash, 'programmer feature must not modify SourceIR/source HTML inputs');
+
+  var featureFile = path.join(root, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_ChefComboBonusFeature.cs');
+  var featureCode = fs.readFileSync(featureFile, 'utf8');
+  assert.match(featureCode, /GMP_RestaurantEntity/);
+  assert.match(featureCode, /chef\.HasServedAtLeast\(mRequiredInteractions\)/);
+  assert.match(featureCode, /chef\.MarkComboCompleted\(\)/);
+  assert.match(featureCode, /rules\.AddBonusCoins\(mBonusCoins\)/);
+  assert.doesNotMatch(featureCode, /MarkInteracted|InteractionCount|MarkCompleted|ResetProgress|MoveToPosition/);
+  assert.doesNotMatch(featureCode, /GameObject\.Find|FindObjectOfType/);
+
+  var after = hardgate.validateProgrammerDelivery(root, summary);
+  assert.strictEqual(after.passed, true, JSON.stringify(after.errors, null, 2));
+  assert.strictEqual(after.maintainability.summary.thinEntityClassCount, 0);
+  assert.strictEqual(after.maintainability.summary.gameObjectFindGameLayerCount, 0);
+  assert.strictEqual(after.maintainability.summary.coreEntityNameBranchCount, 0);
+
+  var summaryPath = path.join(root, 'PROGRAMMER_DELIVERY_SUMMARY.json');
+  fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + '\n');
+  var validation = hardgate.writeDeliveryValidation(root, summaryPath, path.join(root, 'DELIVERY_VALIDATION.json'));
+  assert.strictEqual(validation.passed, true, JSON.stringify(validation.errors, null, 2));
+  assert.ok(fs.existsSync(path.join(root, 'PROGRAMMER_MAINTAINABILITY_REPORT.json')));
+} finally {
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+console.log('programmer delivery feature extension simulation tests passed');

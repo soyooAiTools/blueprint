@@ -327,22 +327,31 @@ var v = require('../engine/delivery-class-validator.cjs');
 
 // ============ validateCommentCoverage ============
 
-(function testCoverageFieldMissing() {
+(function testCoverageFieldMissingDoesNotWarnByDefault() {
   var code = 'public class X {\n  public int Naked;\n}';
   var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
   var fieldWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-field'; });
-  assert.ok(fieldWarn, 'expected field-coverage warning');
-  assert.match(fieldWarn.message, /反馈条 1/);
-  console.log('  ✓ coverage: field missing');
+  assert.strictEqual(fieldWarn, undefined, 'self-explanatory fields should not require comments by default');
+  console.log('  ✓ coverage: field comments are optional by default');
 })();
 
-(function testCoverageMethodMissing() {
+(function testCoverageMethodMissingDoesNotWarnByDefault() {
   var code = 'public class X {\n  public void Naked() { Do(); }\n}';
   var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
   var methWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-method'; });
-  assert.ok(methWarn, 'expected method-coverage warning');
-  assert.match(methWarn.message, /反馈条 1/);
-  console.log('  ✓ coverage: method missing');
+  assert.strictEqual(methWarn, undefined, 'self-explanatory methods should not require comments by default');
+  console.log('  ✓ coverage: method comments are optional by default');
+})();
+
+(function testCoverageFieldMethodLegacyMode() {
+  var code = 'public class X {\n  public int Naked;\n  public void Bare() { Do(); }\n}';
+  var w = v.validateCommentCoverage(code, 'X.cs', {
+    conditionMinBlockLines: 3,
+    fieldMethodCommentCoverage: true
+  });
+  assert.ok(w.find(function(x) { return x.rule === 'delivery-comment-coverage-field'; }));
+  assert.ok(w.find(function(x) { return x.rule === 'delivery-comment-coverage-method'; }));
+  console.log('  ✓ coverage: field/method comments can be required explicitly');
 })();
 
 (function testCoverageMethodWithDocPasses() {
@@ -372,7 +381,7 @@ var v = require('../engine/delivery-class-validator.cjs');
   var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
   var condWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-condition'; });
   assert.ok(condWarn, 'expected condition-coverage warning');
-  assert.match(condWarn.message, /反馈条 2/);
+  assert.match(condWarn.message, /复杂判断/);
   console.log('  ✓ coverage: condition missing');
 })();
 

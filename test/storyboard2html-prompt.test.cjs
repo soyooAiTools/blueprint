@@ -91,6 +91,12 @@ assert.ok(built.systemPrompt.indexOf('window.__driveToSourcePhase') >= 0,
   'system prompt should require source-specific phase driver hook');
 assert.ok(built.systemPrompt.indexOf('source-scene-ir.v1') >= 0, 'system prompt should require source-scene-ir.v1 schemaVersion');
 assert.ok(built.systemPrompt.indexOf('blueprint.sourceSceneIR') >= 0, 'system prompt should require SourceSceneIR kind');
+assert.ok(built.systemPrompt.indexOf('HTML 与最终生成的 WebGL 的一致性是系统的终极红线') >= 0,
+  'system prompt should declare HTML/WebGL consistency as the top redline');
+assert.ok(built.systemPrompt.indexOf('phase / guideText / targetSequence / entity/resource/gate') >= 0,
+  'system prompt should require source HTML to WebGL semantic parity for phases, guideText, targets, entities, resources, and gates');
+assert.ok(built.systemPrompt.indexOf('禁止通过 WebGL 侧临时兜底') >= 0,
+  'system prompt should forbid WebGL-side fallback from masking HTML/WebGL inconsistency');
 assert.ok(built.systemPrompt.indexOf('step.kind') >= 0 && built.systemPrompt.indexOf('move_to') >= 0 && built.systemPrompt.indexOf('cta_finish') >= 0,
   'system prompt should include SourceSceneIR step whitelist');
 assert.ok(built.systemPrompt.indexOf('gate.kind') >= 0 && built.systemPrompt.indexOf('near_entity') >= 0 && built.systemPrompt.indexOf('cta_arrival') >= 0,

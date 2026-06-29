@@ -131,7 +131,7 @@ function nearestPreviousSwitchIsCurrentPhase(lines, caseLineIndex) {
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
   { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*(?:(?:说明：)?ok|正常))/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
-  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
+  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — Luna/WebGL staging uses RegisterEntityBindings()/GameSceneCtrl or pre-bound pool refs; programmer delivery uses Inspector-hydrated GMP_SceneEntityRefs/serialized refs' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
   { id: 'create-canvas', pattern: null, blocking: true,
@@ -204,8 +204,8 @@ var RULES = [
   { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, blocking: true, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
   { id: 'invoke-call', pattern: /\bInvoke\s*\(\s*"/g, message: 'Invoke("method") forbidden in Luna — use Update() + timer' },
   { id: 'invoke-repeating', pattern: /\bInvokeRepeating\s*\(/g, message: 'InvokeRepeating() forbidden in Luna — use Update() + timer' },
-  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, blocking: true, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
-  { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, blocking: true, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
+  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, blocking: true, message: 'Instantiate() forbidden in Luna — staging uses pre-bound pool objects/binding table; programmer delivery uses GMP_Pool prefab archetypes for transients' },
+  { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, blocking: true, message: 'AddComponent() forbidden in Luna — staging components must be pre-baked; programmer delivery scripts/refs are mounted and hydrated before Play' },
   { id: 'resources-load', pattern: /Resources\.Load/g, message: 'Resources.Load() not supported in Luna — use pool objects' },
   // --- v3: Rendering & anti-solid-color rules ---
   { id: 'safe-color-recursion', pattern: /Color\s+SafeColor|SafeColor\s*\(/g, message: 'SafeColor pattern causes infinite recursion in Luna — remove and use literal Color values' },
@@ -1357,7 +1357,7 @@ var RULES = [
     },
   },
   { id: 'invalid-pool-find-name', pattern: null, blocking: true,
-    message: 'GameObject.Find() uses a pool object name outside the approved entity→pool mapping — bind only the exact blueprint-approved pool objects.',
+    message: 'GameObject.Find() uses a pool object name outside the approved Luna/WebGL staging entity→pool mapping — bind only the exact blueprint-approved pool objects; programmer delivery uses Inspector-hydrated GMP_SceneEntityRefs/serialized refs.',
     custom: function(code, ctx) {
       var blueprint = ctx && ctx.blueprint;
       var entityPoolMap = blueprint && blueprint.entityPoolMap ? blueprint.entityPoolMap : null;
@@ -1387,7 +1387,7 @@ var RULES = [
     },
   },
   { id: 'canonical-entity-find-forbidden', pattern: null, blocking: true,
-    message: 'GameObject.Find("__Pool_*") is forbidden in GameFlowManagerMain when entity bindings are canonical — use RegisterEntityBindings()/GameSceneCtrl once, then reuse fields.',
+    message: 'GameObject.Find("__Pool_*") is forbidden in GameFlowManagerMain when entity bindings are canonical — Luna/WebGL staging uses RegisterEntityBindings()/GameSceneCtrl once, then reuses fields; programmer delivery uses Inspector-hydrated GMP_SceneEntityRefs/serialized refs.',
     custom: function(code, ctx) {
       var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
       if (!/^GameFlowManagerMain(?:\.[A-Za-z]+)?\.cs$/.test(fileName)) return [];

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 var crypto = require('crypto');
-var isSkeletonReviewFalsePositive = require('../worker/code-reviewer.js').isSkeletonReviewFalsePositive;
+var codeReviewer = require('../worker/code-reviewer.js');
+var isSkeletonReviewFalsePositive = codeReviewer.isSkeletonReviewFalsePositive;
+var sanitizeLearningRuleText = codeReviewer.sanitizeLearningRuleText || function(text) { return String(text || ''); };
 
 function sha(value) {
   return crypto.createHash('sha1').update(String(value || '')).digest('hex').slice(0, 10);
@@ -43,8 +45,8 @@ function summarizePendingRules(pendingRules, opts) {
     if (!groups[key]) {
       groups[key] = {
         rule: item.rule || 'unknown',
-        bestDesc: item.description || '',
-        bestFix: item.fix || '',
+        bestDesc: sanitizeLearningRuleText(item.description || ''),
+        bestFix: sanitizeLearningRuleText(item.fix || ''),
         severity: item.severity || 'info',
         hitCount: 0,
         projects: {},
@@ -53,12 +55,14 @@ function summarizePendingRules(pendingRules, opts) {
     }
     var group = groups[key];
     group.hitCount++;
-    if ((item.description || '').length > (group.bestDesc || '').length) group.bestDesc = item.description || '';
-    if ((item.fix || '').length > (group.bestFix || '').length) group.bestFix = item.fix || '';
+    var itemDesc = sanitizeLearningRuleText(item.description || '');
+    var itemFix = sanitizeLearningRuleText(item.fix || '');
+    if (itemDesc.length > (group.bestDesc || '').length) group.bestDesc = itemDesc;
+    if (itemFix.length > (group.bestFix || '').length) group.bestFix = itemFix;
     if (severityRank(item.severity) > severityRank(group.severity)) group.severity = item.severity || group.severity;
     if (item.taskId) group.projects[item.taskId] = true;
     if (item.description && group.sampleSnippets.length < 3) {
-      group.sampleSnippets.push(String(item.description).slice(0, 220));
+      group.sampleSnippets.push(itemDesc.slice(0, 220));
     }
   }
 

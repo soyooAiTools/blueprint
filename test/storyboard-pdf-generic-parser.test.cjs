@@ -266,11 +266,53 @@ assert.ok(sourceIr.phases.every(function(phase) {
 assert.ok(!sourceIr.phases.some(function(phase) {
   return /玩家看到什么|玩家做什么|玩法逻辑|Phase\s*\d|^[A-Za-z_]+:/.test(phase.guideText || '');
 }), 'generated SourceIR guideText should be plain player guidance, not raw PDF text or interaction ids');
+assert.ok(!sourceIr.phases.some(function(phase) {
+  return /看屏幕提示和高亮目标|继续看屏幕提示|跟着高亮目标/.test(phase.guideText || '');
+}), 'generated SourceIR guideText should not use generic highlighted-target copy');
 assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Item'; }));
 assert.ok(sourceIr.entities.some(function(entity) { return entity.id === 'Target'; }));
 assert.ok(sourceIr.phases.some(function(phase) {
   return (phase.steps || []).some(function(step) { return step.kind === 'transfer' || step.kind === 'unlock'; });
 }));
+
+var showGuideSourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
+  projectName: 'show guide source',
+  entities: internals.entitiesForKind('generic', [
+    '订单小票',
+    '配菜出现',
+    '全场物品轻微发光 + 摇摆镜头表现',
+  ].join('\n')),
+  resources: internals.resourcesForKind('generic'),
+  specs: [
+    {
+      phaseId: 'phase1',
+      phaseName: '3. 订单小票：屏幕顶部显示当前订单',
+      playerInstruction: '订单小票：屏幕顶部显示当前订单',
+      requiredInteractions: ['show:Target'],
+      visibleEntities: ['Player', 'Target'],
+    },
+    {
+      phaseId: 'phase2',
+      phaseName: '全场物品轻微发光 + 摇摆镜头表现',
+      playerInstruction: '全场物品轻微发光 + 摇摆镜头表现',
+      requiredInteractions: ['show:Target'],
+      visibleEntities: ['Player', 'Target'],
+    },
+    {
+      phaseId: 'phase3',
+      phaseName: '结束页',
+      playerInstruction: '点击下载按钮',
+      requiredInteractions: ['click:CtaButton'],
+      visibleEntities: ['CtaButton'],
+    },
+  ],
+});
+var showGuideTexts = showGuideSourceIr.phases.map(function(phase) { return phase.guideText; });
+assert.strictEqual(showGuideTexts[0], '查看订单小票，确认当前订单需要什么。');
+assert.strictEqual(showGuideTexts[1], '观察目标发光和镜头变化，准备进入下一步。');
+assert.ok(!showGuideTexts.some(function(text) {
+  return /看屏幕提示和高亮目标|继续看屏幕提示|跟着高亮目标/.test(text || '');
+}), 'show-only phases should use phase-specific guide copy');
 
 var weakCompiled = {
   specs: Array.from({ length: 22 }).map(function(_, index) {

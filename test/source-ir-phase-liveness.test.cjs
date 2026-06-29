@@ -133,6 +133,26 @@ async function main() {
   unsatisfiedState.phases[1].steps[1].state = 1;
   assertStaticViolation(unsatisfiedState, 'source_ir_gate_entity_state_unsatisfied');
 
+  var unsatisfiedZeroState = clone(ir);
+  unsatisfiedZeroState.entities.push({ id: 'Enemy', label: 'Enemy', kind: 'enemy', position: [6, 0, 0], visual: { primitive: 'box' } });
+  unsatisfiedZeroState.phases[1].showEntities = ['Player', 'Enemy'];
+  unsatisfiedZeroState.phases[1].steps = [
+    { kind: 'move_to', target: 'Enemy', radius: 1.2 },
+    { kind: 'set_entity_state', entity: 'Enemy', state: 1 },
+  ];
+  unsatisfiedZeroState.phases[1].gate = { kind: 'entity_state', entity: 'Enemy', state: 0 };
+  assertStaticViolation(unsatisfiedZeroState, 'source_ir_gate_entity_state_unsatisfied');
+
+  var satisfiedAttackState = clone(ir);
+  satisfiedAttackState.entities.push({ id: 'Enemy', label: 'Enemy', kind: 'enemy', position: [6, 0, 0], visual: { primitive: 'box' } });
+  satisfiedAttackState.phases[1].showEntities = ['Player', 'Enemy'];
+  satisfiedAttackState.phases[1].steps = [
+    { kind: 'move_to', target: 'Enemy', radius: 1.2 },
+    { kind: 'attack', target: 'Enemy', state: 0 },
+  ];
+  satisfiedAttackState.phases[1].gate = { kind: 'entity_state', entity: 'Enemy', state: 0 };
+  assert.strictEqual(analyzeSourceIrPhaseLiveness(satisfiedAttackState, {}).passed, true);
+
   var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'source-ir-phase-liveness-'));
   var htmlPath = path.join(tmp, 'preview.html');
   fs.writeFileSync(htmlPath, buildSourceIrPreviewHtml(ir, {

@@ -96,6 +96,7 @@ var ctx = {
 var projectHandlers = require('./api/projects.cjs').init(ctx);
 var workerHandlers = require('./api/worker.cjs').init(ctx);
 var storyboardHandlers = require('./api/storyboard.cjs').init(ctx);
+var storyboardFlowHandlers = require('./api/storyboard-flow.cjs').init(ctx);
 var dashboardHandlers = require('./api/dashboard.cjs').init(ctx);
 var assetHandlers = require('./api/assets.cjs').init(ctx);
 
@@ -104,6 +105,7 @@ var allHandlers = Object.assign({},
   projectHandlers,
   workerHandlers,
   storyboardHandlers,
+  storyboardFlowHandlers,
   dashboardHandlers,
   assetHandlers
 );

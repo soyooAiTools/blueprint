@@ -192,7 +192,11 @@ function triggerEvidence(trigger) {
     if (node.type === 'resource_collected') {
       evidence.push('PhaseResourceProgress(' + (node.resource || 'Resource') + ') >= ' + (Number(node.amount || node.count || 1) || 1));
     } else if (node.type === 'entity_state_reached') {
-      evidence.push(String(node.entity || 'Entity') + 'State >= ' + (Number(node.state || 1) || 1));
+      const state = node.state === null || node.state === undefined || node.state === ''
+        ? 1
+        : Number(node.state);
+      const required = Number.isFinite(state) ? state : 1;
+      evidence.push(String(node.entity || 'Entity') + 'State ' + (required <= 0 ? '<= ' : '>= ') + required);
       evidence.push('EntityAdvanced(' + String(node.entity || 'Entity') + ')');
     } else if (node.type === 'near_entity') {
       evidence.push('PlayerNear(' + String(node.entity || 'Target') + ')');

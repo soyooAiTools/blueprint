@@ -22,6 +22,8 @@ var DEFAULT_THRESHOLDS = {
   // 反馈 01 #2 (2026-05-02) Wave B:条件分支注释覆盖率检查的最小块行数。
   // 单行 `if (x) Foo();` 或 2 行小 if 不强制注释,避免噪声;>=3 行才查。
   conditionMinBlockLines: 3,
+  // 2026-06-19:字段/普通方法名能自解释时不强制写注释,避免交付代码被机械注释淹没。
+  fieldMethodCommentCoverage: false,
 };
 
 /**
@@ -117,8 +119,8 @@ function maxNestingDepth(body) {
 // ---------------------------------------------------------------------------
 // 反馈 01 #1 / #2 (2026-05-02) Wave B — 注释覆盖率
 //
-// 反馈条 1:每个变量名/方法都要详细注释。
-// 反馈条 2:每种条件也必须有详细注释。
+// 2026-06-19 后的交付原则:注释只解释关键且不容易看懂的地方。
+// 默认只检查较大的条件块,字段/普通方法不再强制注释。
 //
 // 实现思路:
 //   - findFields:抓 `(public|private|protected|internal) [static] [readonly] Type Name;` 形式的字段。
@@ -129,9 +131,8 @@ function maxNestingDepth(body) {
 //     同时支持同行尾注释:lines[lineIdx-1] 在第一段非字符串 token 后含 `//`。
 //
 // 三类规则(都是 warning,不阻塞):
-//   - delivery-comment-coverage-field
-//   - delivery-comment-coverage-method
 //   - delivery-comment-coverage-condition
+// fieldMethodCommentCoverage:true 时保留旧的字段/方法注释检查。
 // ---------------------------------------------------------------------------
 
 // 字段声明粗匹配:`(public|private|protected|internal) [modifier...] Type Name [;|=]`。
@@ -242,32 +243,35 @@ function validateCommentCoverage(code, fileName, thresholds) {
   var warnings = [];
   var lines = code.split('\n');
   var minBlock = (thresholds && thresholds.conditionMinBlockLines) || 3;
+  var requireFieldMethodComments = !!(thresholds && thresholds.fieldMethodCommentCoverage === true);
 
-  findFields(code).forEach(function(f) {
-    if (!hasCommentAbove(lines, f.line)) {
-      warnings.push({
-        rule: 'delivery-comment-coverage-field',
-        severity: 'warning',
-        file: fileName,
-        line: f.line,
-        message: fileName + ':' + f.line + ' 字段 ' + f.name + ' 缺中文注释 — 反馈条 1 要求每个变量都标注用途。',
-        details: { field: f.name, type: f.type },
-      });
-    }
-  });
+  if (requireFieldMethodComments) {
+    findFields(code).forEach(function(f) {
+      if (!hasCommentAbove(lines, f.line)) {
+        warnings.push({
+          rule: 'delivery-comment-coverage-field',
+          severity: 'warning',
+          file: fileName,
+          line: f.line,
+          message: fileName + ':' + f.line + ' 字段 ' + f.name + ' 缺中文注释。',
+          details: { field: f.name, type: f.type },
+        });
+      }
+    });
 
-  findMethods(code).forEach(function(meth) {
-    if (!hasCommentAbove(lines, meth.line)) {
-      warnings.push({
-        rule: 'delivery-comment-coverage-method',
-        severity: 'warning',
-        file: fileName,
-        line: meth.line,
-        message: fileName + ':' + meth.line + ' 方法 ' + meth.name + ' 缺中文注释 — 反馈条 1 要求每个方法都说明职责。',
-        details: { method: meth.name },
-      });
-    }
-  });
+    findMethods(code).forEach(function(meth) {
+      if (!hasCommentAbove(lines, meth.line)) {
+        warnings.push({
+          rule: 'delivery-comment-coverage-method',
+          severity: 'warning',
+          file: fileName,
+          line: meth.line,
+          message: fileName + ':' + meth.line + ' 方法 ' + meth.name + ' 缺中文注释。',
+          details: { method: meth.name },
+        });
+      }
+    });
+  }
 
   findConditions(code, minBlock).forEach(function(cond) {
     if (!hasCommentAbove(lines, cond.line)) {
@@ -276,7 +280,7 @@ function validateCommentCoverage(code, fileName, thresholds) {
         severity: 'warning',
         file: fileName,
         line: cond.line,
-        message: fileName + ':' + cond.line + ' ' + cond.kind + ' 块 (' + cond.blockLines + ' 行) 缺注释 — 反馈条 2 要求每种条件说明判断意图。',
+        message: fileName + ':' + cond.line + ' ' + cond.kind + ' 块 (' + cond.blockLines + ' 行) 缺注释 — 复杂判断需要说明原因。',
         details: { kind: cond.kind, blockLines: cond.blockLines },
       });
     }

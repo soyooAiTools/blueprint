@@ -44,6 +44,7 @@ const manifest = {
   },
   sourcePhaseContract: {
     phaseCount: 1,
+    resources: [{ id: 'Ice', label: '冰块', carrierEntity: 'IceBlock', initial: 0 }],
     phases: [{ id: 'phase1', showEntities: ['Hero'], steps: [] }],
   },
   sourceSceneContract: {
@@ -104,6 +105,12 @@ assert.match(out, /function sourceVisualEnabled\(\)/);
 assert.match(out, /return hasPlayableSceneIr\(\);/);
 assert.match(out, /function sourceDomWorldLabelsEnabled\(\)/);
 assert.match(out, /source === 'source-scene-ir'/);
+assert.match(out, /function sourceResourceDescriptors\(\)/);
+assert.match(out, /function sourceInitialResourceValues\(\)/);
+assert.match(out, /function renderSourceResourcePills\(res\)/);
+assert.match(out, /source-ir-resource-pills/);
+assert.doesNotMatch(out, /data-k="ice">冰 0/);
+assert.doesNotMatch(out, /resources: \{ Ice: 0, Oxygen: 0, Scrap: 0/);
 assert.match(out, /function sourceAutoplayRuntimeActive\(\)/);
 assert.match(out, /function observerReadyRequested\(\)/);
 assert.match(out, /function sourceAutoplayObserverReady\(\)/);
@@ -145,6 +152,8 @@ assert.match(out, /function sourceDomCtaPresent\(\)/);
 assert.match(out, /function sourceDomHudUsesResourceBar\(\)/);
 assert.match(out, /function sourceDomHudUsesCompactPills\(\)/);
 assert.match(out, /function sourceDomHudCssRules\(\)/);
+assert.match(out, /var tipHasVerticalAnchor = \/\\b\(\?:top\|bottom\)\\s\*:\/i\.test\(tipCss\)/);
+assert.match(out, /sourceDomCtaPresent\(\) && !hudCss && !tipHasVerticalAnchor && !\/\\bposition\\s\*:\\s\*fixed\\b\/i\.test\(tipCss\)/);
 assert.match(out, /function sourceDomHudUsesTopbarStats\(\)/);
 assert.match(out, /data-k="goldPanel"/);
 assert.match(out, /set\('goldPanel', '金币 ' \+ String/);
@@ -244,6 +253,16 @@ assert.match(out, /function sourceVisualDiffRunning\(\)/);
 assert.match(out, /sourceRuntimeEnabled && sourceVisualDiffRunning\(\) && !manualActive && !sourceAutoplayRuntimeActive\(\)/);
 assert.match(out, /var sourceDrivenAuto = autoMode && sourceVisualEnabled\(\)/);
 assert.match(out, /moveToward\(playerAuto, targetAuto, dt \* \(sourceAutoplayRuntimeActive\(\) \? 3\.0 : 16\)\)/);
+assert.match(out, /function sourceGroundMovementBounds\(\)/);
+assert.match(out, /function overlayMovementBounds\(composites\)/);
+assert.match(out, /function clampOverlayPlayerPosition\(player, composites\)/);
+assert.match(out, /function sourceReachabilityReport\(composites\)/);
+assert.match(out, /window\.__SOURCE_IR_OVERLAY_MOVEMENT_BOUNDS__ = overlayRuntime\.movementBounds/);
+assert.match(out, /window\.__SOURCE_IR_OVERLAY_REACHABILITY__ = sourceReachabilityReport\(composites\)/);
+assert.match(out, /targetReachability: window\.__SOURCE_IR_OVERLAY_REACHABILITY__ \|\| null/);
+assert.match(out, /clampOverlayPlayerPosition\(player, composites\)/);
+assert.doesNotMatch(out, /Math\.max\(-18,\s*Math\.min\(72,\s*player\.x\)\)/);
+assert.doesNotMatch(out, /Math\.max\(-18,\s*Math\.min\(18,\s*player\.z\)\)/);
 assert.match(out, /var targetDisc = null/);
 assert.match(out, /var domLabels = {}/);
 assert.match(out, /new THREE\.CircleGeometry\(2\.45, 64\)/);
@@ -251,6 +270,9 @@ assert.match(out, /source-ir-phase-band/);
 assert.match(out, /function cssHex\(value\)/);
 assert.match(out, /function storyboardRuntimeComparableTargetPosition\(name, pos\)/);
 assert.match(out, /function overlayStepReadyWithoutTarget\(step\)/);
+assert.match(out, /function stepLabel\(step\)/);
+assert.match(out, /if \(target && label === target\) return targetLabel \|\| label/);
+assert.match(out, /showOverlayToast\(stepLabel\(step\)\)/);
 assert.match(out, /step\.kind === 'wait'/);
 assert.match(out, /step\.kind === 'cta_finish'/);
 assert.match(out, /overlayStepElapsedSeconds\(\) >= Math\.max/);

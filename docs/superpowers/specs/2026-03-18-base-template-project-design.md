@@ -1,6 +1,8 @@
 # 基础样例工程设计文档
 
-> 日期: 2026-03-18 | 状态: 设计确认 | 作者: 小白 + Nick
+> 日期: 2026-03-18 | 状态: 历史方案，已被 2026-06-23 gmp-v14 legacy / unitycomponent-v1 双 profile 程序员交付口径取代 | 作者: 小白 + Nick
+
+> 过期说明：本文只记录早期 Luna/WebGL base-template 思路，不能作为当前 prompt 或程序员 Unity 交付约束。当前规则是：Luna/WebGL staging 可用骨架绑定字段、`RegisterEntityBindings()` 或 `GameSceneCtrl.instance.Get(entityName)` 访问预绑定对象；默认 `gmp-v14` legacy 程序员 Unity 交付由 AIBridge/Editor 写入 `GMP_SceneEntityRefs` / serialized refs，短生命周期对象走 `GMP_Pool`；显式 `unitycomponent-v1` 交付走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。业务代码不得新增 runtime `GameObject.Find` 作为正向方案。
 
 ## 1. 背景与问题
 
@@ -20,7 +22,7 @@ CUA 修复循环中，这些底层问题反复出现，5 轮修不好 → 任务
 
 **预制一个"已验证能跑"的 Unity 基础工程**，包含天空盒、光照、~280 个预摆放的 3D 对象。
 
-AI 代码职责从"创建一切 + 写逻辑"收窄为"Find 对象 + 移动/显隐/改色 + 写逻辑"。
+AI 代码职责从"创建一切 + 写逻辑"收窄为"使用预绑定对象 + 移动/显隐/写逻辑"。早期文档里的直接 `Find` 口径已经过期。
 
 ```
 之前: AI 从零创建 → 编译 → 构建 → 祈祷不崩
@@ -40,8 +42,7 @@ AI 代码职责从"创建一切 + 写逻辑"收窄为"Find 对象 + 移动/显�
 
 #### 预制对象清单（~280 个）
 
-所有对象初始位置 `y = -999`（不可见），用 GFM_Create.Obj 创建并在编辑器保存。
-对象按语义命名，AI 通过 `GameObject.Find("名称")` 获取引用。
+所有对象初始位置 `y = -999`（不可见），早期由 GFM 工具预制并在编辑器保存。当前 staging 代码通过绑定字段、`RegisterEntityBindings()` 或 `GameSceneCtrl.instance.Get(entityName)` 使用对象；默认 `gmp-v14` legacy 交付通过 AIBridge/Editor 写入 `GMP_SceneEntityRefs` / serialized refs；显式 `unitycomponent-v1` 交付通过 `GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据 / serialized refs 承接。
 
 **通用**
 
@@ -182,7 +183,7 @@ enemy6.name = "Enemy_Extra_1";
 
 **新增**:
 - "基础工程预制对象清单" — 列出所有可用对象名
-- "使用方式" — Find / Move / Show/Hide / SetColor / Instantiate 示例
+- "使用方式" — 预绑定对象 / Move / Show/Hide 示例；旧 Find / SetColor / Instantiate 正向示例已废弃
 - 骨架代码模板（正面示例）
 
 ### 4.2 新 Prompt 结构（草案）
@@ -191,7 +192,7 @@ enemy6.name = "Enemy_Extra_1";
 # 任务
 在 GameFlowManagerMain.cs 中实现试玩广告逻辑。
 场景已包含 ~280 个预制对象，你只需要：
-1. GameObject.Find("名称") 获取引用
+1. 使用骨架绑定字段、RegisterEntityBindings() 或 GameSceneCtrl.instance.Get(entityName) 获取引用
 2. 移动位置显示/隐藏
 3. 写游戏逻辑
 

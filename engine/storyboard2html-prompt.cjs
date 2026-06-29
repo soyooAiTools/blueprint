@@ -27,6 +27,11 @@ var SYSTEM_PROMPT_HEADER = [
   '同一份 HTML 既驱动 three.js 真实 3D 视觉,也暴露 storyboard2html v1.0.0 契约 + SourceSceneIR,',
   '保证 SourceIR 反解 + Luna 同向迁移 + CUA verify 主门一次过。',
   '',
+  '## 最高原则 — HTML/WebGL 一致性终极红线',
+  '- storyboard2html 生成的 HTML 与最终生成的 WebGL 的一致性是系统的终极红线,千万不能碰。',
+  '- `source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 必须保持同一套 phase / guideText / targetSequence / entity/resource/gate 语义;任何一端不得私自改写、补漏或另起事实源。',
+  '- 如果 HTML 与最终 WebGL 出现不一致,必须先修上游 SourceSceneIR/SourceIR 或确定性投影规则,再用 parity/liveness/runtime smoke 证明一致;禁止通过 WebGL 侧临时兜底、HTML 侧展示假状态或报告文字绕过。',
+  '',
   '## 输出格式',
   '- 只输出 *单一完整 HTML 文档*,以 `<!doctype html>` 起,以 `</html>` 止。',
   '- 不要 markdown 围栏(无 ``` 包裹),不要任何解释/前言/后记。',
@@ -302,7 +307,7 @@ function describeTrigger(trigger) {
   if (trigger.type === 'resource_collected') return 'resource_collected(' + (trigger.resource || 'Resource') + ',' + (trigger.amount || 1) + ')';
   if (trigger.type === 'near_entity') return 'near_entity(' + (trigger.entity || 'Entity') + ',' + (trigger.range || 2) + ')';
   if (trigger.type === 'click_entity') return 'click_entity(' + (trigger.entity || 'CtaButton') + ')';
-  if (trigger.type === 'entity_state_reached') return 'entity_state_reached(' + (trigger.entity || 'Entity') + ',' + (trigger.state || 1) + ')';
+  if (trigger.type === 'entity_state_reached') return 'entity_state_reached(' + (trigger.entity || 'Entity') + ',' + (trigger.state == null ? 1 : trigger.state) + ')';
   if (trigger.type === 'all_built') return 'all_built()';
   return String(trigger.type || 'unknown');
 }

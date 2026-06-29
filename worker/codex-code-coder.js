@@ -42,6 +42,35 @@ const LEGACY_SYSTEM_PROMPT_FILE = 'CLAUDE.md';
 const CODEX_SETTINGS_DIRNAME = '.codex';
 const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'codex-exec';
 
+const PROGRAMMER_DELIVERY_PROMPT_CONTRACT = [
+  '默认 gmp-v14 legacy 程序员可交付反馈规则：最终 Unity 交付必须包含 AIBridge/MCP、Inspector hydration、GMP_SceneEntityRefs 和 serialized refs；显式 unitycomponent-v1 使用 Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs，不使用 GMP 命名。',
+  '本段只约束当前默认 gmp-v14 legacy prompt；显式 unitycomponent-v1 profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}、Entity / BaseComponent / EntityManager / GameEntry、UnityDeliverySpec 和 v1 hardgate，不生成旧 Blueprint.UnityComponent namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。',
+  'Unity 程序员交付框架冲突以 /nickTemp/UnityComponent(3).rar / UnityComponent(3) 工程文档为准：按 Entity 持有 scene object 生命周期、[Serializable] BaseComponent 承载纯逻辑能力、EntityManager 注册并统一 Tick entity、模块间通信优先 EventModule 的理念落地。',
+  '当前默认 gmp-v14 legacy 落地到本工程必须使用 GMP 命名：Core/Base 至少包含 GMP_BaseComponent 与 GMP_BaseGameFlowEntity，Core/Modules 至少包含 GMP_EntityManager；实体必须提供 AddEcsComponent、GetEcsComponent<T>、GetFirstEcsComponent<T>、HasEcsComponent<T>，组件生命周期顺序为 OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy。',
+  'GMP_MainManager 是 blueprint 兼容的 GameEntry：集中缓存/初始化 Pool、Audio、Event、EntityManager、UI、Economy、Item/Npc、Phase/Level，并在唯一 Update 中调度 GMP_EntityManager.Tick(dt)；不要照搬 UnityComponent 的 Odin/DOTween/本地 Luna 路径，也不要 runtime 创建常驻管理器。确有多 scene 生命周期时可让场景预挂 Manager 持久化，但不能用代码临时 new 管理器。',
+  'UnityComponent(3) 只覆盖程序员 Unity 交付框架冲突；Storyboard2HTML/source HTML/SourceSceneIR/WebGL 的 phase、guideText、targetSequence、entity/resource/gate 一致性仍是最高红线，不得为了框架改造改写语义链路。',
+  'AIBridge 证据必须来自实际运行 AIBRIDGE_CLI：先解析 AIBRIDGE_CLI 或 command -v AIBridgeCLI，记录真实 CLI 路径，再运行 AIBridgeCLI harness status 和 AIBridgeCLI editor get_state --timeout <ms>，把 stdout/stderr/exit code 写入 MCP_HYDRATION_REPORT.json、AIBRIDGE_ATTEMPT_REPORT.json 或 AIBRIDGE_REAL_RUN_REPORT.json；CLI 存在但 Unity Editor/AIBridge 会话超时时写 editor-timeout，不能写成 CLI not found。',
+  'Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。',
+  '组件必须是真能力而不是装饰：GMP_BaseComponent 子类要拥有自己的状态、调参和语义 API，或通过 OnUpdate/事件订阅参与生命周期；禁止只 new 出来再 AddEcsComponent，但实际逻辑仍复制在 Entity/Manager 里。',
+  'GMP_BaseGameFlowEntity 只负责身份绑定、scene object 生命周期和组件生命周期转发；不要把可见性、位移、交互计数、完成状态、奖励结算等业务便利函数塞进 Entity 基类。',
+  '当前默认 gmp-v14 legacy 场景引用入口只允许 GMP_SceneEntityRefs 或 serialized refs；显式 unitycomponent-v1 使用 GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs；禁止通用 object binding 表、隐藏运行时对象表、GameSceneCtrl / SceneObjectRegistry 第二入口。',
+  'GMP_SceneEntityRefs 只登记玩家、相机/HUD 目标、建筑、交互点、CTA 等关键持久对象；子弹、金币、掉落、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象必须走 GMP_Pool 的 prefab/pool archetype、Preload、Get、Return/ReturnAfter，不写成 1000 个 serialized refs。',
+  '跨脚本调用要有明确通道：强所有权关系用 serialized refs/构造注入，广播和模块联动用 GMP_EventModule.Subscribe/Publish/Unsubscribe，不要让所有模块互相 instance. 直连。',
+  '逻辑与表现分离：根节点挂逻辑和碰撞/交互，表现资源挂子节点；一节点一主脚本，无生命周期能力必须是继承 GMP_BaseComponent 的纯逻辑 C# 能力，不挂成 MonoBehaviour。',
+  '注释只写关键；复杂脚本参数说明要清楚；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。',
+  '只保留会被调用的方法；必要兜底才写；Missing Mono Script、Rigidbody、Collider、Animator 等场景问题优先由 AIBridge/MCP/Editor 修场景。',
+  '单例和管理器禁止 MonoSingleton<T>，用场景预挂 mInstance + 只读 instance；禁止静态 Init/Get/Return 工作流。',
+  '距离门槛用 sqrMagnitude；MoveSpeed 归 MovementComponent；Init/Configure/Setup 未被调用就删除；依赖 Awake/Start 时不保留并行 Init。',
+  'Player/HUD/Camera/关键实体必须走固定 Player 引用或 serialized refs；缺引用只 Debug.LogError，不写 runtime 扫描、创建、修组件 fallback。',
+  'Phase 是连续试玩流程，不重置全场；流程资产用 Flow01_<业务语义>.asset，mPhaseId 用 flow01_<业务语义>。',
+  'AIBridge 预水合后删除临时脚本、primitive builder、source spec helper、通用绑定表和运行时场景生成/修复代码。',
+  '代码/管理器节点收纳到 MainGame；CanvasScaler 使用 1080x1920、Match 0.5；GMP_TipsManager.mTipText 绑定 Text_StepToast，不扫描 Text 或硬改布局。',
+  'GMP_EventModule 提供 Subscribe、Unsubscribe、UnSubScribe；游戏入口发布 ScreenChanged + GMP_ScreenChangeEvent，监听方显式订阅和注销。',
+  'GMP_Audio 暴露 mLoopSources 和 mOneShotSources，并保留 musicChannelDatas、PlayAudioInGroup、StopAudio、StopAllAudio、StopAudioGroup、首触解静音和音阶播放语义。',
+  'GMP_CameraController 交付默认正交相机，phase/end 构图只写目标状态并由 LateUpdate 平滑收敛。',
+  '交付文档必须说明流程修改、删除、增加并给例子。'
+].join('\n');
+
 function envFlag(name, env) {
   env = env || process.env;
   return /^(1|true|yes|on)$/i.test(String(env[name] || ''));
@@ -1023,7 +1052,6 @@ function stripGenericMethodCallsForLuna(src) {
   next = next.replace(/\(\s*Font\s*\)\s*Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*Font\s*\)\s*,\s*[^)]*\)/g, 'Resources.Load<Font>("DefaultFont")');
   next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, 'default($1)');
   next = next.replace(/Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*,\s*[^)]*\)/g, 'default($1)');
-  next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
   next = next.replace(/((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '(($2)$1.GetComponent(typeof($2)))');
   next = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');
   next = next.replace(/\bCreateLocalCanvas\s*\(/g, 'GFM_UI.CreateCanvas(');
@@ -1323,11 +1351,22 @@ ${whitelistBlock}
 如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain*.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 WHITELIST 列出的 partial 文件里找禁用 API 的调用并删除/替换**。
 
 ### ⛔ 当前任务的硬约束
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 - 禁止使用泛型 API：\`GetComponent<T>()\`、\`FindObjectOfType<T>()\`、\`Resources.GetBuiltinResource<T>()\`
 - 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
-- 不要直接写 \`GameObject.Find("__Pool_*")\`；实体引用统一来自 \`RegisterEntityBindings()/GameSceneCtrl\`
+- 不要直接写 \`GameObject.Find("__Pool_*")\`；Luna/WebGL staging 可用骨架绑定层，默认 gmp-v14 legacy 程序员 Unity 交付必须由 AIBridge 写入 \`GMP_SceneEntityRefs\`/serialized refs，显式 unitycomponent-v1 使用 GameEntry.prefab / BlueprintPlayableManager / UnityDeliverySpec bake 数据 / serialized refs
+- 程序员可交付反馈规则：一节点一主脚本；无生命周期能力必须是继承 \`GMP_BaseComponent\` 的纯逻辑 C# 能力，不挂成 MonoBehaviour；变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；必要兜底才写
+- 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段
+- 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流
+- 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用
+- 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段
+- 场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉；不要在业务代码里反复 Find/AddComponent/修复
+- Player、HUD、相机和关键实体必须走固定 Player 引用、serialized field、\`GMP_SceneEntityRefs\` 或固定 addressable path；缺引用只允许短路 Debug.LogError，不要写运行时扫描、创建、修组件的 fallback
+- \`GMP_SceneEntityRefs\`/serialized refs 是程序员交付的人类可见实体引用入口；不要生成通用 object binding 表，也不要保留 \`GameSceneCtrl\` / \`SceneObjectRegistry\` 这类隐藏运行时对象表作为第二入口
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 \`Flow01_<业务语义>.asset\`，\`mPhaseId\` 用 \`flow01_<业务语义>\`，禁止只叫 \`Phase1.asset\` / \`phase1\`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验
+- AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool
 - 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
 - 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
 - AutoPlay fallback 只能在 \`Phase_*_OnAutoPlayArrive()\`，不要塞进 \`Phase_*_OnTap()\`
@@ -1407,6 +1446,9 @@ ${inlineSkeletonSystems}
 4. 全部填充完成后运行 bash build-test.sh 验证编译
 5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
 
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
+
 两个文件是 partial class，共享所有字段。`
         : `## 任务：生成 Luna 试玩广告代码
 
@@ -1430,6 +1472,9 @@ ${inlineSkeletonMain}
 3. 全部填充完成后运行 bash build-test.sh 验证编译
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
+
 代码必须完整（1300-1600 行），不要省略任何部分。`)
       : `## 任务：生成 Luna 试玩广告代码
 
@@ -1445,6 +1490,9 @@ ${inlinePromptMd}
 2. 用 Write 工具写入 Assets/Program/Script/Manager/GameFlowManagerMain.cs（注意：先 Read 一下文件）
 3. 运行 bash build-test.sh 验证编译
 4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
+
+可读性要求：复杂脚本参数说明要贴近代码；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等职责。
+${PROGRAMMER_DELIVERY_PROMPT_CONTRACT}
 
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
@@ -1484,7 +1532,9 @@ ${inlinePromptMd}
         + '4. Read ALL existing GameFlowManagerMain*.cs partial files FIRST, then apply targeted edits based on the feedback. Do NOT invent file names — use `ls` or `Glob` on the Manager/ directory to discover which partials actually exist.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
         + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.\n'
-        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.'
+        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; Luna/WebGL staging uses existing bound entity fields, while programmer delivery uses Inspector-hydrated serialized refs. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.\n'
+        + '8. Keep programmer-delivery maintainability: one primary script per node, plain C# classes for abilities without Unity lifecycle, meaningful variable names, no unused methods, inline one-call one-line helpers, and only necessary fallbacks.\n'
+        + '9. Keep readability: explain parameters for complex scripts or multi-param helpers near the declaration/call site, and use blank lines only to separate meaningful blocks such as fields, initialization, input, state progression, UI, validation, and fallback code.'
       : null,
     workDir: clientDir,
   };
@@ -1537,13 +1587,14 @@ ${inlinePromptMd}
   const combinedSrc = mainSrc + '\n' + systemsSrc;
   const lineCount = mainLineCount + systemsLineCount;
   const findCalls = (combinedSrc.match(/GameObject\.Find/g) || []).length;
+  const bindingCalls = (combinedSrc.match(/GameSceneCtrl\.instance\.Get|RegisterEntityBindings|_entityBindingIds/g) || []).length;
   const gfmCreateCalls = (combinedSrc.match(/GFM_Create\.Obj/g) || []).length;
   const hasGameEnded = /GameEnded/.test(combinedSrc);
 
   if (hasSystems) {
-    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${findCalls} Find() calls`, taskId);
+    log(`[codex-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls (should be 0)`, taskId);
   } else {
-    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
+    log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${bindingCalls} binding refs, ${findCalls} legacy Find() calls (should be 0), ${gfmCreateCalls} GFM_Create.Obj() calls (should be 0)`, taskId);
   }
 
   if (hasFeedback && opts.existingCode) {
@@ -1560,7 +1611,13 @@ ${inlinePromptMd}
   }
 
   if (gfmCreateCalls > 0) {
-    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use Find() instead', taskId);
+    log('[codex-code] ⚠️ WARNING: AI used GFM_Create.Obj() — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
+  }
+  if (findCalls > 0) {
+    log('[codex-code] ⚠️ WARNING: AI used GameObject.Find() — Luna staging should use existing bindings/GameSceneCtrl; programmer delivery should use Inspector-hydrated refs', taskId);
+  }
+  if (bindingCalls === 0) {
+    log('[codex-code] ⚠️ WARNING: No binding refs found — AI may not be using hydrated scene objects', taskId);
   }
   if (!hasGameEnded) {
     log('[codex-code] ⚠️ WARNING: No GameEnded() call', taskId);
@@ -1573,12 +1630,12 @@ ${inlinePromptMd}
     : 0;
   const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
   const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.2 && realTodoCount > 5;
-  if (lineCount < 100 || (findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
+  if (lineCount < 100 || (bindingCalls === 0 && findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
     const stubReason = lineCount < 100
       ? `Only ${lineCount} lines (need ≥100)`
       : isUnmodifiedSkeleton
         ? `Skeleton unmodified (${skeletonLineCount}→${lineCount} lines, ${realTodoCount} unfilled TODOs) — codex code runner likely timed out`
-        : `0 Find() and 0 GFM_Create.Obj() calls (no objects created)`;
+        : `0 binding refs, 0 Find(), and 0 GFM_Create.Obj() calls (no objects referenced)`;
     log(`[codex-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
     if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
       log('[codex-code] Clearing feedbackHistory to force FULL_GENERATION on next attempt', taskId);

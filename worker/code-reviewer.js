@@ -48,13 +48,14 @@ NOT on the patterns above. Re-flagging them wastes a fix-loop round.**
 ## Tier 1 — INSTANT FAIL (check these first, any violation = FAIL)
 
 ### 1. Object Naming — Pool Objects
-- All GameObject.Find() calls MUST use pool names matching the pattern: __Pool_{Shape}_{Color}_{NN}
+- Luna/WebGL staging gameplay code must use pre-bound fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get(entityName); final programmer delivery must use AIBridge/Inspector hydrated GMP_SceneEntityRefs or serialized refs. Do not add direct GameObject.Find("__Pool_*") calls in business logic.
+- If legacy Luna/WebGL staging binding code still contains GameObject.Find(), those calls MUST use pool names matching the pattern: __Pool_{Shape}_{Color}_{NN}
 - Valid shapes: Cube, Sphere, Cylinder, Plane
 - Valid colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink
-- Valid format examples: __Pool_Cube_Red_01, __Pool_Sphere_Blue_02, __Pool_Plane_Green_01, __Pool_Cylinder_White_03
-- The prompt provides exact pool name assignments for each entity — code MUST use those exact names
-- NEVER use concept names like "Building_1", "Player", "Tree" — these DO NOT exist → Find returns null → solid color screen
-- Do NOT construct pool names dynamically (e.g., idx.ToString("D2")) — Bridge.NET string formatting is unreliable. Use explicit string literals.
+- Valid format examples in staging binding only: __Pool_Cube_Red_01, __Pool_Sphere_Blue_02, __Pool_Plane_Green_01, __Pool_Cylinder_White_03
+- The prompt provides approved entity-to-pool assignments — gameplay code must use entity keys or bound fields, not raw pool-name literals.
+- NEVER look up concept names like "Building_1", "Player", "Tree" via GameObject.Find — these are not pool names and return null.
+- Do NOT construct pool names dynamically (e.g., idx.ToString("D2")) — use approved static entity bindings instead.
 
 ### 2. Forbidden APIs (will be invisible or crash)
 - CreatePrimitive() — objects are INVISIBLE in Luna (Runtime Analysis strips them)
@@ -184,7 +185,7 @@ class EventPool — already blocked by static-check, do not re-flag)
 - GFM_Create.InitMaterialFromScene() — NO LONGER needed; colors are pre-baked at build time
 - GFM_Create.SetColor() — NO LONGER needed; pool objects already have baked colors (e.g., __Pool_Cube_Red_01 is already red)
 - GFM_Create.ResetPool() — NO LONGER needed in current skeleton
-- GFM_Create.Obj() — Do NOT create new objects; use GameObject.Find() to locate pre-existing pool objects
+- GFM_Create.Obj() — Do NOT create new objects; Luna/WebGL staging uses pre-bound skeleton fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get("EntityName"); final programmer delivery uses AIBridge/Inspector hydrated GMP_SceneEntityRefs or serialized refs
 - GFM_Create.Ground() — Ground is pre-created in skeleton
 
 ### 13. Architecture (V5 phase-driven)
@@ -227,6 +228,51 @@ function isSkeletonReviewFalsePositive(rule) {
     (text.indexOf('dynamic pool') >= 0 || text.indexOf('pool names dynamically') >= 0)
   ) return true;
   return false;
+}
+
+function sanitizeLearningRuleText(text) {
+  var out = String(text || '');
+  out = out.replace(
+    /Use GameObject\.Find\("__Pool_Cube_Red_01"\) to get a red cube\. Available shapes: Cube, Sphere, Cylinder, Plane\. Available colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink\./g,
+    'Use the project entity-to-pool binding map through Luna/WebGL staging pre-bound fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get(entityName); final programmer delivery uses AIBridge/Inspector hydrated GMP_SceneEntityRefs or serialized refs. Do not add direct GameObject.Find("__Pool_*") calls in gameplay code.'
+  );
+  out = out.replace(
+    /Use only pre-existing pool objects found by explicit literal names\. If extra entities are needed, map them to additional valid pool objects with explicit GameObject\.Find\("__Pool_\.\.\."\) literals\./g,
+    'Use only pre-existing pool objects through the approved entity-to-pool binding map in Luna/WebGL staging, or through scene hydration data in programmer delivery. If extra entities are needed, extend the binding map or hydration data; do not add direct GameObject.Find("__Pool_*") literals in gameplay code.'
+  );
+  out = out.replace(
+    /pool objects must be pre-existing and located via GameObject\.Find\(\), not duplicated at runtime/g,
+    'pool objects must be pre-existing and reached through the approved binding map, not duplicated at runtime'
+  );
+  out = out.replace(
+    /Luna rules require pre-existing pooled objects via GameObject\.Find\(\);/g,
+    'Luna rules require pre-existing pooled objects via the approved binding map;'
+  );
+  out = out.replace(
+    /pre-existing pooled objects found by exact pool names/g,
+    'pre-existing pooled objects reached through the approved entity-to-pool binding map'
+  );
+  out = out.replace(
+    /Only use the exact approved pool names from the project mapping\. Do not find extra unnamed objects or __Ground unless explicitly provided by the blueprint\./g,
+    'Only use the approved entity-to-pool bindings from the project mapping. Do not look up extra unnamed objects or __Ground unless explicitly bound by the blueprint.'
+  );
+  out = out.replace(
+    /Replace with explicit string literals for each pooled object, or remove this logic\. Do not concatenate pool names at runtime\./g,
+    'Replace with approved entity-to-pool bindings, or remove this logic. Do not concatenate pool names or add direct pool-name lookups at runtime.'
+  );
+  out = out.replace(
+    /Use only pre-baked pooled scene objects referenced by exact pool names\. Do not Instantiate runtime clones\./g,
+    'Use only pre-baked pooled scene objects reached through approved bindings. Do not Instantiate runtime clones.'
+  );
+  out = out.replace(
+    /Never Find by semantic names\. Use the exact provided pool-name literals mapped for this project, or directly use already-cached object references\./g,
+    'Never Find by semantic names. Use approved entity-to-pool bindings or already-cached object references; do not add raw pool-name literals in gameplay code.'
+  );
+  out = out.replace(
+    /The following are the ONLY valid pool names\. Any other names in GameObject\.Find\(\) are WRONG:/g,
+    'The following are the ONLY valid Luna/WebGL staging entity-to-pool bindings. Do not add direct GameObject.Find("__Pool_*") calls; use bound fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get(entityName). Final programmer delivery uses AIBridge/Inspector hydrated GMP_SceneEntityRefs or serialized refs:'
+  );
+  return out;
 }
 
 function getPromotedRuleProjectCount(rule) {
@@ -277,13 +323,13 @@ function getDynamicRulesText() {
   if (criticals.length > 0) {
     lines.push('\n## Auto-Promoted Rules — CRITICAL (must check)\n');
     for (var ci = 0; ci < criticals.length; ci++) {
-      lines.push('- ' + criticals[ci].description + ' — FIX: ' + (criticals[ci].fix || 'see rule'));
+      lines.push('- ' + sanitizeLearningRuleText(criticals[ci].description) + ' — FIX: ' + sanitizeLearningRuleText(criticals[ci].fix || 'see rule'));
     }
   }
   if (topWarnings.length > 0) {
     lines.push('\n## Auto-Promoted Rules — WARNING (top ' + topWarnings.length + ' by frequency)\n');
     for (var wi = 0; wi < topWarnings.length; wi++) {
-      lines.push('- ' + topWarnings[wi].description + ' — FIX: ' + (topWarnings[wi].fix || 'see rule'));
+      lines.push('- ' + sanitizeLearningRuleText(topWarnings[wi].description) + ' — FIX: ' + sanitizeLearningRuleText(topWarnings[wi].fix || 'see rule'));
     }
   }
   return lines.join('\n') + anomalyRules;
@@ -464,9 +510,9 @@ async function recordNewIssues(issues, taskId) {
   for (var i = 0; i < issues.length; i++) {
     if (issues[i].severity === 'critical' && !isKnownIssue(issues[i])) {
       newIssues.push({
-        description: issues[i].description,
+        description: sanitizeLearningRuleText(issues[i].description),
         rule: normalizeRuleName(issues[i].rule),
-        fix: issues[i].fix,
+        fix: sanitizeLearningRuleText(issues[i].fix),
         severity: issues[i].severity || 'critical',
         stage: issues[i].stage || 'review',
         line: issues[i].line,
@@ -647,7 +693,7 @@ Respond with a JSON object (no markdown, no code fences):
   // Inject pool name mapping if provided
   if (options.poolNameMap) {
     systemPrompt += '\n\n## Valid Pool Names for This Project\n';
-    systemPrompt += 'The following are the ONLY valid pool names. Any other names in GameObject.Find() are WRONG:\n';
+    systemPrompt += 'The following are the ONLY valid Luna/WebGL staging entity-to-pool bindings. Do not add direct GameObject.Find("__Pool_*") calls; use bound fields, RegisterEntityBindings(), or GameSceneCtrl.instance.Get(entityName). Final programmer delivery uses AIBridge/Inspector hydrated GMP_SceneEntityRefs or serialized refs:\n';
     Object.keys(options.poolNameMap).forEach(function(entity) {
       systemPrompt += '- ' + entity + ' → ' + options.poolNameMap[entity] + '\n';
     });
@@ -774,5 +820,6 @@ module.exports = {
   getPromotedRuleProjectCount,
   isInjectablePromotedRule,
   loadInjectablePromotedRules,
+  sanitizeLearningRuleText,
   PENDING_RULES_PATH
 };

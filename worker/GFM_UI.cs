@@ -188,15 +188,27 @@ public static class GFM_UI
         }
 
         LayoutText("Text_Phase", new Vector2(-592f, 322f), new Vector2(92f, 34f), 15);
-        LayoutText("Text_Ice", new Vector2(-515f, 322f), new Vector2(62f, 34f), 15);
-        LayoutText("Text_Oxygen", new Vector2(-445f, 322f), new Vector2(72f, 34f), 15);
-        LayoutText("Text_Scrap", new Vector2(-367f, 322f), new Vector2(78f, 34f), 15);
-        LayoutText("Text_Coin", new Vector2(-287f, 322f), new Vector2(78f, 34f), 15);
-        LayoutText("Text_Pickaxe", new Vector2(-160f, 322f), new Vector2(150f, 34f), 15);
+        LayoutResourceTexts();
         LayoutText("Text_Tip", new Vector2(0f, 270f), new Vector2(640f, 42f), 18);
         LayoutText("Text_TargetHint", new Vector2(0f, -308f), new Vector2(330f, 48f), 18);
         LayoutText("Text_StepToast", new Vector2(0f, 220f), new Vector2(420f, 46f), 20);
         if (includeJoystick && !IsJoystickDragging()) LayoutJoystick("JoystickBG", "JoystickHandle");
+    }
+
+    private static void LayoutResourceTexts()
+    {
+        Text[] texts = Resources.FindObjectsOfTypeAll<Text>();
+        int fallbackSlot = 0;
+        for (int i = 0; i < texts.Length; i++)
+        {
+            Text text = texts[i];
+            if (IsMissing(text) || IsMissing(text.gameObject)) continue;
+            if (!text.gameObject.name.StartsWith("Text_Resource_")) continue;
+            var rect = (RectTransform)text.GetComponent(typeof(RectTransform));
+            Vector2 pos = !IsMissing(rect) ? rect.anchoredPosition : new Vector2(-505f + fallbackSlot * 158f, 322f);
+            LayoutText(text.gameObject.name, pos, new Vector2(150f, 34f), 15);
+            fallbackSlot++;
+        }
     }
 
     private static bool IsJoystickDragging()

@@ -18,6 +18,29 @@ function clone(value) {
   return value == null ? null : JSON.parse(JSON.stringify(value));
 }
 
+function computeSourceRuntimeResources(resources, phases, phaseIndex) {
+  var out = {};
+  safeArray(resources).forEach(function(resource) {
+    if (!resource || !resource.id) return;
+    out[resource.id] = Number(resource.initial) || 0;
+  });
+  safeArray(phases).slice(0, Math.max(0, phaseIndex)).forEach(function(phase) {
+    safeArray(phase && phase.steps).forEach(function(step) {
+      var kind = String(step && step.kind || '');
+      var id = step && step.resource;
+      if (!id) return;
+      if (kind === 'collect' || kind === 'produce' || kind === 'reward') {
+        out[id] = Number(out[id] || 0) + (Number(step.amount) || 1);
+      } else if (kind === 'deliver' || kind === 'transfer' || kind === 'combine') {
+        out[id] = Math.max(0, Number(out[id] || 0) - (Number(step.amount || step.cost) || 1));
+      } else if (kind === 'set_resource') {
+        out[id] = Number(step.amount || step.value) || 0;
+      }
+    });
+  });
+  return out;
+}
+
 function sourcePositionObject(entity) {
   var position = safeArray(entity && entity.position);
   return {
@@ -103,6 +126,12 @@ function colorString(value, fallback) {
 
 function inferredPrimitive(entity, op) {
   var primitive = String(op && (op.primitive || op.kind) || '').toLowerCase();
+  var explicitKind = !!(op && op.kind && op.kind !== 'primitive');
+  if (explicitKind) {
+    if (primitive === 'capsule') return 'cylinder';
+    if (primitive === 'cube') return 'box';
+    return primitive || 'box';
+  }
   if (primitive === 'primitive') primitive = String(op && op.primitive || '').toLowerCase();
   if (!primitive || primitive === 'box') {
     var text = String(entity && entity.kind || '') + ' ' + String(entity && entity.id || '');
@@ -320,6 +349,15 @@ function compileVisualGeometry(ir, options) {
 
 function compileSourcePhaseContract(ir) {
   var projection = projectSourceSceneIrToLegacy(ir);
+  var resources = safeArray(ir.resources).map(function(resource) {
+    return {
+      id: resource.id,
+      label: resource.label || resource.id,
+      kind: resource.kind || resource.type || 'resource',
+      carrierEntity: resource.carrierEntity || resource.entity || null,
+      initial: Number(resource.initial) || 0,
+    };
+  });
   var phases = safeArray(ir.phases).map(function(phase, index) {
     var projected = projection.PHASES[index] || {};
     return {
@@ -336,7 +374,7 @@ function compileSourcePhaseContract(ir) {
       targetSequence: safeArray(phase.targetSequence),
       runtimeTargetSequence: safeArray(phase.targetSequence),
       runtimeVisibleEntities: safeArray(phase.showEntities),
-      runtimeResources: {},
+      runtimeResources: computeSourceRuntimeResources(resources, ir.phases, index),
       hudText: phase.hudText || null,
       diagnostics: [],
     };
@@ -346,6 +384,7 @@ function compileSourcePhaseContract(ir) {
     carrier: 'window.__BP_SOURCE_IR__.phases',
     phaseCount: phases.length,
     phases: phases,
+    resources: resources,
     visibilityRules: {},
     resourceRules: [],
     diagnostics: [],

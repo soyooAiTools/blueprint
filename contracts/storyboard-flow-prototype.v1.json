@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.storyboardFlowPrototype.schema",
+  "contractVersion": "storyboard-flow-prototype.v1",
+  "description": "Human-authored storyboard flow contract used as an experimental bridge into SourceSceneIR. This file describes the authoring shape and validation rules; SourceSceneIR remains the production fact source after conversion.",
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "kind",
+    "projectName",
+    "phases",
+    "entities",
+    "resources"
+  ],
+  "expectedValues": {
+    "schemaVersion": "storyboard-flow-prototype.v1",
+    "kind": "blueprint.storyboardFlowPrototype"
+  },
+  "phaseRequiredKeys": [
+    "order",
+    "id",
+    "title",
+    "guideText",
+    "requiredInteractions",
+    "completeCondition",
+    "visibleEntities"
+  ],
+  "runtimePhaseRange": {
+    "min": 10,
+    "max": 13
+  },
+  "interactionDsl": {
+    "format": "verb[:arg1[:arg2[:arg3]]]",
+    "allowedVerbs": [
+      "move",
+      "move_to",
+      "collect",
+      "produce",
+      "reward",
+      "deliver",
+      "transfer",
+      "combine",
+      "unlock",
+      "build",
+      "upgrade",
+      "show",
+      "spawn",
+      "hide",
+      "despawn",
+      "select",
+      "attack",
+      "wait",
+      "click"
+    ],
+    "resourceVerbs": [
+      "collect",
+      "produce",
+      "reward",
+      "deliver",
+      "transfer",
+      "combine"
+    ],
+    "targetVerbs": [
+      "move",
+      "move_to",
+      "deliver",
+      "transfer",
+      "combine",
+      "unlock",
+      "upgrade",
+      "show"
+    ],
+    "finalPhaseOnlyVerbs": [
+      "click"
+    ],
+    "explicitCombineOnly": true
+  },
+  "catalogs": {
+    "entities": "Stable entity ids, human labels, kinds, optional visuals, and optional positions.",
+    "resources": "Stable resource ids, human labels, carrierEntity, and optional initial count.",
+    "resourceCarrierRule": "Each referenced resource should declare carrierEntity; the converter may materialize missing carriers but the authoring report warns about it."
+  },
+  "completionConditions": {
+    "supportedClauses": [
+      "Resource >= number",
+      "Resource.amount >= number",
+      "Entity.level == number",
+      "Entity.unlocked == true",
+      "Entity.visible == true",
+      "Entity.packed == true",
+      "CtaButton.clicked == true"
+    ],
+    "compoundSeparator": "&&"
+  },
+  "preflightRules": [
+    "Flow must be an object and include at least one phase.",
+    "Phase ids must be unique.",
+    "Each phase must include title, guideText, requiredInteractions, completeCondition, and visibleEntities.",
+    "requiredInteractions verbs must be in interactionDsl.allowedVerbs.",
+    "Resource verbs must include a resource id.",
+    "Target verbs must include a target id.",
+    "click:* interactions are only allowed in the final CTA phase.",
+    "Merge or collision words in visualNotes are informational only and must not create combine steps unless requiredInteractions contains combine:*.",
+    "Referenced resources should exist in resources[] and declare carrierEntity."
+  ],
+  "authoringReport": {
+    "schemaVersion": "storyboard-flow-authoring-preflight.v1",
+    "path": "storyboard-flow-authoring-report.json",
+    "issueSeverities": [
+      "blocker",
+      "warn",
+      "info"
+    ],
+    "resourceSnapshots": "Per-phase entering/after resource counts derived only from requiredInteractions and resources[].initial."
+  },
+  "downstreamPolicy": [
+    "A flow export is not production-ready until storyboard-flow-authoring-report.json passes with zero blockers.",
+    "After conversion, source-ir-preflight.json must pass before SourceIR/Blueprint/WebGL/Luna handoff.",
+    "Visual parity, guideText parity, runtime contract, and CUA evidence remain downstream requirements."
+  ]
+}

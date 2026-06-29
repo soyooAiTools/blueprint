@@ -1,8 +1,8 @@
 /**
  * Blueprint V5 Prompt Generator — 基础样例工程模式
  * 
- * 核心变化：场景已预制 160 个带颜色的对象，AI 只需 Find + Move + 写逻辑
- * 不再需要 GFM_Create.Obj / GFM_UI.CreateCanvas 等创建 API
+ * 核心变化：场景已预制 160 个带颜色的对象，AI 优先使用骨架绑定字段 / GameSceneCtrl，
+ * 只在 Luna staging 绑定层兜底解析池对象；不再需要 GFM_Create.Obj / GFM_UI.CreateCanvas 等创建 API。
  */
 
 var fs = require('fs');
@@ -190,6 +190,56 @@ function computeReservePool(prefabMap) {
   return reserves;
 }
 
+function appendUnityProgramArchitectureRules(lines) {
+  lines.push('## 🚨 程序架构硬规则（最终 Unity 交付必须严格执行）');
+  lines.push('本段只约束当前默认 `gmp-v14` legacy prompt；显式 `unitycomponent-v1` profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate，不生成旧 `Blueprint.UnityComponent` namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。');
+  lines.push('当前 worker 仍输出 `GameFlowManagerMain` partial，但这些职责会在程序员交付阶段清洗为 `Core` / `Tool` / `Game`；生成代码时必须先按这个最终架构契约划边界。');
+  lines.push('1. `Assets/Scripts` 最终只允许 `Core` / `Tool` / `Game` 三个顶层目录；`Core`/`Tool` 保持跨项目通用，`Game` 承载本项目一次性业务逻辑。');
+  lines.push('2. `Core/Base` 放核心 enum、实体/角色/NPC 基类；管理器禁止继承 `MonoSingleton<T>`，统一用场景预挂实例里的 `private static <Type> mInstance` + 只读 `instance` getter，getter 缺实例返回 `null` 且不创建对象；`Core/Components` 放 Movement、Trigger、Interaction、Inventory、Skill 等可选组件；`Core/Modules` 放 MainManager、Pool、Audio、Level/Phase、Event、Drop/Item、UI、Economy、Npc 等核心模块。');
+  lines.push('2.1 Unity 程序员交付框架冲突以 `/nickTemp/UnityComponent(3).rar` / UnityComponent(3) 工程文档为准：按 `Entity` 持有 scene object 生命周期、`[Serializable] BaseComponent` 承载纯逻辑能力、`EntityManager` 注册并统一 Tick entity、模块间通信优先 EventModule 的理念落地。');
+  lines.push('2.2 当前默认 `gmp-v14` legacy 落地到本工程必须使用 GMP 命名：`Core/Base` 至少包含 `GMP_BaseComponent` 与 `GMP_BaseGameFlowEntity`，`Core/Modules` 至少包含 `GMP_EntityManager`；实体必须提供 `AddEcsComponent`、`GetEcsComponent<T>`、`GetFirstEcsComponent<T>`、`HasEcsComponent<T>`，组件生命周期顺序为 `OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy`。');
+  lines.push('2.3 `GMP_MainManager` 是 blueprint 兼容的 GameEntry：集中缓存/初始化 Pool、Audio、Event、EntityManager、UI、Economy、Item/Npc、Phase/Level，并在唯一 Update 中调度 `GMP_EntityManager.Tick(dt)`；不要照搬 UnityComponent 的 Odin/DOTween/本地 Luna 路径，也不要 runtime 创建常驻管理器。确有多 scene 生命周期时可让场景预挂 Manager 持久化，但不能用代码临时 new 管理器。');
+  lines.push('2.4 UnityComponent(3) 只覆盖程序员 Unity 交付框架冲突；Storyboard2HTML/source HTML/SourceSceneIR/WebGL 的 phase、guideText、targetSequence、entity/resource/gate 一致性仍是最高红线，不得为了框架改造改写语义链路。');
+  lines.push('3. 核心管理层只能有一个主管理器：集中初始化对象池、音频、事件、UI、经济、物品/掉落、NPC、关卡/Phase 等模块，然后启动关卡；PhaseController/Level 不能绕过 MainManager 自启动。');
+  lines.push('4. 状态和步骤类型必须用 enum，例如 `GameState`、`EntityState`、`PhaseGateKind`、`PhaseStepKind`；禁止用 0/1/2 魔法数字或裸字符串表达跨层状态。');
+  lines.push('5. 简单项目自定义继承深度不得超过三层；角色、怪物、交互都属于 Game/Level 业务，禁止把具体项目实体名、资源名、关卡流程写进 Core。');
+  lines.push('6. Player/NPC/Entity 必须走“基类 + 可选组件”组合：Player 按项目真实需要选择 Movement、Trigger、Interaction、Inventory、Skill；不要把所有组件默认塞进 Player。背包能力用 InventoryComponent 扩展，不能把 CarryingType/Carrying 等业务字段散落在 Player 上作为唯一事实源。');
+  lines.push('6.1 组件必须是真能力而不是装饰：`GMP_BaseComponent` 子类要拥有自己的状态、调参和语义 API，或通过 OnUpdate/事件订阅参与生命周期；禁止只 `new` 出来再 `AddEcsComponent`，但实际逻辑仍复制在 Entity/Manager 里。');
+  lines.push('6.2 `GMP_BaseGameFlowEntity` 只负责身份绑定、scene object 生命周期和组件生命周期转发；不要把可见性、位移、交互计数、完成状态、奖励结算等业务便利函数塞进 Entity 基类。位移归 Movement，触发归 Trigger/Interaction，进度归 Game/Level 规则或具体业务实体。');
+  lines.push('7. Tool 层要沉淀跨项目稳定工具：相机、UI 布局校正、视觉引导、primitive/表现辅助等；工具不得硬编码项目实体、资源、phase 文案；Canvas 和核心 UI 节点必须在场景中预创建，不要在业务脚本里 `CreateCanvas/CreateText/AddComponent<Canvas>`。');
+  lines.push('8. 音频必须复用集中式 `GMP_Audio` 管理器，Inspector 暴露 `mLoopSources` 与 `mOneShotSources` 多音源数组；业务只能调用 Audio module API，禁止每个业务对象私建单一 AudioSource。');
+  lines.push('8.1 `GMP_Audio` 必须保留参考 AudioManager 的分组通道 API：`musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义，不能瘦身成只有单 BGM/SFX。');
+  lines.push('9. 新增业务代码优先写入 `Game/Level`、`Game/Entities`、`Game/Player`；只有跨项目复用能力才允许下沉到 `Core/Components` 或 `Tool`。');
+  lines.push('10. 有 Unity Editor + AIBridge/MCP 时，程序员交付必须用真实场景信息做 Inspector/scene hydration；业务代码禁止靠 runtime `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)` 补常驻场景结构。');
+  lines.push('10.1 AIBridge 证据必须来自实际运行 AIBridgeCLI，不允许只凭静态报告或项目内路径猜测：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再运行 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`；把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`。CLI 找到但 Unity Editor/AIBridge 会话超时时必须记录为 `editor-timeout`，不能写成 CLI not found。');
+  lines.push('10.2 Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。');
+  lines.push('11. 管理器、HUD、相机、音频和实体引用优先用 `[SerializeField]` / Inspector 赋值；`GetComponent` 只用于当前对象或子对象的局部组件访问，且不要把它当依赖注入方案；场景层级中代码/管理器节点收纳到 `MainGame` 子级下，避免 `GMP_*` 根节点平铺。');
+  lines.push('11.1 Canvas 标准：场景预创建 `Canvas` + `CanvasScaler` + `GraphicRaycaster`，Render Mode = Screen Space - Overlay，Sort Order = 100，CanvasScaler = Scale With Screen Size，Reference Resolution = 1080x1920，Match = 0.5。');
+  lines.push('12. `GMP_SceneEntityRefs`/serialized refs 是程序员交付的人类可见关键场景实体引用入口，由 AIBridge/Editor 预先写入玩家、相机/HUD 目标、建筑、交互点、CTA 等持久对象；禁止生成通用 object binding 表、隐藏并行数组，也不要保留 `GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口。');
+  lines.push('12.1 子弹、金币、掉落物、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象不进入 `GMP_SceneEntityRefs`，也不要预写成 1000 个 serialized refs；它们必须走 `GMP_Pool` 的 prefab/pool archetype、`Preload`、`Get`、`Return/ReturnAfter`。业务层只向 Pool 请求对象，不直接 Instantiate 作为兜底。');
+  lines.push('12.2 跨脚本调用要有明确通道：强所有权关系用 serialized refs/构造注入，广播和模块联动用 `GMP_EventModule.Subscribe/Publish/Unsubscribe`，不要把所有模块互相 `instance.` 直连成网状耦合。');
+  lines.push('13. 程序员可交付反馈规则：一节点一主脚本；只有需要 Unity 生命周期、Inspector 暴露或场景挂载的对象才继承 MonoBehaviour，Movement/Trigger/Interaction/Inventory 等无生命周期能力必须是继承 `GMP_BaseComponent` 的纯逻辑 C# 能力，不挂到场景节点。');
+  lines.push('14. 属性归属要贴组件：MoveSpeed 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只编排，不复制每个实体的调参字段。');
+  lines.push('15. 代码要让人类程序员能直接接手：变量名要说明业务含义；只保留会被调用的方法；只有一个调用点且只包一两行的逻辑直接内联；不要为了“看起来分层”拆一堆函数和变量。');
+  lines.push('16. 生命周期入口必须唯一：Init/Configure/Setup 未被调用就删除；如果逻辑依赖 MonoBehaviour 的 Awake/Start，就不要再保留并行 Init；禁止静态 Init/Get/Return 工作流。');
+  lines.push('17. 场景问题优先由 AIBridge/MCP/Editor 处理：Missing Mono Script、Rigidbody、Collider、Animator 等配置不要在业务代码里反复 Find/AddComponent/修复。');
+  lines.push('18. 单例/管理器用场景预挂实例和 serialized refs；不要使用 `MonoSingleton<T>`，单例类里也不要再塞静态 Init/Get/Return 这类工作流方法。');
+  lines.push('18.1 `GMP_EventModule` 必须有显式 `Subscribe`、`Unsubscribe` 和 `UnSubScribe` 注销别名；禁止只有 Publish/Debug.Log 的假事件模块。');
+  lines.push('18.2 游戏入口必须检测 `Screen.width/Screen.height` 变化并发布 `GMP_LevelEventNames.ScreenChanged` + `GMP_ScreenChangeEvent`；监听方必须显式 Subscribe，并在 OnDestroy 用 UnSubScribe 注销。');
+  lines.push('19. 性能和兜底：距离门槛用 `sqrMagnitude`；必要兜底只保留真实可进入且有价值的分支。Player、HUD、相机和关键实体必须走固定 Player 引用、`[SerializeField]`、`GMP_SceneEntityRefs` 或固定 addressable path，缺引用只允许短路 `Debug.LogError`，不能堆运行时扫描、创建、修组件的 fallback。');
+  lines.push('20. Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；进入 phase 不能清空资源、重建 Player、重置全场或制造重新开始一局的体验。');
+  lines.push('21. AIBridge 预水合后要清掉一次性临时脚本、通用 object binding 表和运行时场景生成/修复代码：primitive builder、source spec helper、临时生成脚本只允许用于 Editor 侧烘焙；最终交付要删除或下沉为正式 Tool。');
+  lines.push('21.1 交付文档必须说明流程如何修改、删除、增加，并给一个具体例子；文档、代码关系图和实际 `FlowXX_<业务语义>.asset` / `GMP_PhaseController.mPhases` 必须一致。');
+  lines.push('21.2 `GMP_TipsManager.mTipText` 必须绑定场景预设 Text（如 Text_StepToast），TipsManager 不按名字扫描 Text，也不在代码里硬改 RectTransform 布局/字号/样式。`GMP_CameraController` 交付默认正交相机，phase/end 构图只写目标状态并由 LateUpdate 平滑收敛。');
+  lines.push('22. 脚本尽量在场景开始前就挂好；一次性功能不要拆成一堆空壳类、空函数或只包一行代码的 helper。');
+  lines.push('23. 逻辑与表现分离：根节点挂逻辑和碰撞/交互，骨骼、动画、mesh、特效等美术资源放子节点；除动画事件外，业务逻辑不得依赖表现节点结构。');
+  lines.push('24. 注释只写关键且不容易看懂的地方，用中文大白话说明原因或坑点；不要给自解释字段、Start/Tick 这类常规方法补机械注释。');
+  lines.push('25. 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用。');
+  lines.push('26. 有意义的空行分块：用空行分隔字段、初始化、输入处理、状态推进、UI 更新、验证/兜底等不同代码块；同一连续逻辑内部不滥用空行，也不要把不同职责挤成一段。');
+  lines.push('27. Luna staging 代码可以为了 WebGL 稳定使用骨架绑定和对象池映射；这些写法不得泄漏成程序员交付版的业务依赖。');
+  lines.push('');
+}
+
 /**
  * V5 蓝图 → AI Prompt（基础样例工程模式）
  */
@@ -287,31 +337,31 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- **GameFlowManagerMain.Scene.cs**：场景控制');
   lines.push('不要把功能重新塞回主文件。按职责把方法放进对应 partial 文件。');
   lines.push('`GameFlowManagerMain.cs` 应保持轻量：只保留初始化、Update 节拍、CheckEventRules 编排，以及对各系统方法的直接调用。');
-  lines.push('每个字段、每个方法的说明注释必须紧邻定义本身；不要只在文件顶部写总说明。');
-  lines.push('任何多行 `if (...)`、含 `&&` / `||` 的条件链，都必须在前一行写注释解释这个 gate 为什么存在。');
+  appendUnityProgramArchitectureRules(lines);
+  lines.push('说明注释只写在关键且不容易看懂的位置，并且要紧邻对应代码；不要只在文件顶部写总说明，也不要给字段名和普通 lifecycle 方法堆机械注释。');
+  lines.push('复杂 `if (...)`、含多层 `&&` / `||` 的 gate，前一行用中文大白话说明这个 gate 为什么存在。');
   lines.push('');
   lines.push('## 代码结构硬要求');
-  lines.push('1. **每个字段声明都必须有详细中文注释**，说明用途、生命周期、由谁更新。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-field` 会扫描每个 public/private 字段;无注释直接报 warning。');
-  lines.push('2. **每个方法都必须有详细中文注释**，说明输入、输出、副作用、调用时机。');
-  lines.push('   优先使用 `///` XML doc summary;紧邻方法上方一行 `//` 也算合规。');
-  lines.push('   交付校验规则 `delivery-comment-coverage-method` 强制此项。');
-  lines.push('3. **每个 ≥3 行的条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
+  lines.push('1. **不要给每个字段/方法机械补注释**。字段名、方法名已经能说明含义时保持干净；只有关键业务规则、容易踩坑的限制、复杂状态切换需要中文大白话注释。');
+  lines.push('2. **每个 ≥3 行的复杂条件分支建议有注释**，说明为什么进入该条件，而不是只写代码结果。');
   lines.push('   `if`/`else if`/`switch case` 块体 ≥ 3 行时由 `delivery-comment-coverage-condition` 校验。');
   lines.push('   单行 guard (`if (x == null) return;`) 不强制注释,避免噪声。');
-  lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
-  lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
-  lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
-  lines.push('7. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
+  lines.push('3. **复杂脚本参数说明要贴近代码**。当方法参数超过 3 个、参数含单位/边界，或函数横跨 phase/资源/实体状态时，在函数前或调用附近说明每个关键参数的用途、单位、边界和副作用。');
+  lines.push('4. **有意义的空行分块**。字段、初始化、输入处理、状态推进、UI 更新、验证/兜底之间用空行隔开；同一连续动作内部不要乱插空行，不同职责也不要挤成一个大段。');
+  lines.push('5. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。只有复用或能明显降低阅读难度时才拆私有方法；不要为一行代码拆函数。');
+  lines.push('6. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
+  lines.push('7. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
+  lines.push('8. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
+  lines.push('当前代码是 Luna/WebGL staging 层：对象池映射只用于稳定构建。程序员交付版会通过 AIBridge/MCP 把引用写进 Inspector/scene，业务代码不能依赖运行时查找。');
   lines.push('');
   lines.push('你只需要：');
-  lines.push('1. 优先使用骨架中已经绑定好的实体字段；如果代码里有 `RegisterEntityBindings()`，不要再写 `GameObject.Find("__Pool_*")`');
+  lines.push('1. Luna/WebGL staging 优先使用骨架中已经绑定好的实体字段 / `GameSceneCtrl.instance.Get("entityName")`；如果代码里有 `RegisterEntityBindings()`，不要再写 `GameObject.Find("__Pool_*")`。程序员交付版由 AIBridge/MCP 写入 Inspector/serialized refs。');
   lines.push('2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）');
   lines.push('3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）');
-  lines.push('4. 颜色已烘焙 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，无需 SetColor');
+  lines.push('4. 颜色已烘焙 — 使用对象分配表里的已绑定池对象，无需 SetColor');
   lines.push('5. 写游戏逻辑（交互、碰撞检测、流程控制）');
   lines.push('');
   lines.push('## 骨架已预创建的变量（直接使用，不要重新创建）');
@@ -351,7 +401,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('public partial class GameFlowManagerMain : MonoBehaviour');
   lines.push('{');
-  lines.push('    // === 对象引用（Start 中通过 Find 获取）===');
+  lines.push('    // === 对象引用（优先由 RegisterEntityBindings / GameSceneCtrl 绑定）===');
   
   // 根据蓝图实体生成引用声明
   var findLines = [];
@@ -359,8 +409,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entityNames.length; i++) {
     var eName = entityNames[i];
     var pName = prefabMap[eName];
-    lines.push('    GameObject ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + '; // → Find("' + pName + '")');
-    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameObject.Find("' + pName + '"); // MUST NOT be null — verify pool name matches');
+    lines.push('    GameObject ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + '; // staging 绑定池对象 `' + pName + '`');
+    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameSceneCtrl.instance != null ? GameSceneCtrl.instance.Get("' + eName + '") : null; // 新骨架优先从绑定表取');
   }
   
   lines.push('');
@@ -370,7 +420,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('    void Start()');
   lines.push('    {');
-  lines.push('        // 1. 获取对象引用');
+  lines.push('        // 1. 获取对象引用（新骨架优先来自 RegisterEntityBindings / GameSceneCtrl）');
   for (var fi = 0; fi < findLines.length; fi++) {
     lines.push(findLines[fi]);
   }
@@ -421,6 +471,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('# 对象分配表');
   lines.push('以下是蓝图实体 → 场景对象的映射。新骨架会用 RegisterEntityBindings 自动绑定；不要在 TODO 区重复 Find。');
   lines.push('对象名格式为 __Pool_[Shape]_[Color]_[NN]（如 __Pool_Cube_Red_01），颜色已烘焙，这些是场景中已存在的 3D 对象。');
+  lines.push('注意：这张表服务 Luna staging 绑定；程序员交付版由 AIBridge/MCP 把这些引用写进 Inspector/scene，不把 pool literal 当业务依赖。');
   lines.push('');
   lines.push('| 蓝图实体 | 场景对象名 | 说明 |');
   lines.push('|----------|-----------|------|');
@@ -461,11 +512,11 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('');
   }
 
-  // ========== 5b. 备用池对象（Pool Manifest） ==========
+  // ========== 5b. 未分配池对象（Pool Manifest） ==========
   var reservePool = computeReservePool(prefabMap);
   if (reservePool.length > 0) {
-    lines.push('# 备用池对象（Instantiate 溢出时可用）');
-    lines.push('如果同色同形状的已分配对象用完，可以 Instantiate 复制后使用以下备用对象：');
+    lines.push('# 未分配池对象（仅供 staging 绑定重分配）');
+    lines.push('如果同色同形状的已分配对象不够，不要复制对象；只能从以下未分配池对象里调整绑定，或合并/减少实体。');
     lines.push('');
     for (var rpi = 0; rpi < reservePool.length; rpi++) {
       lines.push('- `' + reservePool[rpi] + '`');
@@ -481,7 +532,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     lines.push('## ' + e.name + (e.label ? ' (' + e.label + ')' : ''));
-    lines.push('场景对象: `GameObject.Find("' + (prefabMap[e.name] || '__Pool_Cube_White_01') + '")`');
+    lines.push('场景对象绑定: `' + (prefabMap[e.name] || '__Pool_Cube_White_01') + '`（通过 RegisterEntityBindings / GameSceneCtrl 使用，不要在 TODO 区重复 Find）');
     lines.push('模板: ' + (e.template || 'Static'));
     
     if (e.visual) {
@@ -538,7 +589,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   // ========== 8. Luna 限制（精简版）==========
   lines.push('# Luna WebGL 限制（精简版）');
   lines.push('');
-  lines.push('## 场景对象池（已存在，直接 Find 使用）');
+  lines.push('## 场景对象池（已存在，优先经绑定表使用）');
   lines.push('场景中预置了 160 个带颜色的 3D 对象，命名规则: `__Pool_{Shape}_{Color}_{NN}`');
   lines.push('- 形状: Cube(每色5个), Sphere(每色5个), Cylinder(每色3个), Plane(每色3个)');
   lines.push('- 颜色: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink');
@@ -560,13 +611,13 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 不要在 Awake/Start 中 SetActive(false) 所有对象');
   lines.push('');
   lines.push('## 操作 API');
-  lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，直接 Find 对应颜色的对象');
+  lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，使用对象分配表里已经绑定的对象');
   lines.push('- 玩家移动：点击屏幕设定目标点，由骨架 MovePlayer() 自动朝目标走；不要再创建虚拟摇杆');
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
   lines.push('- 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds');
   lines.push('- UI 文字: guide 用 `SetGuideText("xxx")`；score 用已存在的 `scoreText` 字段，避免新 Find');
-  lines.push('- 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`');
+  lines.push('- 碰撞检测: `(a.position - b.position).sqrMagnitude < radius * radius`，不要用 `Vector3.Distance` 做距离门槛判断');
   lines.push('- 不要用 transform.parent / SetParent / FindObjectOfType');
   lines.push('- 不要定义 class EventPool（和模板冲突）');
   lines.push('- 最后一个步骤必须有 GameEnded() + CTA 按钮');
@@ -666,12 +717,13 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
 
   // ========== 8d. 正确代码模式参考（必须严格遵循）==========
-  lines.push('# 📋 正确代码模式参考（直接照抄，不要自创写法）');
+  lines.push('# 📋 正确代码模式参考（照抄结构，不要照抄实体名）');
+  lines.push('以下示例默认实体已经由 Luna/WebGL staging 的 `RegisterEntityBindings()` 注册。`Player` / `Target` / `LaterObject` 只是占位名，实际代码必须使用本项目对象分配表里的实体名。只有骨架绑定层可以兜底解析 pool literal，业务 TODO 区不要重复写 `GameObject.Find("__Pool_*")`；程序员交付版由 AIBridge/MCP 写入 Inspector/serialized refs。');
   lines.push('');
   lines.push('## CheckEventRules 的正确写法');
   lines.push('```csharp');
   lines.push('void CheckEventRules() {');
-  lines.push('  var p = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  var p = GameSceneCtrl.instance.Get("Player");');
   lines.push('  if (p == null) return;');
   lines.push('  var playerPos = p.transform.position;');
   lines.push('');
@@ -684,8 +736,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');
   lines.push('  if (currentPhaseName == "phase_1") {');
-  lines.push('    var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
-  lines.push('    if (target != null && Vector3.Distance(playerPos, target.transform.position) < 1.5f) {');
+  lines.push('    var target = GameSceneCtrl.instance.Get("Target");');
+  lines.push('    if (target != null && (playerPos - target.transform.position).sqrMagnitude < 1.5f * 1.5f) {');
   lines.push('      AddCompletedPhase("phase_xxx_2"); // 用蓝图中 Rule 的真实 ID');
   lines.push('      currentPhaseName = "phase_2";');
   lines.push('      ShowGuide("点击建造按钮");');
@@ -714,16 +766,16 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  GFM_CameraController.Instance.FramePoint(Vector3.zero, 8f);');
   lines.push('');
   lines.push('  // 2. 玩家放在屏幕中心附近（坐标 -6~6 范围）');
-  lines.push('  var player = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  var player = GameSceneCtrl.instance.Get("Player");');
   lines.push('  player.transform.position = new Vector3(-3, 0, 0);');
   lines.push('  player.transform.localScale = Vector3.one * 1.0f;');
   lines.push('');
   lines.push('  // 3. 目标对象放在可见范围内');
-  lines.push('  var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
+  lines.push('  var target = GameSceneCtrl.instance.Get("Target");');
   lines.push('  target.transform.position = new Vector3(3, 2, 0);');
   lines.push('');
   lines.push('  // 4. 暂时不需要的对象放在屏幕外（不用 SetActive）');
-  lines.push('  var later = GameObject.Find("__Pool_Cube_Green_01"); // 暂不需要的对象');
+  lines.push('  var later = GameSceneCtrl.instance.Get("LaterObject");');
   lines.push('  later.transform.position = new Vector3(0, -999, 0);');
   lines.push('}');
   lines.push('```');
@@ -960,13 +1012,14 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     var pendingPath = require('path').join(__dirname, 'pending-rules.json');
     if (require('fs').existsSync(pendingPath)) {
       var pending = JSON.parse(require('fs').readFileSync(pendingPath, 'utf-8'));
+      var sanitizeLearningRuleText = require('./code-reviewer.js').sanitizeLearningRuleText;
       var promotedTextLower = (blueprint.promotedRulesText || '').toLowerCase();
       var ruleGroups = {};
       for (var pi = 0; pi < pending.length; pi++) {
         var pr = pending[pi];
         if (isSkeletonReviewFalsePositive(pr)) continue;
         var ruleKey = (pr.rule || 'unknown').toLowerCase().replace(/[^a-z0-9 ]/g, '').substring(0, 60);
-        if (!ruleGroups[ruleKey]) ruleGroups[ruleKey] = { count: 0, projects: {}, fix: pr.fix, desc: pr.description };
+        if (!ruleGroups[ruleKey]) ruleGroups[ruleKey] = { count: 0, projects: {}, fix: sanitizeLearningRuleText(pr.fix), desc: sanitizeLearningRuleText(pr.description) };
         ruleGroups[ruleKey].count++;
         if (pr.taskId) ruleGroups[ruleKey].projects[pr.taskId] = true;
       }

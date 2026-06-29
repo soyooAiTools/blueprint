@@ -155,6 +155,40 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:validation-router', ['node', 'test/validation-router.test.cjs'], 'Validate risk-based validation routing rules.'));
   }
 
+  if (/^(lib\/programmer-delivery-|scripts\/programmer-delivery-aibridge-hydrate\.cjs|scripts\/export-unity-project\.sh|worker\/code-reviewer\.js|worker\/codex-code-coder\.js|engine\/stages\/review\.cjs|lib\/csharp-comment-localizer\.cjs)/.test(file)) {
+    addTag(plan, 'programmer-delivery');
+    addCommand(plan, command('unit:programmer-delivery-scene-bake-plan-and-temp-audit', ['node', 'test/programmer-delivery-scene-bake-plan-and-temp-audit.test.cjs'], 'Validate scene bake plan and temporary-code audit contracts.'));
+    addCommand(plan, command('unit:programmer-delivery-aibridge-hydrate', ['node', 'test/programmer-delivery-aibridge-hydrate.test.cjs'], 'Validate AIBridge hydration and Editor bake command flow.'));
+    addCommand(plan, command('unit:programmer-delivery-hardgate', ['node', 'test/programmer-delivery-hardgate.test.cjs'], 'Validate programmer delivery hardgate and report wiring.'));
+    addCommand(plan, command('unit:unity-codegen-prompt-contract', ['node', 'test/unity-codegen-prompt-contract.test.cjs'], 'Validate prompt/review contract does not restore legacy Find/CreatePrimitive guidance.'));
+  }
+
+  if (/^scripts\/export-unity-project\.sh$/.test(file)) {
+    addCommand(plan, command('unit:export-unity-project-bootstrap', ['node', 'test/export-unity-project-bootstrap.test.cjs'], 'Validate Unity export profile routing, bootstrap, and delivery handoff guards.'));
+  }
+
+  if (/^(worker\/prompt-v5-basetemplate\.js|worker\/prompt-v4\.js|worker\/luna-codex-code\.md|worker\/behavior-templates\.md|engine\/stages\/build-schema-prompt-v3\.cjs|docs\/unity-codegen-prompts-current\.md)$/.test(file)) {
+    addTag(plan, 'programmer-delivery');
+    addCommand(plan, command('unit:unity-codegen-prompt-contract', ['node', 'test/unity-codegen-prompt-contract.test.cjs'], 'Validate prompt/review contract and unity profile guard.'));
+  }
+
+  if (/^docs\/(?:specs|superpowers\/specs)\/.*\.md$/.test(file)) {
+    addTag(plan, 'programmer-delivery-docs');
+    addCommand(plan, command('unit:blueprint-skill-unitycomponent-profile-contract', ['node', 'test/blueprint-skill-unitycomponent-profile-contract.test.cjs'], 'Validate docs keep gmp-v14 and unitycomponent-v1 scopes separated.'));
+  }
+
+  if (/^(lib\/unitycomponent-|lib\/unity-delivery-spec-projector\.cjs|scripts\/export-unitycomponent-v1\.cjs|scripts\/export-unity-project\.sh|docs\/unitycomponent-contract-v1-remediation-plan\.md)/.test(file)) {
+    addTag(plan, 'unitycomponent-v1');
+    addTag(plan, 'programmer-delivery');
+    addCommand(plan, command('unit:blueprint-skill-unitycomponent-profile-contract', ['node', 'test/blueprint-skill-unitycomponent-profile-contract.test.cjs'], 'Validate blueprint skill docs keep gmp-v14 and unitycomponent-v1 scopes separated.'));
+    addCommand(plan, command('unit:unitycomponent-profile-registry', ['node', 'test/unitycomponent-profile-registry.test.cjs'], 'Validate gmp-v14 legacy freeze and unitycomponent-v1 profile contract.'));
+    addCommand(plan, command('unit:unity-delivery-spec-projector', ['node', 'test/unity-delivery-spec-projector.test.cjs'], 'Validate UnityDeliverySpec projection and SourceIR semantic parity.'));
+    addCommand(plan, command('unit:delivery-spec-source-parity', ['node', 'test/delivery-spec-source-parity.test.cjs'], 'Validate N=5 SourceIR to UnityDeliverySpec semantic parity.'));
+    addCommand(plan, command('unit:unitycomponent-v1-hardgate', ['node', 'test/unitycomponent-v1-hardgate.test.cjs'], 'Validate UnityComponent v1 layer, namespace, manifest, runtime patch and drift gates.'));
+    addCommand(plan, command('unit:unitycomponent-v1-emitter', ['node', 'test/unitycomponent-v1-emitter.test.cjs'], 'Validate UnityComponent v1 fresh export from SourceIR artifacts.'));
+    addCommand(plan, command('unit:unitycomponent-v1-cold-export-corpus', ['node', 'test/unitycomponent-v1-cold-export-corpus.test.cjs'], 'Validate N=10 UnityComponent v1 cold exports from SourceIR artifacts.'));
+  }
+
   if (/^(adapters\/skeleton-generator\.cjs|adapters\/assembly-plan-pipeline\.cjs|adapters\/source-ir\/proof-bundle\.cjs|adapters\/source-ir\/blueprint-project\.js)/.test(file)) {
     addTag(plan, 'runtime-phase-gate');
     addTag(plan, 'proof-contract');
@@ -176,6 +210,12 @@ function routeFile(plan, file) {
     addTag(plan, 'storyboard2html');
     addTag(plan, 'html-fidelity');
     addCommand(plan, command('unit:storyboard2html-contract', ['node', 'test/storyboard2html-contract.test.cjs'], 'Validate storyboard2html HTML contract and hardgate command shape.'));
+  }
+
+  if (/^(scripts\/storyboard-flow-source-ir\.cjs|engine\/storyboard-flow-source-ir\.cjs)$/.test(file)) {
+    addTag(plan, 'storyboard-flow');
+    addTag(plan, 'source-ir');
+    addCommand(plan, command('unit:storyboard-flow-source-ir', ['node', 'test/storyboard-flow-source-ir.test.cjs'], 'Validate human flowchart to SourceSceneIR conversion.'));
   }
 
   if (/^(contracts\/cua-probe|engine\/stages\/runtime-contract\.cjs|engine\/playable-flow-manifest\.cjs)/.test(file)) {

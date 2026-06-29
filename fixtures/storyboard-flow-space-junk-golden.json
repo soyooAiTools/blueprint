@@ -1,0 +1,182 @@
+{
+  "schemaVersion": "storyboard-flow-prototype.v1",
+  "kind": "blueprint.storyboardFlowPrototype",
+  "projectName": "太空捡垃圾HTML",
+  "project": {
+    "name": "太空捡垃圾HTML",
+    "theme": "space"
+  },
+  "entities": [
+    { "id": "Player", "label": "宇航员", "kind": "player" },
+    { "id": "ScrapPile", "label": "太空垃圾堆", "kind": "resource" },
+    { "id": "RecycleStation", "label": "回收站", "kind": "station" },
+    { "id": "CashCounter", "label": "美金计数", "kind": "resource" },
+    { "id": "ForgeRoom", "label": "锻造间", "kind": "building" },
+    { "id": "DrillTool", "label": "新钻头", "kind": "tool" },
+    { "id": "Tool", "label": "采集工具", "kind": "tool" },
+    { "id": "Vehicle", "label": "处理车辆", "kind": "vehicle" },
+    { "id": "AsteroidObstacle", "label": "太空障碍", "kind": "enemy" },
+    { "id": "CabinModule", "label": "新船舱", "kind": "building" },
+    { "id": "SpaceStationModule", "label": "完整空间站", "kind": "building" },
+    { "id": "CtaButton", "label": "下载按钮", "kind": "cta" }
+  ],
+  "resources": [
+    { "id": "MetalScrap", "label": "金属碎片", "carrierEntity": "ScrapPile", "initial": 0 },
+    { "id": "Cash", "label": "美金", "carrierEntity": "CashCounter", "initial": 0 }
+  ],
+  "phases": [
+    {
+      "id": "phase01_recycle",
+      "order": 1,
+      "title": "拾取垃圾换得美金",
+      "action": "deliver",
+      "target": "RecycleStation",
+      "resource": "MetalScrap",
+      "guideText": "靠近太空垃圾堆收集金属碎片，送到回收站换得美金。",
+      "requiredInteractions": ["collect:MetalScrap:1", "deliver:MetalScrap:RecycleStation:1", "reward:Cash:5"],
+      "completeCondition": "Cash >= 5",
+      "visibleEntities": ["Player", "ScrapPile", "RecycleStation", "CashCounter"],
+      "position": { "x": 0, "y": 0 }
+    },
+    {
+      "id": "phase02_build_forge",
+      "order": 2,
+      "title": "建造锻造间",
+      "action": "build",
+      "target": "ForgeRoom",
+      "resource": "Cash",
+      "guideText": "投入5美金，建造锻造间。",
+      "requiredInteractions": ["transfer:Cash:ForgeRoom:5", "build:ForgeRoom"],
+      "completeCondition": "ForgeRoom.level == 2",
+      "visibleEntities": ["Player", "ForgeRoom", "CashCounter"],
+      "position": { "x": 260, "y": 120 }
+    },
+    {
+      "id": "phase03_drill_recycle",
+      "order": 3,
+      "title": "使用新钻头采集垃圾",
+      "action": "deliver",
+      "target": "RecycleStation",
+      "resource": "MetalScrap",
+      "guideText": "使用新钻头收集金属碎片，送到回收站换得美金。",
+      "requiredInteractions": ["collect:MetalScrap:1", "deliver:MetalScrap:RecycleStation:1", "reward:Cash:5"],
+      "completeCondition": "Cash >= 5",
+      "visibleEntities": ["Player", "ScrapPile", "RecycleStation", "DrillTool", "CashCounter"],
+      "position": { "x": 520, "y": 0 }
+    },
+    {
+      "id": "phase04_attack_obstacle",
+      "order": 4,
+      "title": "处理太空障碍",
+      "action": "attack",
+      "target": "AsteroidObstacle",
+      "guideText": "移动到太空障碍旁，清除它。",
+      "requiredInteractions": ["attack:AsteroidObstacle"],
+      "completeCondition": "AsteroidObstacle.level == 0",
+      "visibleEntities": ["Player", "AsteroidObstacle"],
+      "position": { "x": 780, "y": 120 }
+    },
+    {
+      "id": "phase05_recycle_more",
+      "order": 5,
+      "title": "继续回收资源",
+      "action": "deliver",
+      "target": "RecycleStation",
+      "resource": "MetalScrap",
+      "guideText": "继续收集金属碎片，送到回收站换得美金。",
+      "requiredInteractions": ["collect:MetalScrap:2", "deliver:MetalScrap:RecycleStation:2", "reward:Cash:10"],
+      "completeCondition": "Cash >= 15",
+      "visibleEntities": ["Player", "ScrapPile", "RecycleStation", "CashCounter"],
+      "position": { "x": 1040, "y": 0 }
+    },
+    {
+      "id": "phase06_upgrade_tool",
+      "order": 6,
+      "title": "升级采集工具",
+      "action": "upgrade",
+      "target": "Tool",
+      "resource": "Cash",
+      "guideText": "投入5美金，升级采集工具。",
+      "requiredInteractions": ["transfer:Cash:Tool:5", "upgrade:Tool:2"],
+      "completeCondition": "Tool.level == 2",
+      "visibleEntities": ["Player", "Tool", "CashCounter"],
+      "position": { "x": 1300, "y": 120 }
+    },
+    {
+      "id": "phase07_high_efficiency_recycle",
+      "order": 7,
+      "title": "高效采集碎块",
+      "action": "deliver",
+      "target": "RecycleStation",
+      "resource": "MetalScrap",
+      "guideText": "使用升级后的工具收集金属碎片，送到回收站换得美金。",
+      "requiredInteractions": ["collect:MetalScrap:2", "deliver:MetalScrap:RecycleStation:2", "reward:Cash:10"],
+      "completeCondition": "Cash >= 20",
+      "visibleEntities": ["Player", "ScrapPile", "RecycleStation", "Tool", "CashCounter"],
+      "position": { "x": 1560, "y": 0 }
+    },
+    {
+      "id": "phase08_upgrade_vehicle",
+      "order": 8,
+      "title": "升级处理车辆",
+      "action": "upgrade",
+      "target": "Vehicle",
+      "resource": "Cash",
+      "guideText": "投入5美金，升级处理车辆。",
+      "requiredInteractions": ["transfer:Cash:Vehicle:5", "upgrade:Vehicle:2"],
+      "completeCondition": "Vehicle.level == 2",
+      "visibleEntities": ["Player", "Vehicle", "CashCounter"],
+      "position": { "x": 1820, "y": 120 }
+    },
+    {
+      "id": "phase09_vehicle_recycle",
+      "order": 9,
+      "title": "车辆回收大型资源",
+      "action": "deliver",
+      "target": "RecycleStation",
+      "resource": "MetalScrap",
+      "guideText": "驾驶升级后的车辆收集金属碎片，送到回收站换得美金。",
+      "requiredInteractions": ["collect:MetalScrap:2", "deliver:MetalScrap:RecycleStation:2", "reward:Cash:10"],
+      "completeCondition": "Cash >= 25",
+      "visibleEntities": ["Player", "ScrapPile", "RecycleStation", "Vehicle", "CashCounter"],
+      "position": { "x": 2080, "y": 0 }
+    },
+    {
+      "id": "phase10_unlock_cabin",
+      "order": 10,
+      "title": "解锁新船舱",
+      "action": "unlock",
+      "target": "CabinModule",
+      "resource": "Cash",
+      "guideText": "投入15美金，解锁船舱模块。",
+      "requiredInteractions": ["transfer:Cash:CabinModule:15", "unlock:CabinModule"],
+      "completeCondition": "CabinModule.unlocked",
+      "visibleEntities": ["Player", "CabinModule", "CashCounter"],
+      "position": { "x": 2340, "y": 120 }
+    },
+    {
+      "id": "phase11_show_station",
+      "order": 11,
+      "title": "展示完整空间站",
+      "action": "show",
+      "target": "SpaceStationModule",
+      "guideText": "查看完整空间站，准备进入下载收口。",
+      "requiredInteractions": ["show:SpaceStationModule"],
+      "completeCondition": "SpaceStationModule.visible",
+      "visibleEntities": ["Player", "ForgeRoom", "CabinModule", "SpaceStationModule"],
+      "position": { "x": 2600, "y": 0 }
+    },
+    {
+      "id": "phase12_cta",
+      "order": 12,
+      "title": "下载引导",
+      "action": "cta_finish",
+      "target": "CtaButton",
+      "guideText": "本关完成，点击下载按钮继续体验完整游戏。",
+      "requiredInteractions": ["click:CtaButton"],
+      "completeCondition": "CtaButton.clicked",
+      "visibleEntities": ["Player", "SpaceStationModule", "CtaButton"],
+      "position": { "x": 2860, "y": 120 }
+    }
+  ]
+}

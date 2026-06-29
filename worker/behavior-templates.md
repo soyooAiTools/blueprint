@@ -1,5 +1,13 @@
 # Luna 行为模板实现手册（事件驱动版）
 
+> 本文件只给 Luna/WebGL staging 代码参考。默认 `gmp-v14` legacy 程序员 Unity 交付版必须由 AIBridge/MCP 做 Inspector/scene hydration，引用进入 `GMP_SceneEntityRefs` 或 `[SerializeField]` 字段；显式 `unitycomponent-v1` 使用 `Assets/SLGFrameWork/Scripts/Prefab/GameEntry.prefab` / `BlueprintPlayableManager` / UnityDeliverySpec bake 数据 / serialized refs，不使用 GMP 命名；不要把这里的平行数组、运行时 `Find`、`GameSceneCtrl` / `SceneObjectRegistry` 隐藏运行时对象表、通用 object binding 表或一次性模板拆法照搬成最终交付结构。
+> 本段只约束当前默认 `gmp-v14` legacy prompt；显式 `unitycomponent-v1` profile 不使用 GMP 命名，必须走 UnityComponent(3) 原生 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate，不生成旧 `Blueprint.UnityComponent` namespace/asmdef。N=10 cold-export corpus 已作为文件级 gate 通过；默认切换仍需显式 cutover 决策，并保留 Editor hydration/final certification 边界。
+> 程序员 Unity 交付框架冲突以 `/nickTemp/UnityComponent(3).rar` / UnityComponent(3) 工程文档为准：当前默认 `gmp-v14` legacy 用 `GMP_BaseComponent` + `GMP_BaseGameFlowEntity` 表达纯逻辑组件与实体生命周期，用 `GMP_EntityManager` 注册并 Tick entity，实体提供 `AddEcsComponent`、`GetEcsComponent<T>`、`GetFirstEcsComponent<T>`、`HasEcsComponent<T>`，组件生命周期顺序为 `OnAwake -> OnEnable -> OnStart -> OnUpdate -> OnDisable -> OnDestroy`；`GMP_MainManager` 作为 blueprint 兼容 GameEntry 调度 EntityManager；显式 `unitycomponent-v1` 使用原生 `Entity` / `BaseComponent` / `EntityManager` / `GameEntry`，但 source HTML/SourceSceneIR/WebGL 一致性红线不能被框架改造触碰。组件必须是真能力，不是只 new/AddEcsComponent 的装饰；实体基类只管身份绑定、scene object 生命周期和组件生命周期转发，不承载可见性、位移、交互计数、完成状态、奖励结算等业务便利函数。
+> AIBridge 证据必须来自实际运行 AIBridgeCLI：先用 `AIBRIDGE_CLI` 或 `command -v AIBridgeCLI` 记录真实 CLI 路径，再跑 `AIBridgeCLI harness status` 和 `AIBridgeCLI editor get_state --timeout <ms>`，并把 stdout/stderr/exit code 写进 `MCP_HYDRATION_REPORT.json`、`AIBRIDGE_ATTEMPT_REPORT.json` 或 `AIBRIDGE_REAL_RUN_REPORT.json`；CLI 找到但 Unity Editor/AIBridge 会话超时时写 `editor-timeout`，不能写成 CLI not found。
+> Editor hydration 未完成时不能把 Unity 包标记为最终交付认证通过；static YAML / 文件级检查只能算文件级审计，不能替代 Unity Editor 打开工程、解析 Inspector 引用并完成 AIBridge editor get_state / scene hydration。
+> 默认 `gmp-v14` legacy 程序员可交付反馈规则：一节点一主脚本；无生命周期能力必须是继承 `GMP_BaseComponent` 的纯逻辑 C# 能力，不挂到场景节点，且只在项目真实需要时保留；MoveSpeed 归 MovementComponent/移动能力、交互半径归 Trigger/Interaction，背包容量归 Inventory；变量名要说明业务含义；只保留会被调用的方法；Init 未被调用就删除，依赖 Awake/Start 时不保留并行 Init；固定 Player 引用缺失只 `Debug.LogError`，不写查找/创建/修组件的 fallback；Canvas/UI 节点场景预创建，按 Screen Space Overlay、SortOrder 100、CanvasScaler 1080x1920、Match 0.5 配置；`GMP_TipsManager.mTipText` 绑定场景预设 Text，不按名字扫描 Text，也不硬改 RectTransform 布局；管理器不用 `MonoSingleton<T>`，只用场景预挂 `mInstance`/`instance`；`GMP_EventModule` 提供 `Subscribe`/`Unsubscribe`/`UnSubScribe`，游戏入口发布 `GMP_LevelEventNames.ScreenChanged` + `GMP_ScreenChangeEvent`，监听方显式订阅和注销；强所有权关系用 serialized refs/构造注入，广播和模块联动用 EventModule，不要让所有模块互相 `instance.` 直连；音频复用 `GMP_Audio.mLoopSources`/`mOneShotSources`，并保留 `musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义；`GMP_CameraController` 交付默认正交相机，phase/end 构图只写目标状态并由 LateUpdate 平滑收敛；场景代码节点收纳到 `MainGame`；`GMP_SceneEntityRefs` 只登记玩家、相机/HUD 目标、建筑、交互点、CTA 等关键持久对象；子弹、金币、掉落、飘字、命中特效、敌人波次小兵等短生命周期/大量重复对象走 `GMP_Pool` 的 prefab/pool archetype、`Preload`、`Get`、`Return/ReturnAfter`，不要预写成 1000 个 serialized refs；phase 是连续试玩流程，不重置全场；流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，不要只叫 `Phase1.asset` / `phase1`；交付文档说明流程修改、删除、增加并给例子；AIBridge 预水合后删除 primitive builder、source spec helper、通用 object binding 表和运行时场景生成/修复代码；场景遗留、Missing Mono Script 和组件配置优先由 Editor/MCP 修掉。
+> 复杂脚本参数说明要清楚：多参数 helper、系统级入口、跨 phase 状态函数要在声明、调用处或函数前说明参数用途、单位、边界和副作用；有意义的空行分块只分隔字段、初始化、输入、状态推进、UI、验证/兜底等不同职责。
+
 > ⚠️ **最重要的规则**: Phase/Rule 推进必须由玩家操作触发，绝对禁止用 gameTimer/计时器 自动推进！
 > CUA 验证器会检测: 如果游戏在无玩家输入下自动跑完所有 Phase → **直接 FAIL**。
 
@@ -17,7 +25,7 @@ const int E_CONVEYOR = 2;
 const int MAX_ENTITIES = 50;
 const int RULE_COUNT = 10;
 
-// 实体运行时数据（平行数组）
+// 实体运行时数据（仅限 staging；默认 gmp-v14 legacy 交付版收口到 GMP_SceneEntityRefs/serialized refs，显式 unitycomponent-v1 用 GameEntry.prefab / baked data）
 GameObject[] eGo = new GameObject[MAX_ENTITIES];
 bool[] eActive = new bool[MAX_ENTITIES];
 int[] eState = new int[MAX_ENTITIES];     // 0=初始, 1=触发中, 2=完成
@@ -64,23 +72,20 @@ void CheckEventRules() {
 }
 ```
 
-## 获取3D对象（从预制池 Find）
+## 获取3D对象（优先从绑定表取）
 
 ```csharp
-// ✅ 正确：从预制池 Find 对象（颜色已烘焙，不需要 SetColor）
-var cube = GameObject.Find("__Pool_Cube_Red_01");
+// ✅ staging 正确：先从骨架绑定表取对象（颜色已烘焙，不需要 SetColor）
+var cube = GameSceneCtrl.instance.Get("Crate");
 cube.transform.position = new Vector3(0, 1, 0);  // 移到场景中 = 显示
 cube.transform.localScale = new Vector3(1, 2, 1);
 
-// ✅ 地面已存在
-var ground = GameObject.Find("__Ground");
-
-// ✅ 需要更多同类对象时，Instantiate 复制（仅当池对象用完时）
-var extraCube = Instantiate(cube);
-extraCube.transform.position = new Vector3(3, 1, 0);
+// ✅ 地面、HUD、相机同样来自骨架字段或绑定表，不在业务循环里扫场景
+var ground = GameSceneCtrl.instance.Get("__Ground");
 ```
 
 > ⛔ **绝对禁止**: `GFM_Create.Obj()`, `GFM_Create.Ground()`, `GFM_Create.SetColor()`, `CreatePrimitive()`
+> 程序员交付版额外禁止业务代码里的 `GameObject.Find`、`FindObjectOfType`、`.AddComponent(...)`、`new GameObject(...)`；这些引用必须由 MCP/Inspector 预先写好。距离门槛判断用 `sqrMagnitude`，不要把 `Vector3.Distance` 写成正向示例。
 
 ## PlayerController 模板
 
@@ -360,8 +365,8 @@ void CheckEventRules() {
 ```
 
 ## 关键约束（Luna）
-- 所有代码在 GameFlowManagerMain.cs 一个文件
-- 用 `GameObject.Find("__Pool_{Shape}_{Color}_{NN}")` 获取池对象，不要用 GFM_Create.Obj()
+- 当前生成期可填充 GameFlowManagerMain*.cs partial；默认 gmp-v14 legacy 最终程序员交付必须清洗为 `Assets/Scripts/Core`、`Assets/Scripts/Tool`、`Assets/Scripts/Game`，业务逻辑只落 `Game`；显式 unitycomponent-v1 使用 `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`
+- 用骨架绑定字段或 `GameSceneCtrl.instance.Get("entityName")` 获取池对象；只有 staging 绑定表可以出现 `__Pool_*` literal，不要用 GFM_Create.Obj()
 - 没有 GFM_Tools 类！用: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
 - 不能用 CreatePrimitive、Resources.Load、async/await、协程、List<T>
 - 隐藏用 position=(0,-999,0)，不用 SetActive(false)

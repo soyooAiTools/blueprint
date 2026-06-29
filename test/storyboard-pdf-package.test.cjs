@@ -92,6 +92,17 @@ function writePdf(filePath) {
   var storyboard = planner.planStoryboardAiFromEvidence(evidence);
   assert.ok(storyboard.phases.length >= 10 && storyboard.phases.length <= 13);
   assert.strictEqual(storyboard.phases[storyboard.phases.length - 1].canonicalInteraction, 'click:CtaButton');
+  assert.ok(storyboard.phases.some(function(phase) {
+    return (phase.requiredInteractions || []).some(function(item) {
+      return /^deliver:MetalScrap:RecycleStation:/.test(item);
+    });
+  }));
+  assert.ok(storyboard.phases.some(function(phase) {
+    return (phase.requiredInteractions || []).some(function(item) { return /^reward:Cash:/.test(item); });
+  }));
+  assert.ok(!storyboard.phases.some(function(phase) {
+    return /冲突|处理冲突|高潮全景/.test(phase.title || '');
+  }));
   assert.ok(storyboard.phases[0].visualBrief);
   assert.strictEqual(planner._internals.titleHintFromFacts([
     { text: 'Phase6:' },

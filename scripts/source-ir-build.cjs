@@ -451,6 +451,10 @@ function runSmokeAndVisual(inputPath, outDir, opts) {
   if (opts.verify) smokeArgs.push('--verify', '--steps', String(opts.steps));
   if (opts.verifyRunner) smokeArgs.push('--verify-runner', opts.verifyRunner);
   runNode(path.join(__dirname, '..', 'adapters', 'source-ir', 'run-blueprint-smoke.js'), smokeArgs, path.join(__dirname, '..'));
+  var smokeIndex = path.join(smokeOut, 'index.html');
+  if (fs.existsSync(smokeIndex)) {
+    fs.copyFileSync(smokeIndex, path.join(outDir, 'index.html'));
+  }
 
   var visualReport = null;
   if (opts.visualDiff) {

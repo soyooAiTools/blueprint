@@ -373,6 +373,12 @@ function isCtaUiEntityName(value) {
   return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(value || '').trim());
 }
 
+function triggerStateValue(value) {
+  if (value === null || value === undefined || value === '') return 1;
+  var numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 1;
+}
+
 function normalizeTriggerForCompare(trigger) {
   if (!isObject(trigger)) return null;
   if (trigger.type === 'compound') {
@@ -418,7 +424,7 @@ function normalizeTriggerForCompare(trigger) {
     return {
       type: 'entity_state_reached',
       entity: trigger.entity || null,
-      state: Number(trigger.state == null || trigger.state === '' ? 1 : trigger.state) || 1,
+      state: triggerStateValue(trigger.state),
     };
   }
   if (trigger.type === 'timer') {
@@ -441,6 +447,32 @@ function stepTargetSequence(steps) {
   return safeArray(steps).map(function(step) {
     return step && step.target ? String(step.target) : '';
   }).filter(Boolean);
+}
+
+function triggerEntity(trigger) {
+  if (!trigger || typeof trigger !== 'object') return '';
+  return String(trigger.entity || trigger.target || trigger.ctaId || '');
+}
+
+function triggersEquivalent(expected, actual) {
+  if (stableStringify(expected) === stableStringify(actual)) return true;
+  if (!expected || !actual || typeof expected !== 'object' || typeof actual !== 'object') return false;
+  if (actual.type === 'compound' && String(actual.operator || 'and') === 'and') {
+    var children = safeArray(actual.triggers);
+    var matchingChild = children.some(function(child) {
+      return triggersEquivalent(expected, child);
+    });
+    if (!matchingChild) return false;
+    var expectedEntity = triggerEntity(expected);
+    return children.every(function(child) {
+      if (triggersEquivalent(expected, child)) return true;
+      if (child && child.type === 'near_entity') {
+        return !expectedEntity || triggerEntity(child) === expectedEntity;
+      }
+      return false;
+    });
+  }
+  return false;
 }
 
 function assertPlayableSceneIrExecutionAlignment(ir, options) {
@@ -470,7 +502,7 @@ function assertPlayableSceneIrExecutionAlignment(ir, options) {
     }
     var irTrigger = normalizeTriggerForCompare(irPhase.trigger);
     var phaseTrigger = normalizeTriggerForCompare(phase.trigger);
-    if (stableStringify(irTrigger) !== stableStringify(phaseTrigger)) {
+    if (!triggersEquivalent(irTrigger, phaseTrigger)) {
       errors.push('phase[' + i + '] trigger mismatch: ir=' + stableStringify(irTrigger) + ' gameSchema=' + stableStringify(phaseTrigger));
     }
     var irStepTargets = stepTargetSequence(irPhase.steps);

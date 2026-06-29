@@ -120,6 +120,12 @@ function scaleNumber(scale) {
   return Number.isFinite(n) ? Math.max(0.3, Number(n.toFixed(3))) : 1;
 }
 
+function numberOrDefault(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  var numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
 function compileEntity(entity, index, nextPool) {
   var spec = poolSpecForEntity(entity);
   return {
@@ -162,7 +168,7 @@ function triggerFromGate(gate, phase, isFinal) {
     var stateTrigger = {
       type: 'entity_state_reached',
       entity: gate.entity || gate.target || 'Target',
-      state: Math.round(Number(gate.state == null ? 1 : gate.state) || 1),
+      state: Math.round(numberOrDefault(gate.state, 1)),
     };
     var arrivalTarget = !isFinal && firstStepTarget(phase);
     if (!arrivalTarget || arrivalTarget === stateTrigger.entity) {

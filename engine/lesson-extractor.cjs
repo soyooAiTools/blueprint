@@ -10,6 +10,12 @@
 
 var fs = require('fs');
 var path = require('path');
+var sanitizeLearningRuleText;
+try {
+  sanitizeLearningRuleText = require('../worker/code-reviewer.js').sanitizeLearningRuleText;
+} catch(e) {
+  sanitizeLearningRuleText = function(text) { return String(text || ''); };
+}
 
 var RULES_FILE = path.join(__dirname, '..', 'worker', 'pending-rules.json');
 var MAX_RULES = 500;
@@ -84,7 +90,7 @@ function extractLesson(ctx) {
   }
 
   // Build description from failure reason
-  var description = reason.substring(0, 500);
+  var description = sanitizeLearningRuleText(reason.substring(0, 500));
 
   // Build fix suggestion from actual failure context
   var fix = '';
@@ -105,7 +111,7 @@ function extractLesson(ctx) {
     var reviewResult = ctx.stageResults && ctx.stageResults.review;
     if (reviewResult && reviewResult.issues && Array.isArray(reviewResult.issues)) {
       fix = reviewResult.issues.slice(0, 3).map(function(i) {
-        return (i.description || i.message || String(i)).substring(0, 150);
+        return sanitizeLearningRuleText((i.description || i.message || String(i)).substring(0, 150));
       }).join('; ');
     }
   } else if (stage === 'compile') {
@@ -123,6 +129,7 @@ function extractLesson(ctx) {
   }
 
   if (!fix) fix = reason.substring(0, 300);
+  fix = sanitizeLearningRuleText(fix);
 
   // Dedup check: don't add near-duplicate rules
   var existingRules = readRules();

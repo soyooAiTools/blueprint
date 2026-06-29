@@ -29,6 +29,32 @@ blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README
                                     └────────── 反馈迭代 ←── 审核预览 ←────┘
 ```
 
+### Blueprint 2.0 Milestone（2026-06-12）
+
+当前生产主链路以 SourceSceneIR / source HTML 为语义事实源，SourceIR adapter 负责向 Blueprint/GameSchema/WebGL/Unity 下传 phase、guideText、实体、资源和视觉 contract。流程图 tab 是稳定 authoring contract：Flow 必须先经过 preflight、resource snapshot、SourceSceneIR 转换和 SourceIR 验证，再进入 WebGL/Luna/Unity 交付。
+
+2.0 交付规则：
+
+- WebGL 产物必须保留 `__gameState`、可驱动 phase hook、runtime binding smoke 和 source guideText parity 证据。
+- storyboard2html 生成的 HTML 与最终 WebGL 的一致性是系统终极红线，不能通过 WebGL 侧临时兜底、HTML 假状态或报告文字绕过；`source HTML -> SourceSceneIR/SourceIR -> playable-scene-ir -> WebGL` 必须保持 phase、guideText、targetSequence、entity/resource/gate 语义一致。
+- 程序员 Unity 工程必须导出为 `Assets/Scripts/Core` / `Tool` / `Game` 三层；核心模块、工具层和本项目业务分离。
+- 状态和步骤语义使用 enum，Player/NPC/Entity 走基类 + 可选组件组合，Audio 走集中式多音源管理。
+- 程序员交付代码必须能给人类程序员接手：场景引用走 AIBridge/MCP + Inspector hydration，业务代码不靠 runtime `Find` / `AddComponent` / `new GameObject` 补场景；只保留真实调用链会用到的方法。
+- Editor hydration 是最终交付红线：未实际打开 Unity Editor、完成 `AIBridgeCLI editor get_state` / scene hydration 并解析 Inspector 引用前，不能把 Unity 包标记为最终交付认证通过；static YAML、文件级 hardgate 或 CLI probe 只能算文件级审计。
+- 管理器禁止继承 `MonoSingleton<T>` / `GMP_SingletonBase<T>`，统一使用场景预挂实例里的 `mInstance`/只读 `instance`；代码/管理器节点收纳到 `MainGame` 子级，Canvas/UI 由场景预创建并按 1080x1920、Match 0.5、SortOrder 100 配置。
+- `GMP_EventModule` 必须提供 `Subscribe`、`Unsubscribe` 和兼容别名 `UnSubScribe`；游戏入口必须检测 `Screen.width/Screen.height` 变化并发布 `ScreenChanged` + `GMP_ScreenChangeEvent`，监听方显式订阅并在销毁时注销。
+- 音频复用集中式 `GMP_Audio` 多音源数组，并保留参考 AudioManager 的 `musicChannelDatas`、`PlayAudioInGroup`、`StopAudio`、`StopAllAudio`、`StopAudioGroup`、首触解静音和音阶播放语义，不能退化成单 BGM/SFX。
+- `GMP_TipsManager.mTipText` 必须绑定场景预设 Text，如 `Text_StepToast`；TipsManager 只改文本内容/启用状态/颜色，不按名字扫描 Text，也不硬改 RectTransform 布局、字号或样式。
+- 程序员交付相机默认正交：场景 Camera 与 `GMP_CameraController` 都要强制 orthographic，phase/end/跟随构图只写目标位置、旋转和 `orthographicSize`，由 `LateUpdate` 平滑收敛；少数透视项目必须在交付说明中写明原因。
+- 交付文档必须包含 Flow/Phase 的修改、删除、增加指南和例子。
+- 同一个玩法状态只能有一个 owner。简单 Player 只保留一个 `MoveSpeed`，Movement helper 不保存默认速度，Gold 从资源表派生，HUD 目标提示只由 HudController 写。
+- 属性归属贴近能力组件：`MoveSpeed` 归 MovementComponent/移动能力，交互半径归 Trigger/Interaction，背包容量归 Inventory；Player/Manager 只做编排，不复制每个实体的调参字段。
+- 生命周期入口必须唯一：`Init/Configure/Setup` 未被调用就删除；依赖 `Awake/Start` 时不保留并行 `Init`；固定 Player/HUD/Camera/关键实体引用缺失时只短路 `Debug.LogError`，不写 runtime 扫描、创建、修组件 fallback。
+- Phase/流程节点是连续试玩流程和代码/数据组织入口，不是独立关卡；程序员交付的流程资产用 `Flow01_<业务语义>.asset`，`mPhaseId` 用 `flow01_<业务语义>`，禁止只叫 `Phase1.asset` / `phase1`；AIBridge 预水合后要删除 primitive builder、source spec helper 等临时脚本，或下沉为正式 Tool。
+- `GMP_SceneEntityRefs`/serialized refs 保留为 Inspector 数据入口，由 AIBridge/Editor 预填；程序员交付版不保留通用 object binding 表、`GameSceneCtrl` / `SceneObjectRegistry` 这类隐藏运行时对象表作为第二入口；`SCENE_BAKE_PLAN.json` / `SCENE_BAKE_REPORT.json` / `PROGRAMMER_TEMP_CODE_AUDIT.json` 证明场景、mesh、显式引用和临时脚本清理已经在交付前完成。
+- `programmer-delivery-maintainability-gate` strict 模式会阻断 runtime 查找/挂组件、`Vector3.Distance` 门槛、静态 `Init/Get/Return` 工作流、重复状态 owner、未调用方法和空壳实体类；`programmer-delivery-hardgate` 会把这些 summary 和 temporary-code audit 纳入交付阻断。
+- schema prompt、V4/V5 prompt、Codex code runner、legacy worker prompt、skill README/reference 和交付文档都必须携带这套程序架构硬规则；改 prompt 后至少跑 `node test/unity-codegen-prompt-contract.test.cjs` 和 programmer-delivery hardgate 相关测试。
+
 ### Harness Engine Pipeline（8 阶段）
 
 ```
@@ -100,7 +126,7 @@ Blueprint 的 deterministic assembly 现在同时输出结构化 runtime snapsho
 | 构建 | Luna 7.1.0 + MSBuild + Bridge.NET (Linux ECS) |
 | 转换 | convertToSingleHTML 内联打包（~7MB） |
 
-> **注意**: 仅支持 V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）。
+> **注意**: 当前生产主链路以 SourceSceneIR / SourceIR 为事实源；V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）仅作为兼容和诊断入口保留。
 
 ## 目录结构
 
@@ -217,6 +243,31 @@ Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.
 | POST | `/api/projects/:id/parse-storyboard` | 分镜解析（FormData） |
 | POST | `/api/projects/:id/generate-storyboard` | SSE 生成配图 |
 | POST | `/api/projects/:id/edit-frame` | AI 编辑单帧 |
+
+### 流程图作者入口（Blueprint 2.0, 2026-06-12）
+
+项目详情页的 `流程图` tab 是 Blueprint 2.0 的人工语义作者入口。它面向策划填写
+phase、entity、resource、requiredInteractions、cost 和 completeCondition，
+并将 Flow 转换为 SourceSceneIR/source preview 后再进入 SourceIR/Blueprint/WebGL
+链路。Flow 是人工语义基准，不直接替代 storyboard2html/source HTML 的生产事实源。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects/:id/storyboard-flow` | 读取项目 Flow、最近校验报告和生成物 |
+| PUT | `/api/projects/:id/storyboard-flow` | 保存 Flow JSON |
+| POST | `/api/projects/:id/storyboard-flow/validate` | 运行 Flow authoring preflight |
+| POST | `/api/projects/:id/storyboard-flow/source-ir` | 生成 SourceSceneIR 与 source preview HTML |
+| POST | `/api/projects/:id/storyboard-flow/diff` | 对比人工 Flow 与 storyboard2html source HTML |
+| GET | `/api/projects/:id/storyboard-flow/artifacts/*` | 访问 Flow/source/diff 生成物 |
+
+相关文件：
+
+- 策划填写规范：`docs/storyboard-flow-authoring-guide.md`
+- 示例模板：`fixtures/storyboard-flow-template.json`
+- 严格 parity 样例：`fixtures/storyboard-flow-space-junk-golden.json`
+- JSON contract：`contracts/storyboard-flow-prototype.v1.json`
+- CLI：`scripts/storyboard-flow-source-ir.cjs`、`scripts/storyboard-flow-diff.cjs`
+- 回归：`node test/storyboard-flow-space-junk-golden.test.cjs`，要求 Flow diff 为 `blocker=0,warn=0,info=0`
 
 ### Dashboard
 

@@ -465,6 +465,25 @@ fs.writeFileSync(aliasedJoystickHtml, [
 var aliasedJoystickGate = hardgate.validateHtmlInteractionContract(fs.readFileSync(aliasedJoystickHtml, 'utf8'), { expectedPhaseCount: 2 });
 assert.strictEqual(aliasedJoystickGate.hasJoystickControl, true);
 
+var dynamicJoystickHtml = [
+  '<!doctype html><html><body><canvas id="stage"></canvas><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"near_entity",entity:"Corn",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger"]},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"near_entity",entity:"CtaButton",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger","cta_finish"]}];',
+  'var scene = new THREE.Scene(), renderer = new THREE.WebGLRenderer({canvas:document.getElementById("stage")});',
+  'var sceneModels={Player:new THREE.BoxGeometry(1,1,1),Corn:new THREE.SphereGeometry(1),Stand:new THREE.CylinderGeometry(1,1,1)};',
+  'function ensureElement(id){ var el=document.getElementById(id); if(!el){ el=document.createElement("div"); el.id=id; document.body.appendChild(el); } return el; }',
+  'var joystick = ensureElement("joystick"); var knob = ensureElement("joystick-knob"); var player={position:{x:0,y:0,z:0}}, target={position:{x:1,y:0,z:0}};',
+  'joystick.style.position = "fixed"; joystick.style.left = "24px"; joystick.style.bottom = "24px";',
+  'document.addEventListener("pointerdown",function(ev){ joystick.style.left=ev.clientX+"px"; joystick.style.top=ev.clientY+"px"; });',
+  'document.addEventListener("pointermove",function(){ player.position.x += 1; });',
+  'document.addEventListener("pointerup",function(){ var recordedDistance = 0.5; var phaseEvidence = { player_input_joystick:{registered:true}, move_to_target:{target:"Corn",arrived:true}, proximity_trigger:{target:"Corn",recordedDistance:recordedDistance} }; });',
+  'document.addEventListener("pointercancel",function(){ player.position.x = player.position.x; });',
+  'function maybeArrive(){ var recordedDistance = Math.abs(player.position.x-target.position.x); if(recordedDistance < 1.8){ window.phase="phase2"; } }',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n');
+var dynamicJoystickGate = hardgate.validateHtmlInteractionContract(dynamicJoystickHtml, { expectedPhaseCount: 2 });
+assert.strictEqual(dynamicJoystickGate.hasJoystickControl, true);
+
 var namedJoystickHtml = [
   '<!doctype html><html><head><style>#joystick{position:fixed;left:0;top:0}</style></head><body><canvas id="stage"></canvas><div id="joystick"><div></div></div><script>',
   'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"near_entity",entity:"Corn",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger"]},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"near_entity",entity:"CtaButton",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger","cta_finish"]}];',
@@ -528,6 +547,13 @@ assert.ok(directClickGate.errors.some(function(error) {
 }));
 assert.ok(directClickGate.errors.some(function(error) { return error.indexOf('click_entity') >= 0; }));
 assert.ok(directClickGate.errors.some(function(error) { return error.indexOf('player_input_joystick') >= 0; }));
+
+var zeroTriggeredReport = JSON.parse(JSON.stringify(verifyReport));
+zeroTriggeredReport.phaseEvidenceSummary.aggregate.triggeredPilotPairs = 0;
+zeroTriggeredReport.phaseEvidenceSummary.aggregate.triggeredPresentFullRate = 0;
+zeroTriggeredReport.phaseEvidenceSummary.aggregate.triggeredAntiAutoplayHeldRate = 0;
+var zeroTriggeredGate = hardgate.evaluateVerifyReport(zeroTriggeredReport, snapshotDoc);
+assert.strictEqual(zeroTriggeredGate.passed, true);
 
 verifyReport.phaseEvidenceSummary.aggregate.triggeredPresentFullRate = 0.5;
 fs.writeFileSync(reportPath, JSON.stringify(verifyReport, null, 2));

@@ -122,6 +122,16 @@ function createFakeDom() {
     getElementById: function(id) {
       return elements[id] || null;
     },
+    querySelectorAll: function(selector) {
+      if (!/^\.[A-Za-z0-9_-]+$/.test(selector || '')) return [];
+      var className = selector.slice(1);
+      return Object.keys(elements).map(function(key) {
+        return elements[key];
+      }).filter(function(el, index, list) {
+        if (!el || list.indexOf(el) !== index) return false;
+        return String(el.className || '').split(/\s+/).indexOf(className) >= 0;
+      });
+    },
     addEventListener: function(name, fn) {
       documentListeners[name] = documentListeners[name] || [];
       documentListeners[name].push(fn);
@@ -200,9 +210,15 @@ async function main() {
   assert.ok(html.indexOf('function terminalRetainedPhaseList(index)') >= 0);
   assert.ok(html.indexOf('function visualDiffFrozen()') >= 0);
   assert.ok(html.indexOf('if (visualDiffFrozen())') >= 0);
+  assert.ok(html.indexOf('source-ir-phase-band') >= 0);
+  assert.ok(html.indexOf('source-ir-scene-tone') >= 0);
   var rendererScript = buildSourceIrPreviewRendererScript();
   assert.ok(rendererScript.indexOf('new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.055, 8, 64)') >= 0);
+  assert.ok(rendererScript.indexOf('new THREE.Line(new THREE.BufferGeometry()') >= 0);
+  assert.ok(rendererScript.indexOf('function updateGuidanceLine()') >= 0);
   assert.ok(rendererScript.indexOf('window.__sourceIrTargetRingState') >= 0);
+  assert.ok(rendererScript.indexOf('function resourceLabel(id)') >= 0);
+  assert.ok(rendererScript.indexOf('source-ir-resource-pill') >= 0);
   assert.ok(rendererScript.indexOf('camera_height_changed_or_view_widened') >= 0);
   assert.ok(rendererScript.indexOf('step.kind === "deliver" || step.kind === "transfer" || step.kind === "combine"') >= 0);
   assert.ok(rendererScript.indexOf('bucket.resource_decremented') >= 0);
@@ -279,8 +295,12 @@ async function main() {
   assert.strictEqual(typeof sandbox.window.__gameState, 'function');
   assert.strictEqual(typeof sandbox.window.__driveToPhase, 'function');
   assert.strictEqual(sandbox.window.__driveToSourcePhase, sandbox.window.__driveToPhase);
-  assert.strictEqual(sandbox.document.__elements.joystick.style.display, 'block');
+  assert.strictEqual(sandbox.document.__elements.joystick.style.display, 'none');
   assert.strictEqual(sandbox.document.__elements.joystick.style.pointerEvents, 'none');
+  assert.ok(sandbox.document.__elements['source-ir-scene-tone']);
+  assert.ok(sandbox.document.__elements['source-ir-phase-band']);
+  assert.ok(sandbox.document.__elements.resourceBar.innerHTML.indexOf('source-ir-resource-pill') >= 0);
+  assert.ok(sandbox.document.__elements.resourceBar.innerHTML.indexOf('Water 0') >= 0);
   assert.ok(sandbox.document.__elements['source-ir-world-labels']);
   assert.strictEqual(sandbox.window.__sourceIrPreviewModels.GoldUI, undefined);
   assert.strictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton, undefined);
@@ -368,6 +388,30 @@ async function main() {
     generatedAt: '2026-06-07T00:00:00.000Z',
     includeThree: false,
   }));
+  assert.ok(buildSourceIrPreviewHtml(normalizeSourceSceneIr({
+    schemaVersion: SOURCE_SCENE_IR_SCHEMA_VERSION,
+    kind: 'blueprint.sourceSceneIR',
+    project: { name: 'Attack state preview', theme: 'default' },
+    scene: { ground: { kind: 'plane', size: [10, 10] } },
+    entities: [
+      { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule' } },
+      { id: 'Enemy', label: 'Enemy', kind: 'enemy', position: [3, 0, 0], visual: { primitive: 'box' } },
+    ],
+    phases: [{
+      id: 'phase1',
+      guideText: 'Attack enemy',
+      showEntities: ['Player', 'Enemy'],
+      steps: [{ kind: 'move_to', target: 'Enemy' }, { kind: 'attack', target: 'Enemy', state: 0 }],
+      gate: { kind: 'entity_state', entity: 'Enemy', state: 0 },
+    }],
+  }, {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+  }), {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+    includeThree: false,
+  }).indexOf('requiredState <= 0 ? currentState <= requiredState') >= 0);
   var repeatedPhase1Target = repeatedTargetIr.phases[0].steps[0].target;
   var repeatedPhase2Target = repeatedTargetIr.phases[1].steps[0].target;
   assert.notStrictEqual(repeatedPhase1Target, repeatedPhase2Target);

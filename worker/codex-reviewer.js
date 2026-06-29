@@ -16,6 +16,7 @@ const {
   loadPendingRules,
   loadInjectablePromotedRules,
   isSkeletonReviewFalsePositive,
+  sanitizeLearningRuleText,
 } = require('./code-reviewer.js');
 
 // ============ Config ============
@@ -347,7 +348,7 @@ async function reviewCodeWithCodex(code, options) {
     if (promoted.length > 0) {
       dynamicRulesText = '\n\n## Auto-Promoted Rules (recurring cross-project failures)\n';
       for (var dri = 0; dri < promoted.length; dri++) {
-        dynamicRulesText += '- ' + (promoted[dri].description || '') + ' — FIX: ' + (promoted[dri].fix || 'see rule') + '\n';
+        dynamicRulesText += '- ' + sanitizeLearningRuleText(promoted[dri].description || '') + ' — FIX: ' + sanitizeLearningRuleText(promoted[dri].fix || 'see rule') + '\n';
       }
     }
     // Also inject top pending-rules patterns (seen in 2+ projects)
@@ -357,7 +358,7 @@ async function reviewCodeWithCodex(code, options) {
       for (var pri = 0; pri < pending.length; pri++) {
         if (isSkeletonReviewFalsePositive(pending[pri])) continue;
         var rKey = (pending[pri].rule || 'unknown').substring(0, 60);
-        if (!ruleGroups[rKey]) ruleGroups[rKey] = { projects: {}, desc: pending[pri].description, fix: pending[pri].fix };
+        if (!ruleGroups[rKey]) ruleGroups[rKey] = { projects: {}, desc: sanitizeLearningRuleText(pending[pri].description), fix: sanitizeLearningRuleText(pending[pri].fix) };
         if (pending[pri].taskId) ruleGroups[rKey].projects[pending[pri].taskId] = true;
       }
       var topPatterns = Object.entries(ruleGroups)

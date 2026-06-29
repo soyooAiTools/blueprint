@@ -10,7 +10,9 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { getProjectBlockingIssues } = require('../static-check.cjs');
-var loadInjectablePromotedRules = require('../../worker/code-reviewer.js').loadInjectablePromotedRules;
+var codeReviewer = require('../../worker/code-reviewer.js');
+var loadInjectablePromotedRules = codeReviewer.loadInjectablePromotedRules;
+var sanitizeLearningRuleText = codeReviewer.sanitizeLearningRuleText;
 var llmHotPath = require('../../lib/llm-hot-path.cjs');
 
 module.exports = {
@@ -128,13 +130,13 @@ module.exports = {
         if (criticalRules.length > 0) {
           rulesText += '\n\n=== CRITICAL PITFALLS (all injected, must avoid) ===\n';
           for (var cri = 0; cri < criticalRules.length; cri++) {
-            rulesText += '- ' + criticalRules[cri].description + ' — FIX: ' + (criticalRules[cri].fix || 'see rule') + '\n';
+            rulesText += '- ' + sanitizeLearningRuleText(criticalRules[cri].description) + ' — FIX: ' + sanitizeLearningRuleText(criticalRules[cri].fix || 'see rule') + '\n';
           }
         }
         if (topWarnings.length > 0) {
           rulesText += '\n=== WARNING PITFALLS (top ' + topWarnings.length + ' by frequency) ===\n';
           for (var wri = 0; wri < topWarnings.length; wri++) {
-            rulesText += '- ' + topWarnings[wri].description + ' — FIX: ' + (topWarnings[wri].fix || 'see rule') + '\n';
+            rulesText += '- ' + sanitizeLearningRuleText(topWarnings[wri].description) + ' — FIX: ' + sanitizeLearningRuleText(topWarnings[wri].fix || 'see rule') + '\n';
           }
         }
         if (rulesText && !ctx.blueprint.promotedRulesText) {
