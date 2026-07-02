@@ -187,14 +187,19 @@ public static class GFM_UI
             scaler.matchWidthOrHeight = 0f;
         }
 
-        LayoutText("Text_Phase", new Vector2(-592f, 322f), new Vector2(92f, 34f), 15);
-        LayoutText("Text_Ice", new Vector2(-515f, 322f), new Vector2(62f, 34f), 15);
-        LayoutText("Text_Oxygen", new Vector2(-445f, 322f), new Vector2(72f, 34f), 15);
-        LayoutText("Text_Scrap", new Vector2(-367f, 322f), new Vector2(78f, 34f), 15);
-        LayoutText("Text_Coin", new Vector2(-287f, 322f), new Vector2(78f, 34f), 15);
-        LayoutText("Text_Pickaxe", new Vector2(-160f, 322f), new Vector2(150f, 34f), 15);
-        LayoutText("Text_Tip", new Vector2(0f, 270f), new Vector2(640f, 42f), 18);
-        LayoutText("Text_TargetHint", new Vector2(0f, -308f), new Vector2(330f, 48f), 18);
+        LayoutPanel("Panel_Phase", "Text_Phase", new Vector2(-570.5f, 325f), new Vector2(107f, 34f), new Color(0.019f, 0.063f, 0.11f, 0.72f));
+        LayoutPanel("Panel_ResourceBar", "Text_Coin", new Vector2(552f, 324.5f), new Vector2(144f, 39f), new Color(0.039f, 0.094f, 0.141f, 0.82f));
+        LayoutPanel("Panel_Tip", "Text_Tip", new Vector2(0f, 322f), new Vector2(248f, 44f), new Color(0.019f, 0.063f, 0.11f, 0.72f));
+        LayoutPanel("Panel_TargetHint", "Text_TargetHint", new Vector2(0f, -324f), new Vector2(103f, 36f), new Color(0.019f, 0.063f, 0.11f, 0.72f));
+
+        LayoutText("Text_Phase", new Vector2(-570.5f, 325f), new Vector2(107f, 34f), 14);
+        LayoutText("Text_Coin", new Vector2(552f, 324.5f), new Vector2(144f, 39f), 16);
+        HideText("Text_Ice");
+        HideText("Text_Oxygen");
+        HideText("Text_Scrap");
+        HideText("Text_Pickaxe");
+        LayoutText("Text_Tip", new Vector2(0f, 322f), new Vector2(248f, 44f), 18);
+        LayoutText("Text_TargetHint", new Vector2(0f, -324f), new Vector2(103f, 36f), 15);
         LayoutText("Text_StepToast", new Vector2(0f, 220f), new Vector2(420f, 46f), 20);
         if (includeJoystick && !IsJoystickDragging()) LayoutJoystick("JoystickBG", "JoystickHandle");
     }
@@ -223,9 +228,57 @@ public static class GFM_UI
             txt.alignment = TextAnchor.MiddleCenter;
             txt.horizontalOverflow = name == "Text_Tip" ? HorizontalWrapMode.Wrap : HorizontalWrapMode.Overflow;
             txt.verticalOverflow = VerticalWrapMode.Overflow;
-            txt.color = Color.white;
+            txt.color = name == "Text_TargetHint" ? new Color(1f, 0.894f, 0.36f, 1f) : (name == "Text_Phase" ? new Color(0.796f, 0.835f, 0.882f, 1f) : Color.white);
             txt.enabled = true;
+            if (name == "Text_Phase" && string.IsNullOrEmpty(txt.text)) txt.text = "Phase 1/1";
+            if (name == "Text_Coin" && string.IsNullOrEmpty(txt.text)) txt.text = "物品: 0   奖励: 0";
         }
+    }
+
+    private static void HideText(string name)
+    {
+        var obj = GameObject.Find(name);
+        if (IsMissing(obj)) return;
+        var txt = (Text)obj.GetComponent(typeof(Text));
+        if (!IsMissing(txt)) txt.enabled = false;
+    }
+
+    private static void LayoutPanel(string panelName, string textName, Vector2 anchoredPos, Vector2 size, Color color)
+    {
+        var panel = GameObject.Find(panelName);
+        if (IsMissing(panel)) return;
+        var rect = EnsureRect(panel);
+        if (IsMissing(rect)) return;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPos;
+        rect.sizeDelta = size;
+        var image = EnsureImage(panel);
+        if (!IsMissing(image))
+        {
+            image.color = color;
+            image.raycastTarget = false;
+            image.enabled = true;
+        }
+        SendPanelBehindText(panel, textName);
+    }
+
+    private static void SendPanelBehindText(GameObject panel, string textName)
+    {
+        if (IsMissing(panel)) return;
+        var textObj = GameObject.Find(textName);
+        SendPanelBehindText(panel, textObj);
+    }
+
+    private static void SendPanelBehindText(GameObject panel, GameObject textObj)
+    {
+        if (IsMissing(panel)) return;
+        if (IsMissing(textObj) || IsMissing(textObj.transform) || IsMissing(panel.transform)) return;
+        if (panel.transform.parent != textObj.transform.parent) panel.transform.SetParent(textObj.transform.parent, false);
+        int textIndex = textObj.transform.GetSiblingIndex();
+        panel.transform.SetSiblingIndex(Mathf.Max(0, textIndex));
+        textObj.transform.SetSiblingIndex(Mathf.Min(textObj.transform.parent.childCount - 1, panel.transform.GetSiblingIndex() + 1));
     }
 
     private static void LayoutJoystick(string bgName, string handleName)
@@ -239,11 +292,12 @@ public static class GFM_UI
                 bgRect.anchorMin = new Vector2(0.5f, 0.5f);
                 bgRect.anchorMax = new Vector2(0.5f, 0.5f);
                 bgRect.pivot = new Vector2(0.5f, 0.5f);
-                bgRect.anchoredPosition = new Vector2(-550f, -260f);
-                bgRect.sizeDelta = new Vector2(134f, 134f);
+                bgRect.anchoredPosition = new Vector2(-568f, -288f);
+                bgRect.sizeDelta = new Vector2(96f, 96f);
             }
             var bgImage = (Image)bg.GetComponent(typeof(Image));
-            if (!IsMissing(bgImage)) bgImage.color = new Color(0f, 0f, 0f, 0f);
+            if (!IsMissing(bgImage)) bgImage.color = new Color(1f, 1f, 1f, 0.45f);
+            if (!IsMissing(bgImage)) bgImage.enabled = true;
         }
         var handle = GameObject.Find(handleName);
         if (!IsMissing(handle))
@@ -255,10 +309,14 @@ public static class GFM_UI
                 handleRect.anchorMax = new Vector2(0.5f, 0.5f);
                 handleRect.pivot = new Vector2(0.5f, 0.5f);
                 handleRect.anchoredPosition = Vector2.zero;
-                handleRect.sizeDelta = new Vector2(56f, 56f);
+                handleRect.sizeDelta = new Vector2(30f, 30f);
             }
             var handleImage = (Image)handle.GetComponent(typeof(Image));
-            if (!IsMissing(handleImage)) handleImage.color = new Color(1f, 1f, 1f, 0f);
+            if (!IsMissing(handleImage))
+            {
+                handleImage.color = new Color(1f, 1f, 1f, 0.85f);
+                handleImage.enabled = true;
+            }
         }
     }
 
@@ -268,22 +326,34 @@ public static class GFM_UI
         if (IsMissing(canvas)) return;
         var textObj = GameObject.Find(textName);
         var target = GameObject.Find(entityName);
-        if (IsMissing(textObj)) return;
+        var text = !IsMissing(textObj) ? (Text)textObj.GetComponent(typeof(Text)) : null;
+        var panelObj = GameObject.Find("Panel_" + textName);
+        var panel = !IsMissing(panelObj) ? (Image)panelObj.GetComponent(typeof(Image)) : null;
+        PositionTextOverEntity(canvas, text, panel, target, heightOffset);
+    }
+
+    public static void PositionTextOverEntity(Canvas canvas, Text text, Image panel, GameObject target, float heightOffset)
+    {
+        if (IsMissing(canvas) || IsMissing(text)) return;
+        GameObject textObj = text.gameObject;
         if (IsMissing(target) || !target.activeInHierarchy)
         {
-            var missingText = EnsureText(textObj);
-            if (!IsMissing(missingText)) missingText.enabled = false;
+            text.enabled = false;
+            PositionLabelPanel(panel, textObj, Vector2.zero, Vector2.zero, false);
             return;
         }
-        var rect = EnsureRect(textObj);
-        var text = EnsureText(textObj);
+        var rect = (RectTransform)textObj.GetComponent(typeof(RectTransform));
         var cam = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
         var canvasRect = (RectTransform)canvas.GetComponent(typeof(RectTransform));
         if (IsMissing(rect) || IsMissing(cam) || IsMissing(canvasRect)) return;
         Vector3 screen = cam.WorldToScreenPoint(target.transform.position + Vector3.up * heightOffset);
         bool visible = screen.z > 0f && screen.x >= 0f && screen.x <= Screen.width && screen.y >= 0f && screen.y <= Screen.height;
-        if (!IsMissing(text)) text.enabled = visible;
-        if (!visible) return;
+        text.enabled = visible;
+        if (!visible)
+        {
+            PositionLabelPanel(panel, textObj, Vector2.zero, Vector2.zero, false);
+            return;
+        }
         float logicalWidth = Mathf.Max(1f, (float)Screen.width);
         float logicalHeight = Mathf.Max(1f, (float)Screen.height);
         float screenWidth = Mathf.Max(logicalWidth, canvasRect.sizeDelta.x);
@@ -294,14 +364,46 @@ public static class GFM_UI
         rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2(scaledX - screenWidth * 0.5f, scaledY - screenHeight * 0.5f);
-        rect.sizeDelta = new Vector2(180f, 34f);
-        if (!IsMissing(text))
-        {
-            text.fontSize = 18;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-        }
+        rect.sizeDelta = LabelSizeForText(text);
+        PositionLabelPanel(panel, textObj, rect.anchoredPosition, rect.sizeDelta, visible);
+        text.fontSize = 12;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        text.color = Color.white;
+    }
+
+    private static Vector2 LabelSizeForText(Text text)
+    {
+        string value = text != null ? text.text : "";
+        int length = string.IsNullOrEmpty(value) ? 2 : value.Length;
+        float width = Mathf.Clamp(14f + length * 12f, 38f, 120f);
+        return new Vector2(width, 21f);
+    }
+
+    private static void PositionLabelPanel(string textName, Vector2 anchoredPosition, Vector2 size, bool visible)
+    {
+        var panel = GameObject.Find("Panel_" + textName);
+        var textObj = GameObject.Find(textName);
+        var image = !IsMissing(panel) ? (Image)panel.GetComponent(typeof(Image)) : null;
+        PositionLabelPanel(image, textObj, anchoredPosition, size, visible);
+    }
+
+    private static void PositionLabelPanel(Image image, GameObject textObj, Vector2 anchoredPosition, Vector2 size, bool visible)
+    {
+        if (IsMissing(image)) return;
+        GameObject panel = image.gameObject;
+        var rect = (RectTransform)panel.GetComponent(typeof(RectTransform));
+        if (IsMissing(rect)) return;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
+        image.color = new Color(0.019f, 0.063f, 0.11f, visible ? 0.68f : 0f);
+        image.raycastTarget = false;
+        image.enabled = visible;
+        SendPanelBehindText(panel, textObj);
     }
 
     // 创建按钮并设置文案、位置和点击事件。
@@ -390,14 +492,14 @@ public static class GFM_UI
         ApplyTextStyle(txtObj, text, 22, Color.white, TextAnchor.MiddleCenter);
         try { if (!IsMissing(txtObj)) txtObj.horizontalOverflow = HorizontalWrapMode.Overflow; } catch {}
         var outline = (Outline)txtGO.GetComponent(typeof(Outline));
-        if (IsMissing(outline)) outline = (Outline)txtGO.AddComponent(typeof(Outline));
         if (!IsMissing(outline))
         {
             outline.effectColor = new Color(0f, 0f, 0f, 0.95f);
             outline.effectDistance = new Vector2(2f, -2f);
         }
 
-        labelObj.AddComponent<GFM_Billboard>();
+        var billboard = (GFM_Billboard)labelObj.GetComponent(typeof(GFM_Billboard));
+        if (IsMissing(billboard)) Debug.LogWarning("[GFM_UI] Label 缺少预挂 GFM_Billboard，已跳过运行时补组件。");
     }
 
     // 创建一个可复用的进度条 UI。

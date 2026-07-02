@@ -40,6 +40,7 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
     private Text _floatingText;
     private float _toastTimer = 0f;
     private float _floatingTextTimer = 0f;
+    private bool _sourceHudLayoutApplied = false;
 
     private bool _inited = false;
 
@@ -59,6 +60,7 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
         if (_canvas == null) _canvas = GFM_UI.CreateCanvas(1920, 1080);
         if (_canvas == null) return;
         GFM_UI.ConfigureCanvasForCamera(_canvas);
+        _sourceHudLayoutApplied = true;
         if (_guideText == null) _guideText = FindSceneText("Text_Tip");
         if (_iceText == null) _iceText = FindSceneText("Text_Ice");
         if (_oxygenText == null) _oxygenText = FindSceneText("Text_Oxygen");
@@ -70,6 +72,7 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
         if (_guideText == null) _guideText = GFM_UI.CreateText(_canvas, "", new Vector2(370, 485), 28);
         if (_toastText == null) _toastText = GFM_UI.CreateText(_canvas, "", new Vector2(0, 280), 34);
         if (_scoreText == null) _scoreText = _toastText;
+        ApplySourceHudDefaults();
     }
 
     private Text FindSceneText(string name)
@@ -127,7 +130,12 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
     private void UpdateSceneEntityLabels()
     {
         if (!EnsureInit()) return;
-        GFM_UI.ConfigureSourceHudLayout(_canvas, false);
+        if (!_sourceHudLayoutApplied)
+        {
+            GFM_UI.ConfigureSourceHudLayout(_canvas, false);
+            _sourceHudLayoutApplied = true;
+        }
+        if (GFM_EntityBindingManager.Instance != null) GFM_EntityBindingManager.Instance.SyncVisibleEntityLabels();
     }
 
     // ------------------------------------------------------------------------
@@ -171,16 +179,35 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
         }
     }
 
-    // 【资源 UI 自动刷新】对齐源 HTML 顶部 HUD:每个资源有独立文本,不使用冒号。
+    // 【资源 UI 自动刷新】对齐源 HTML 顶部 HUD:物品/奖励合并为一个右上角资源条。
     // 调用方：EconomyManager.AddResource / TrySpend / TryConvert。
     public void UpdateResourceUI()
     {
         if (_coinText == null) EnsureInit();
-        if (GFM_EconomyManager.Instance == null) return;
-        if (_iceText != null) _iceText.text = "冰 " + GFM_EconomyManager.Instance.GetResource("Ice");
-        if (_oxygenText != null) _oxygenText.text = "氧气 " + GFM_EconomyManager.Instance.GetResource("Oxygen");
-        if (_scrapText != null) _scrapText.text = "铁块 " + GFM_EconomyManager.Instance.GetResource("Scrap");
-        if (_coinText != null) _coinText.text = "金币 " + GFM_EconomyManager.Instance.GetResource("Coin");
+        int item = GFM_EconomyManager.Instance != null ? GFM_EconomyManager.Instance.GetResource("Item") : 0;
+        int reward = GFM_EconomyManager.Instance != null ? GFM_EconomyManager.Instance.GetResource("Reward") : 0;
+        if (_iceText != null) _iceText.enabled = false;
+        if (_oxygenText != null) _oxygenText.enabled = false;
+        if (_scrapText != null) _scrapText.enabled = false;
+        if (_coinText != null)
+        {
+            _coinText.enabled = true;
+            _coinText.text = "物品: " + item + "   奖励: " + reward;
+        }
+    }
+
+    private void ApplySourceHudDefaults()
+    {
+        if (_canvas != null && !_sourceHudLayoutApplied)
+        {
+            GFM_UI.ConfigureSourceHudLayout(_canvas);
+            _sourceHudLayoutApplied = true;
+        }
+        if (_iceText != null) _iceText.enabled = false;
+        if (_oxygenText != null) _oxygenText.enabled = false;
+        if (_scrapText != null) _scrapText.enabled = false;
+        if (_coinText != null && string.IsNullOrEmpty(_coinText.text)) _coinText.text = "物品: 0   奖励: 0";
+        UpdateResourceUI();
     }
 
     // ------------------------------------------------------------------------

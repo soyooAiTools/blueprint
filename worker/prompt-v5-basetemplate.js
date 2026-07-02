@@ -291,6 +291,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('## 输出边界（必须保持）');
   lines.push('- 本 prompt 只生成 Luna/WebGL staging 的 `GameFlowManagerMain` partial 代码，不生成程序员 Unity 交付工程。');
   lines.push('- storyboard2html/source HTML/WebGL parity 是事实源；不要在 C# 里改写 phase、guideText、targetSequence、entity/resource/gate 语义。');
+  lines.push('- 需要交付 Unity WebGL 时，最终 WebGL 必须来自 Unity Editor 原生 `BuildTarget.WebGL` 构建；不要把 hand-written HTML/JS、preview HTML 或报告替身声明成 Unity WebGL。');
+  lines.push('- source HTML 的 HUD、world label、camera、targetRing / marker 是视觉合同；Unity/WebGL 侧只能继承并验证，不要用近似布局、固定 label 或 phase-index-only 目标兜底。');
   lines.push('- 程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。');
   lines.push('- 本 prompt 中的 Luna 对象池、`GameObject.Find("__Pool_*")`、`GFM_*` 只属于 WebGL staging，不得带入程序员 Unity 交付包。');
   lines.push('');

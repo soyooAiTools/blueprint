@@ -75,7 +75,10 @@ const unityComponentPlan = router.buildValidationPlan({
   files: ['lib/unitycomponent-v1-emitter.cjs'],
 });
 assert.ok(unityComponentPlan.riskTags.includes('unitycomponent-v1'));
+assert.ok(unityComponentPlan.riskTags.includes('unity-native-webgl'));
 assert.ok(commandIds(unityComponentPlan).includes('unit:blueprint-skill-unitycomponent-profile-contract'), 'v1 files should route to skill/profile contract tests');
+assert.ok(commandIds(unityComponentPlan).includes('unit:unity-native-webgl-build'), 'v1 files should route to native Unity WebGL build tests');
+assert.ok(commandIds(unityComponentPlan).includes('unit:unity-native-webgl-parity'), 'v1 files should route to native Unity WebGL parity tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-emitter'), 'v1 files should route to emitter tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-synthetic-export-corpus'), 'v1 files should route to synthetic export corpus tests');
 assert.ok(commandIds(unityComponentPlan).includes('unit:unitycomponent-v1-accepted-artifact-corpus'), 'v1 files should route to accepted artifact corpus discovery tests');
@@ -89,6 +92,8 @@ assert.ok(unityExportScriptPlan.riskTags.includes('programmer-delivery'), 'expor
 assert.ok(unityExportScriptPlan.riskTags.includes('unitycomponent-v1'), 'export script should include explicit v1 profile coverage');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:export-unity-project-bootstrap'), 'export script should route to bootstrap/profile guard tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-profile-registry'), 'export script should validate profile registry contract');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unity-native-webgl-build'), 'export script should route to native Unity WebGL build tests');
+assert.ok(commandIds(unityExportScriptPlan).includes('unit:unity-native-webgl-parity'), 'export script should route to native Unity WebGL parity tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-emitter'), 'export script should route to v1 emitter tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-synthetic-export-corpus'), 'export script should route to v1 synthetic corpus tests');
 assert.ok(commandIds(unityExportScriptPlan).includes('unit:unitycomponent-v1-cutover-gates'), 'export script should route to batch cutover gate tests');

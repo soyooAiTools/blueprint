@@ -30,7 +30,7 @@ public class GFM_PhaseTransition : MonoBehaviour
     static GFM_PhaseTransition GetOrAdd(GameObject go)
     {
         var c = (GFM_PhaseTransition)go.GetComponent(typeof(GFM_PhaseTransition));
-        if (c == null) c = (GFM_PhaseTransition)go.AddComponent(typeof(GFM_PhaseTransition));
+        if (c == null) Debug.LogWarning("[GFM_PhaseTransition] 缺少预挂组件，跳过运行时补组件。");
         return c;
     }
 
@@ -38,6 +38,7 @@ public class GFM_PhaseTransition : MonoBehaviour
     {
         if (go == null) return;
         var c = GetOrAdd(go);
+        if (c == null) return;
         // refresh origScale snapshot when current localScale looks valid
         // (phase-init 在 PlaceObj+SetScale 之后才调 PopIn,所以此刻 localScale 是目标尺寸)
         Vector3 ls = go.transform.localScale;
@@ -61,6 +62,7 @@ public class GFM_PhaseTransition : MonoBehaviour
     {
         if (go == null) return;
         var c = GetOrAdd(go);
+        if (c == null) return;
         // 已经在 hidden 状态(y<<0)就直接收尾,不再播动画
         if (go.transform.position.y < -100f)
         {

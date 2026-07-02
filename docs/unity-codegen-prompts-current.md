@@ -1,6 +1,6 @@
 # Unity Codegen Prompts Current Contract
 
-Date: 2026-06-24
+Date: 2026-07-02
 
 This document lists the current prompt surfaces that can influence Unity/Luna
 code generation. It is a maintenance map, not a new source of truth. The
@@ -33,6 +33,17 @@ Programmer Unity delivery is split by explicit profile:
 Neither profile may modify storyboard2html/source HTML/WebGL parity:
 phase, guideText, targetSequence, entity/resource/gate semantics must continue
 to flow from accepted source artifacts.
+
+When the request requires Unity WebGL delivery, the final WebGL artifact must
+come from Unity Editor native `BuildTarget.WebGL`. Hand-written HTML/JS, source
+preview HTML, Luna preview output, or report stand-ins are not Unity WebGL
+deliverables.
+
+The source HTML visual contract also covers HUD layout, world labels, camera,
+targetRing/marker geometry, and runtime target binding. Prompt output and
+downstream Unity/WebGL emitters must inherit and validate those facts instead
+of using approximate HUD constants, fixed labels, or phase-index-only target
+fallbacks.
 
 ## Current Guards
 

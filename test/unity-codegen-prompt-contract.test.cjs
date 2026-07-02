@@ -40,6 +40,9 @@ var all = promptFiles.map(function(rel) {
   'UnityDeliverySpec',
   'Assets/SLGFrameWork/Scripts',
   'gmp-v14',
+  'Unity Editor 原生 `BuildTarget.WebGL`',
+  'targetRing / marker',
+  '视觉合同',
 ].forEach(function(needle) {
   assertHas(all, needle, 'prompt contract');
 });

@@ -109,6 +109,7 @@ assert.strictEqual(result.report.passed, true, JSON.stringify(result.report.erro
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Base', 'Entity.cs')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Base', 'GameEntry.cs')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Manager', 'BlueprintDelivery', 'GeneratedDeliveryData.cs')));
+assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'Plugins', 'WebGL', 'BlueprintNativeWebGLBridge.jslib')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Component', 'MoveComponent', 'MoveComponent.cs')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Component', 'PickUpComponent', 'PickUpComponent.cs')));
 assert.ok(fs.existsSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Entity', 'PlayerEntity.cs')));
@@ -130,8 +131,18 @@ assert.ok(/Vector3\.MoveTowards/.test(text), 'MoveComponent must own movement up
 assert.ok(/IsCanPickUpable/.test(text), 'PickUpComponent must own pickup state');
 assert.ok(/UiRefs = new UiRefData\[\]/.test(text), 'GeneratedDeliveryData must bake UI refs');
 assert.ok(/AssetBindings = new AssetBindingData\[\]/.test(text), 'GeneratedDeliveryData must bake asset bindings');
+assert.ok(/ResourceData/.test(text) && /Resources = new ResourceData\[\]/.test(text), 'GeneratedDeliveryData must bake source resources');
+assert.ok(/GateJson/.test(text) && /StepsJson/.test(text), 'GeneratedDeliveryData must bake phase gate and steps');
+assert.ok(/SourceIrSemanticHash/.test(text) && /UnityDeliverySpecSemanticHash/.test(text), 'GeneratedDeliveryData must bake parity hashes');
+assert.ok(/BuildParitySnapshotJson/.test(text), 'BlueprintPlayableManager must expose a runtime parity snapshot builder');
+assert.ok(/BlueprintReceiveParitySnapshot/.test(text), 'BlueprintPlayableManager must publish WebGL runtime parity snapshots');
 assert.strictEqual(text.indexOf('[object Object]'), -1, 'GeneratedDeliveryData must not coerce asset source objects to [object Object]');
 assert.strictEqual(/ExecuteMove\s*\(\)\s*\{\s*\}/.test(text), false, 'components must not be empty Execute shells');
+
+var bridgeText = fs.readFileSync(path.join(unityDir, 'Assets', 'Plugins', 'WebGL', 'BlueprintNativeWebGLBridge.jslib'), 'utf8');
+assert.ok(/__BLUEPRINT_UNITY_RUNTIME_PARITY__/.test(bridgeText), 'WebGL bridge must expose runtime parity snapshot on window');
+assert.ok(/BlueprintReceiveVisualSnapshot/.test(bridgeText), 'WebGL bridge must expose visual snapshots for source/WebGL fidelity gates');
+assert.ok(/__BLUEPRINT_UNITY_VISUAL_STATE__/.test(bridgeText), 'WebGL bridge must publish visual state on window');
 
 var prefabText = fs.readFileSync(path.join(unityDir, 'Assets', 'SLGFrameWork', 'Scripts', 'Prefab', 'GameEntry.prefab'), 'utf8');
 assert.ok(/MonoBehaviour:/g.test(prefabText), 'GameEntry.prefab must include MonoBehaviour components');

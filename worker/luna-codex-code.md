@@ -12,6 +12,8 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 
 本文件只给 Luna/WebGL staging 代码使用，不是程序员 Unity 交付工程 prompt。storyboard2html/source HTML/WebGL parity 是事实源，不要在 C# 中改写 phase、guideText、targetSequence、entity/resource/gate 语义。
 
+需要交付 Unity WebGL 时，最终 WebGL 必须来自 Unity Editor 原生 `BuildTarget.WebGL` 构建。不要把 hand-written HTML/JS、source preview、Luna preview 或报告替身声明成 Unity WebGL。source HTML 的 HUD、world label、camera、targetRing / marker 是视觉合同；Unity/WebGL 侧只能继承并验证，不能用近似布局、固定 label 或 phase-index-only 目标兜底。
+
 程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}`、`Entity` / `BaseComponent` / `EntityManager` / `GameEntry`、UnityDeliverySpec 和 v1 hardgate。本文件中的 `GameObject.Find("__Pool_*")`、`GFM_*` 和 Luna 对象池规则不得带入程序员 Unity 交付包。
 
 ## 核心规则：基础样例工程模式

@@ -231,7 +231,7 @@ public class GFM_Player : MonoBehaviour
     {
         var go = Go;
         if (go == null || target == null) return false;
-        return Vector3.Distance(go.transform.position, target.transform.position) < range;
+        return (go.transform.position - target.transform.position).sqrMagnitude < range * range;
     }
 
     // ========================================================================

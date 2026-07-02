@@ -378,6 +378,8 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('   - `GameFlowManagerMain.cs` 不应再出现 phase-specific TODO、OnAutoPlayArrive 大 switch、或 Snapshot helper');
   lines.push('   - 本 prompt 只生成 Luna/WebGL staging 代码，不是程序员 Unity 交付工程；`GameObject.Find("__Pool_*")`、`GFM_*` 和并行数组规则不得带入 `gmp-v14` 或 `unitycomponent-v1` 程序员交付包');
   lines.push('   - storyboard2html/source HTML/WebGL parity 是事实源；不要在 C# 中改写 phase、guideText、targetSequence、entity/resource/gate 语义');
+  lines.push('   - 需要交付 Unity WebGL 时，最终 WebGL 必须来自 Unity Editor 原生 `BuildTarget.WebGL` 构建；不要把 hand-written HTML/JS、source preview、Luna preview 或报告替身声明成 Unity WebGL');
+  lines.push('   - source HTML 的 HUD、world label、camera、targetRing / marker 是视觉合同；Unity/WebGL 侧只能继承并验证，不能用近似布局、固定 label 或 phase-index-only 目标兜底');
   lines.push('   - 程序员 Unity 交付另走 profile：默认 `gmp-v14` legacy；显式 `unitycomponent-v1` 才输出 UnityComponent(3) `Assets/SLGFrameWork/Scripts/{Base,Component,Entity,Manager,Prefab}` 和 UnityDeliverySpec');
   lines.push('   - 关键字段、复杂方法、跨 phase 状态和多参数 helper 的中文注释必须紧邻定义或调用，不能只在文件顶部给一段总注释');
   lines.push('   - 多行 if 条件或含 && / || 的条件链，必须在前一行写注释解释该条件的业务意图');

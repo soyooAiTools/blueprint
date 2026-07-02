@@ -64,7 +64,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         bgRect.pivot = new Vector2(0.5f, 0.5f);
         bgRect.anchoredPosition = new Vector2(-550f, -260f);
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
-        bgImg.color = new Color(0f, 0f, 0f, 0f);
+        bgImg.color = new Color(1f, 1f, 1f, 0.45f);
         bgImg.raycastTarget = true;
 
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
@@ -73,7 +73,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
         var handleImg = (Image)handleObj.GetComponent(typeof(Image));
-        handleImg.color = new Color(1f, 1f, 1f, 0f);
+        handleImg.color = new Color(1f, 1f, 1f, 0.72f);
         handleImg.raycastTarget = true;
 
         instance = bgObj.AddComponent<GFM_Joystick>();
@@ -194,10 +194,10 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         SetVisible(false);
     }
 
-    // 根据拖拽状态显隐摇杆，未操作时不遮挡源画面。
+    // 根据拖拽状态调整摇杆强度；idle 状态仍保留 source HTML 的常驻摇杆提示。
     private void SetVisible(bool visible)
     {
-        if (_bgImage != null) _bgImage.color = new Color(0f, 0f, 0f, 0f);
-        if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, 0f);
+        if (_bgImage != null) _bgImage.color = new Color(1f, 1f, 1f, visible ? 0.55f : 0.45f);
+        if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, visible ? 0.9f : 0.72f);
     }
 }

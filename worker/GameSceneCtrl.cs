@@ -100,7 +100,7 @@ public class GameSceneCtrl
         var ga = Get(a);
         var gb = Get(b);
         if (ga == null || gb == null) return false;
-        return Vector3.Distance(ga.transform.position, gb.transform.position) < range;
+        return (ga.transform.position - gb.transform.position).sqrMagnitude < range * range;
     }
 
     // 判断两个实体或实体与坐标是否足够接近。
@@ -108,7 +108,7 @@ public class GameSceneCtrl
     {
         var ga = Get(a);
         if (ga == null || b == null) return false;
-        return Vector3.Distance(ga.transform.position, b.transform.position) < range;
+        return (ga.transform.position - b.transform.position).sqrMagnitude < range * range;
     }
 
     // 从已注册实体中查找离指定位置最近的一个。
@@ -124,7 +124,7 @@ public class GameSceneCtrl
             if (cand == null) continue;
             // Hidden pooled objects are parked below the playable camera range.
             if (cand.transform.position.y < -900) continue;
-            float d = Vector3.Distance(go.transform.position, cand.transform.position);
+            float d = (go.transform.position - cand.transform.position).sqrMagnitude;
             if (d < minDist) { minDist = d; nearest = candidates[i]; }
         }
         return nearest;

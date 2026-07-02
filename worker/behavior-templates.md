@@ -5,6 +5,7 @@
 
 > 纯事件驱动，无线性 Phase。用 bool[] ruleTriggered 跟踪规则状态。
 > 本文件只服务 Luna/WebGL staging prompt，不是程序员 Unity 交付工程规则；这里的 `GameObject.Find("__Pool_*")` / `GFM_*` 不得带入 `gmp-v14` 或 `unitycomponent-v1` 程序员交付包。
+> 需要交付 Unity WebGL 时，最终 WebGL 必须来自 Unity Editor 原生 `BuildTarget.WebGL` 构建；source HTML 的 HUD、world label、camera、targetRing / marker 是视觉合同，不允许用 hand-written WebGL、近似布局或固定目标兜底替代。
 
 ## 通用架构
 
